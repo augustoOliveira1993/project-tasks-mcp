@@ -1,0 +1,30 @@
+services:
+  mongo:
+    image: mongo:8.0
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "try { if (!rs.status().ok) quit(1) } catch(e) { rs.initiate({_id:'rs0',members:[{_id:0,host:'mongo:27017'}]}); quit(1) }"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+  service:
+    build: .
+    environment:
+      MONGODB_URI: mongodb://mongo:27017/project_tasks?replicaSet=rs0
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3443}
+    ports:
+      - "3443:3443"
+    depends_on:
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3443/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+volumes:
+  mongo-data:

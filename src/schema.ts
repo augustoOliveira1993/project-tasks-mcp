@@ -1,0 +1,45 @@
+import { z } from 'zod';
+export const id = z.string().uuid();
+export const userId = z.string().min(1).max(320).refine(value => /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(value) || /^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(value), 'Invalid user ID or email').refine(value => !['prototype', 'constructor'].includes(value));
+const text = z.string().min(1).max(20000);
+export const states = ['pendente', 'em_execucao', 'bloqueada', 'em_revisao', 'concluida', 'cancelada'] as const;
+export const kind = z.enum(['project', 'feature', 'task']);
+export const repository = z.object({ id, name: text, url: z.string().url(), instructions: z.string().max(20000) }).strict();
+export const projectData = z.object({ name: text, description: text, instructions: text, repositories: z.array(repository).min(1).max(100) }).strict();
+export const featureData = z.object({ name: text, objective: text, context: text, acceptance: z.array(text).min(1).max(100) }).strict();
+export const taskData = z.object({
+  name: text, instructions: text, acceptance: z.array(text).min(1).max(100), priority: z.number().int().min(0).max(5),
+  area: z.enum(['backend', 'frontend', 'outro']), repositoryId: id, featureId: id, dependencies: z.array(id).max(100)
+}).strict();
+const op = { operationId: id };
+const target = { projectId: id, taskId: id, executionId: id, version: z.number().int().nonnegative(), ...op };
+const messageType = z.enum(['pergunta', 'resposta', 'bloqueio', 'contrato', 'progresso']);
+export const tools = {
+  create_project: z.object({ ...op, data: projectData }).strict(),
+  create_feature: z.object({ ...op, projectId: id, data: featureData }).strict(),
+  create_task: z.object({ ...op, projectId: id, data: taskData }).strict(),
+  edit_record: z.object({ ...op, projectId: id, kind, id, version: z.number().int().nonnegative(), data: z.record(z.string(), z.unknown()) }).strict(),
+  archive_record: z.object({ ...op, projectId: id, kind, id, version: z.number().int().nonnegative() }).strict(),
+  list_records: z.object({ projectId: id.optional(), kind, featureId: id.optional(), area: z.enum(['backend', 'frontend', 'outro']).optional(), responsible: text.optional(), status: z.enum(states).optional(), archived: z.boolean().default(false), after: id.optional(), limit: z.number().int().min(1).max(100).default(25) }).strict(),
+  list_pending: z.object({ projectId: id, featureId: id.optional(), area: z.enum(['backend', 'frontend', 'outro']).optional(), responsible: text.optional(), after: id.optional(), limit: z.number().int().min(1).max(100).default(25) }).strict(),
+  get_record: z.object({ projectId: id, kind, id }).strict(),
+  list_executions: z.object({ projectId: id, taskId: id, after: id.optional(), limit: z.number().int().min(1).max(100).default(25) }).strict(),
+  get_task_context: z.object({ projectId: id, taskId: id }).strict(),
+  get_history: z.object({ projectId: id, entityId: id.optional(), after: id.optional(), limit: z.number().int().min(1).max(100).default(25) }).strict(),
+  get_summary: z.object({ projectId: id, featureId: id.optional() }).strict(),
+  send_task_message: z.object({ ...target, relatedTaskId: id.optional(), type: messageType, message: text, references: z.array(text).max(100).default([]) }).strict(),
+  list_task_messages: z.object({ projectId: id, taskId: id, after: id.optional(), limit: z.number().int().min(1).max(100).default(50) }).strict(),
+  wait_task_events: z.object({ projectId: id, taskId: id, after: id.optional(), timeoutMs: z.number().int().min(0).max(30000).default(25000), limit: z.number().int().min(1).max(100).default(50) }).strict(),
+  subscribe_task_events: z.object({ projectId: id, taskId: id }).strict(),
+  claim_task: z.object({ ...op, projectId: id, taskId: id, version: z.number().int().nonnegative(), agent: text }).strict(),
+  heartbeat_task: z.object(target).strict(),
+  record_progress: z.object({ ...target, message: text }).strict(),
+  block_task: z.object({ ...target, reason: text }).strict(),
+  submit_task: z.object({ ...target, result: z.object({ summary: text, changedFiles: z.array(text).max(1000), checksRun: z.array(text).max(100), checksOmitted: z.array(text).max(100), evidence: z.array(text).max(100), branch: text.optional(), commit: text.optional(), pr: z.string().url().optional() }).strict() }).strict()
+};
+export const adminSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('review'), ...op, projectId: id, taskId: id, version: z.number().int().nonnegative(), decision: z.enum(['approve', 'changes', 'unblock', 'cancel']), reason: text }).strict(),
+  z.object({ action: z.literal('member'), ...op, projectId: id, version: z.number().int().nonnegative(), userId, role: z.enum(['administrador', 'colaborador', 'leitor']).nullable() }).strict(),
+  z.object({ action: z.literal('issue'), ...op, userId, scope: z.enum(['agent', 'human']), systemAdmin: z.boolean().default(false), token: z.string().regex(/^[a-f0-9]{64}$/) }).strict(),
+  z.object({ action: z.literal('revoke'), ...op, credentialId: id }).strict()
+]);

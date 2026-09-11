@@ -1,0 +1,335 @@
+{
+  "info": {
+    "_postman_id": "d744cd5e-a2b0-4cfe-b8bf-5ad9c94cc645",
+    "name": "project-tasks-mcp",
+    "description": "Colecao para o MCP local com sessoes stateful. Execute Initialize primeiro para capturar Mcp-Session-Id. Configure agentEmail e os IDs do projeto/tarefa.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3443"
+    },
+    {
+      "key": "humanToken",
+      "value": ""
+    },
+    {
+      "key": "projectId",
+      "value": ""
+    },
+    {
+      "key": "taskId",
+      "value": ""
+    },
+    {
+      "key": "taskVersion",
+      "value": "0"
+    },
+    {
+      "key": "executionId",
+      "value": ""
+    },
+    {
+      "key": "operationId",
+      "value": "{{$guid}}"
+    },
+    {
+      "key": "agentEmail",
+      "value": "pessoa@empresa.com",
+      "type": "string"
+    },
+    {
+      "key": "mcpSessionId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "relatedTaskId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "messageCursor",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/health"
+      }
+    },
+    {
+      "name": "MCP",
+      "item": [
+        {
+          "name": "Initialize",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json, text/event-stream"
+              },
+              {
+                "key": "X-Project-Tasks-Email",
+                "value": "{{agentEmail}}"
+              },
+              {
+                "key": "Mcp-Session-Id",
+                "value": "{{mcpSessionId}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 1,\n  \"method\": \"initialize\",\n  \"params\": {\n    \"protocolVersion\": \"2025-11-25\",\n    \"capabilities\": {},\n    \"clientInfo\": { \"name\": \"Postman\", \"version\": \"1.0.0\" }\n  }\n}"
+            },
+            "url": "{{baseUrl}}/mcp"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const sessionId = pm.response.headers.get('Mcp-Session-Id');",
+                  "if (sessionId) pm.collectionVariables.set('mcpSessionId', sessionId);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List tools",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json, text/event-stream"
+              },
+              {
+                "key": "X-Project-Tasks-Email",
+                "value": "{{agentEmail}}"
+              },
+              {
+                "key": "Mcp-Session-Id",
+                "value": "{{mcpSessionId}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 2,\n  \"method\": \"tools/list\",\n  \"params\": {}\n}"
+            },
+            "url": "{{baseUrl}}/mcp"
+          }
+        },
+        {
+          "name": "List my projects",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json, text/event-stream"
+              },
+              {
+                "key": "X-Project-Tasks-Email",
+                "value": "{{agentEmail}}"
+              },
+              {
+                "key": "Mcp-Session-Id",
+                "value": "{{mcpSessionId}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 3,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"list_records\",\n    \"arguments\": { \"kind\": \"project\", \"limit\": 25 }\n  }\n}"
+            },
+            "url": "{{baseUrl}}/mcp"
+          }
+        },
+        {
+          "name": "Get task context",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json, text/event-stream"
+              },
+              {
+                "key": "X-Project-Tasks-Email",
+                "value": "{{agentEmail}}"
+              },
+              {
+                "key": "Mcp-Session-Id",
+                "value": "{{mcpSessionId}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 4,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"get_task_context\",\n    \"arguments\": { \"projectId\": \"{{projectId}}\", \"taskId\": \"{{taskId}}\" }\n  }\n}"
+            },
+            "url": "{{baseUrl}}/mcp"
+          }
+        },
+        {
+          "name": "Subscribe task events",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Project-Tasks-Email",
+                "value": "{{agentEmail}}"
+              },
+              {
+                "key": "Mcp-Session-Id",
+                "value": "{{mcpSessionId}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json, text/event-stream"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"tools/call\",\"params\":{\"name\":\"subscribe_task_events\",\"arguments\":{\"projectId\":\"{{projectId}}\",\"taskId\":\"{{taskId}}\"}}}"
+            },
+            "url": "{{baseUrl}}/mcp"
+          }
+        },
+        {
+          "name": "Send task message",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Project-Tasks-Email",
+                "value": "{{agentEmail}}"
+              },
+              {
+                "key": "Mcp-Session-Id",
+                "value": "{{mcpSessionId}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json, text/event-stream"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"tools/call\",\"params\":{\"name\":\"send_task_message\",\"arguments\":{\"operationId\":\"{{$guid}}\",\"projectId\":\"{{projectId}}\",\"taskId\":\"{{taskId}}\",\"executionId\":\"{{executionId}}\",\"version\":{{taskVersion}},\"relatedTaskId\":\"{{relatedTaskId}}\",\"type\":\"contrato\",\"message\":\"Contrato validado pelo Postman\",\"references\":[]}}}"
+            },
+            "url": "{{baseUrl}}/mcp"
+          }
+        },
+        {
+          "name": "Wait task events",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Project-Tasks-Email",
+                "value": "{{agentEmail}}"
+              },
+              {
+                "key": "Mcp-Session-Id",
+                "value": "{{mcpSessionId}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json, text/event-stream"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"tools/call\",\"params\":{\"name\":\"wait_task_events\",\"arguments\":{\"projectId\":\"{{projectId}}\",\"taskId\":\"{{taskId}}\",\"after\":\"{{messageCursor}}\",\"timeoutMs\":5000,\"limit\":50}}}"
+            },
+            "url": "{{baseUrl}}/mcp"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Administracao humana",
+      "item": [
+        {
+          "name": "Get project summary",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{humanToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tool\": \"get_summary\",\n  \"arguments\": { \"projectId\": \"{{projectId}}\" }\n}"
+            },
+            "url": "{{baseUrl}}/admin/query"
+          }
+        },
+        {
+          "name": "Approve task",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{humanToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"review\",\n  \"operationId\": \"{{$guid}}\",\n  \"projectId\": \"{{projectId}}\",\n  \"taskId\": \"{{taskId}}\",\n  \"version\": {{taskVersion}},\n  \"decision\": \"approve\",\n  \"reason\": \"Aprovado manualmente pelo Postman\"\n}"
+            },
+            "url": "{{baseUrl}}/admin"
+          }
+        }
+      ]
+    }
+  ]
+}
