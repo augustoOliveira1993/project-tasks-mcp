@@ -26,3 +26,7 @@ Tasks podem ter `type`: `feature`, `fix`, `chore`, `docs`, `refactor`, `test`, `
 Use `save_markdown` para gravar um documento `.md` de até 100 KiB no alvo `feature` ou `task`. Na criação envie `targetKind`, `targetId`, `name`, `summary` e `content`. Para atualizar, envie também o `id` e a `version` retornada. Cada alteração cria uma revisão imutável; conteúdo idêntico não cria revisão.
 
 Outra máquina encontra planos com `list_markdowns`, consulta o histórico com `list_markdown_revisions` e lê somente o trecho necessário via `get_markdown` (`line` e `limit`). Listagens, eventos e `get_task_context` trazem apenas metadados e cursores, nunca o conteúdo do Markdown. As mesmas leituras estão disponíveis em `/admin/query` para o futuro frontend autenticado.
+
+## Resumo do projeto por área
+
+Use `get_project_area_summary` com `projectId` para obter Markdown atualizado, separado em `Backend`, `Frontend` e `Outro`. Cada área mostra as tasks concluídas, pendentes e nos demais estados, incluindo status e tipo. Opcionalmente informe `featureId` para resumir somente uma feature. A ferramenta é somente leitura: ela não grava documento nem cria uma cópia que possa ficar desatualizada.

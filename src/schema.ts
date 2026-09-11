@@ -31,6 +31,7 @@ export const tools = {
   get_task_context: z.object({ projectId: id, taskId: id }).strict(),
   get_history: z.object({ projectId: id, entityId: id.optional(), after: id.optional(), limit: z.number().int().min(1).max(100).default(25) }).strict(),
   get_summary: z.object({ projectId: id, featureId: id.optional() }).strict(),
+  get_project_area_summary: z.object({ projectId: id, featureId: id.optional() }).strict(),
   save_markdown: z.object({ ...op, projectId: id, targetKind: z.enum(['feature', 'task']), targetId: id, id: id.optional(), version: z.number().int().nonnegative().optional(), name: z.string().min(1).max(255).regex(/\.md$/i, 'Name must end in .md'), summary: markdownSummary, content: markdown }).strict(),
   list_markdowns: z.object({ projectId: id, targetKind: z.enum(['feature', 'task']), targetId: id, after: id.optional(), limit: z.number().int().min(1).max(100).default(25) }).strict(),
   get_markdown: z.object({ projectId: id, id, revision: z.number().int().positive().optional(), line: z.number().int().positive().default(1), limit: z.number().int().min(1).max(200).default(200) }).strict(),

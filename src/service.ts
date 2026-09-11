@@ -277,6 +277,24 @@ export class Service {
       const typeRows = await Task.aggregate([{ $match: match }, { $group: { _id: { $ifNull: ['$type', 'feature'] }, count: { $sum: 1 } } }]);
       return { counts, typeCounts: Object.fromEntries(typeRows.map((row: any) => [row._id, row.count])), blocked: counts.bloqueada, remaining, completed: total > 0 && counts.concluida > 0 && remaining === 0 };
     }
+    if (name === 'get_project_area_summary') {
+      if (a.featureId) requireThat(await Feature.exists({ _id: a.featureId, projectId: a.projectId }), 'Feature not found', 404);
+      const project = await Project.findById(a.projectId).lean();
+      const tasks = await Task.find({ projectId: a.projectId, archived: false, ...(a.featureId ? { featureId: a.featureId } : {}) }).sort({ area: 1, status: 1, priority: 1, _id: 1 }).lean();
+      const label: Record<string, string> = { backend: 'Backend', frontend: 'Frontend', outro: 'Outro' };
+      const escape = (value: string) => value.replace(/[|\x0D\x0A]/g, ' ');
+      const lines = [`# Resumo do projeto: ${escape(project!.name)}`, '', `Gerado em ${new Date().toISOString()}.${a.featureId ? ` Filtrado pela feature ${a.featureId}.` : ''}`];
+      for (const area of ['backend', 'frontend', 'outro']) {
+        const rows = tasks.filter(t => t.area === area); lines.push('', `## ${label[area]}`, '');
+        for (const group of [['Concluídas', rows.filter(t => t.status === 'concluida')], ['Pendentes', rows.filter(t => t.status === 'pendente')], ['Outros estados', rows.filter(t => !['concluida', 'pendente'].includes(t.status!))]] as const) {
+          lines.push(`### ${group[0]} (${group[1].length})`);
+          if (!group[1].length) lines.push('- Nenhuma.');
+          else for (const task of group[1]) lines.push(`- [${task.status}] [${task.type ?? 'feature'}] ${escape(task.name)}`);
+          lines.push('');
+        }
+      }
+      return { markdown: lines.join('\n').trimEnd() + '\n', generatedAt: new Date().toISOString(), taskCount: tasks.length };
+    }
     const taskMessages = await TaskMessage.find({ projectId: a.projectId, $or: [{ taskId: a.taskId }, { relatedTaskId: a.taskId }] }).sort({ createdAt: -1, _id: -1 }).limit(25).lean();
     const task = await Task.findOne({ _id: a.taskId, projectId: a.projectId }).lean();
     requireThat(task, 'Task not found', 404);

@@ -183,6 +183,18 @@ test('typed independent tasks and versioned markdown stay compact', async () => 
   const featureDoc = await service.call(agent, 'save_markdown', { operationId: op(), projectId: p._id, targetKind: 'feature', targetId: f._id, name: 'overview.md', summary: 'Overview', content: 'Feature plan' });
   assert.equal(featureDoc.revision, 1);
 });
+test('project area summary returns current markdown without persistence', async () => {
+  const { p, create } = await fixture();
+  const back = await create('Completed backend');
+  const front = await create('Pending frontend', [], 'frontend');
+  const other = await create('Other item', [], 'outro');
+  let activeBack = await claim(p, back); activeBack = await service.call(agent, 'submit_task', { ...active(p, activeBack), result }); await review(p, activeBack, 'approve');
+  const summary = await service.call(agent, 'get_project_area_summary', { projectId: p._id });
+  assert.match(summary.markdown, /## Backend[\s\S]*Completed backend/);
+  assert.match(summary.markdown, /## Frontend[\s\S]*Pendentes \(1\)[\s\S]*Pending frontend/);
+  assert.match(summary.markdown, /## Outro[\s\S]*Other item/);
+  assert.equal(summary.taskCount, 3); assert.equal(front.status, 'pendente'); assert.equal(other.status, 'pendente');
+});
 test('pagination, direct records, immutable archival retries and human queries', async () => {
   const { p, f, create } = await fixture();
   const tasks = await Promise.all([create('One'), create('Two'), create('Three')]);
