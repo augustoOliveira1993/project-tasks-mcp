@@ -1,43 +1,65 @@
-# project-tasks-mcp
+# Project Tasks MCP
 
-Serviço independente Node.js, TypeScript e MongoDB para projetos, features, tarefas, dependências, execuções e revisão humana. Expõe Streamable HTTP em `POST /mcp` e não executa agentes nem acessa repositórios.
+Servidor MCP para coordenar projetos, features e tarefas entre equipes. Mantém dependências, execução, progresso, mensagens e revisão humana em MongoDB; expõe a API Streamable HTTP em `POST /mcp`.
 
-## Servidor local
+O serviço não executa agentes nem acessa repositórios de trabalho.
+
+## Executar localmente
 
 ```powershell
 yarn install --frozen-lockfile
-yarn mongo:local
-# em outro terminal
-yarn start
+yarn dev
 ```
 
-Acesse `http://localhost:3443/health` para verificar o serviço.
+`yarn dev` inicia o MongoDB local na porta `27018` e o MCP no mesmo terminal. Alterações em `src/` reiniciam o MCP via nodemon; ao encerrar o comando, o MongoDB iniciado por ele também é encerrado.
 
-No `.env`, `MCP_AUTH_MODE=trusted_local` permite que o MCP aceite o cabeçalho `X-Project-Tasks-Email`, sem token de agente. A CLI administrativa continua usando `ADMIN_TOKEN` para aprovar, cancelar, desbloquear e administrar membros.
+Para executar os processos separadamente, use `yarn mongo:local` e `yarn start` em terminais distintos.
+
+Verifique o serviço em `http://localhost:3443/health`.
+
+## Produção
 
 ```powershell
-yarn cli -- bootstrap augusto
+yarn install --frozen-lockfile --production=false
+yarn build
+yarn start:prod
 ```
 
-Bootstrap é único por banco. Guarde o token humano retornado.
+`yarn build` gera os arquivos JavaScript em `dist/`; `yarn start:prod` executa essa saída compilada. Ajuste `env.config.ts` ou defina variáveis no ambiente de produção; valores do ambiente e de `.env` têm precedência sobre `env.config.ts`. A inicialização informa os valores obrigatórios ausentes antes de abrir o servidor. Use `LOG_LEVEL` em `env.config.ts`, `.env` ou no ambiente para controlar os logs Winston do terminal.
 
-## Instalação nas IAs
+Para criar o primeiro administrador:
 
-Instale o MCP uma vez no perfil global de Codex ou Claude Code. Não use `.mcp.json` nos repositórios. Consulte [configuração global](docs/CONFIGURACAO_GLOBAL_MCP.md).
+```powershell
+yarn cli -- bootstrap <usuario>
+```
 
-## FBI — PCP
+O bootstrap é único por banco. Guarde o token humano retornado; ele é usado pela CLI para aprovar, cancelar, desbloquear tarefas e administrar membros.
 
-O fluxo de back, front e aprovação do módulo PCP — Outros Processos está em [docs/FBI_PCP_OUTROS_PROCESSOS.md](docs/FBI_PCP_OUTROS_PROCESSOS.md). O fluxo geral de ferramentas está em [docs/USO_MCP.md](docs/USO_MCP.md). A cooperação persistente usa `send_task_message`, `list_task_messages`, `wait_task_events` e `subscribe_task_events`.
+## Instalar nas IAs
 
-## Validação focada
+A configuração é global: instale o MCP uma vez no perfil de Codex ou Claude Code. Não crie `.mcp.json` em repositórios de trabalho.
+
+Consulte o guia de [configuração global](docs/CONFIGURACAO_GLOBAL_MCP.md) para as instruções completas.
+
+## Documentação
+
+| Assunto | Documento |
+| --- | --- |
+| Fluxo de projetos, tarefas, dependências e revisão | [Uso do MCP](docs/USO_MCP.md) |
+| Configuração global no Codex e Claude Code | [Configuração global](docs/CONFIGURACAO_GLOBAL_MCP.md) |
+| Operação do servidor na rede privada | [Rede interna](docs/REDE_INTERNA.md) |
+| Cadastro e execução de tarefas de backend | [Tarefas de backend](docs/TAREFAS_BACKEND.md) |
+| Cadastro e execução de tarefas de frontend | [Tarefas de frontend](docs/TAREFAS_FRONTEND.md) |
+| Chamadas HTTP administrativas | [Collection Postman](postman/project-tasks-mcp.postman_collection.json) |
+
+## Validação
 
 ```powershell
 yarn test:flow
 ```
 
-O modo `trusted_local` confia na rede privada e no e-mail enviado pelo cliente. Não exponha o MCP à internet.
+## Segurança
 
+`MCP_AUTH_MODE=trusted_local` aceita a identidade enviada em `X-Project-Tasks-Email`. Use esse modo somente em rede privada controlada e não exponha o serviço à internet.
 
-A collection Postman atualizada está em [postman/project-tasks-mcp.postman_collection.json](postman/project-tasks-mcp.postman_collection.json). Execute Initialize primeiro; a sessão MCP é salva automaticamente em mcpSessionId.
-
-Os logs exibem eventos http_request, mcp_tool e dmin_action. O evento mcp_tool registra 	ool, ctor, projectId, 	askId, outcome e duração; tokens e conteúdo das mensagens não são registrados.# project-tasks-mcp
+A revisão humana continua exigindo `ADMIN_TOKEN` na CLI. Logs registram metadados operacionais — sem tokens ou conteúdo de mensagens.

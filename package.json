@@ -5,6 +5,9 @@
   "type": "module",
   "scripts": {
     "start": "node --env-file-if-exists=.env --import tsx src/main.ts",
+    "dev": "nodemon --signal SIGTERM --watch src --watch env.config.ts --ext ts --exec node --env-file-if-exists=.env --import tsx src/dev.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start:prod": "node --env-file-if-exists=.env dist/src/prod.js",
     "cli": "node --env-file-if-exists=.env --import tsx src/cli.ts",
     "test:flow": "tsx --test test/flow.test.ts",
     "mongo:local": "node --env-file-if-exists=.env --import tsx src/local-mongo.ts",
@@ -15,12 +18,14 @@
     "express": "^5.1.0",
     "mongoose": "^9.0.0",
     "tsx": "^4.20.0",
+    "winston": "^3.19.0",
     "zod": "^4.0.0"
   },
   "devDependencies": {
     "@types/express": "^5.0.0",
     "@types/node": "^24.0.0",
     "mongodb-memory-server": "^10.2.0",
+    "nodemon": "^3.1.14",
     "typescript": "^5.9.0"
   }
 }

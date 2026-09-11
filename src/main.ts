@@ -1,22 +1,24 @@
 import { createServer } from 'node:http';
+import { env } from './env.js';
+import { logger } from './logger.js';
 import mongoose from 'mongoose';
 import { connect } from './db.js';
 import { Service } from './service.js';
 import { createApp } from './http.js';
 
-await connect(process.env.MONGODB_URI ?? 'mongodb://localhost:27017/project_tasks?replicaSet=rs0');
-const service = new Service(Number(process.env.LEASE_MINUTES ?? 30) * 60000);
-const app = createApp(service, (process.env.ALLOWED_ORIGINS ?? '').split(',').filter(Boolean));
+await connect(env.mongodbUri);
+const service = new Service(env.leaseMinutes * 60000);
+const app = createApp(service, env.allowedOrigins);
 const server = createServer(app);
 await service.expire();
 let sweeping = false;
 const timer = setInterval(async () => {
   if (sweeping) return;
   sweeping = true;
-  try { await service.expire(); } catch { console.error('Lease expiration sweep failed'); }
+  try { await service.expire(); } catch { logger.error('Lease expiration sweep failed'); }
   finally { sweeping = false; }
 }, 10000);
-server.listen(Number(process.env.PORT ?? 3443), '0.0.0.0', () => console.log('project-tasks-mcp HTTP ready'));
+server.listen(env.port, '0.0.0.0', () => logger.info('Project Tasks MCP ready', { event: 'server_ready', port: env.port }));
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => {
   clearInterval(timer); server.close(() => { void mongoose.disconnect().then(() => process.exit(0)); });
 });

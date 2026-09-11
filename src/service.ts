@@ -38,7 +38,7 @@ export class Service {
   private emitTaskEvent(event: { projectId: string; taskId?: string; action: string }) { for (const listener of this.listeners) { try { listener(event); } catch {} } }
   private async access(actor: Actor, projectId: string, write = false, admin = false, session?: ClientSession) {
     const p = await Project.findById(projectId).session(session ?? null);
-    const role = p?.members.get(memberKey(actor.userId));
+    const role = p?.members?.get(memberKey(actor.userId));
     requireThat(p && role && (!write || role !== 'leitor') && (!admin || role === 'administrador'), 'Project access denied', 403);
     if (write) requireThat(!p.archived, 'Project archived');
     return p;
@@ -231,7 +231,8 @@ export class Service {
     const project = await Project.findById(a.projectId).lean();
     const feature = await Feature.findById(task.featureId).lean();
     const dependencies = await Task.find({ _id: { $in: task.dependencies }, projectId: a.projectId }).lean();
-    const results = await Execution.find({ _id: { $in: dependencies.map(d => d.executionId) } }).lean();
+    const executionIds = dependencies.flatMap(d => d.executionId ? [d.executionId] : []);
+    const results = await Execution.find({ _id: { $in: executionIds } }).lean();
     return { task, project, feature, repository: project!.repositories.find(r => r.id === task.repositoryId), messages: taskMessages, dependencies: dependencies.map(d => ({ ...d, execution: results.find(e => e._id === d.executionId) })), executions: await Execution.find({ taskId: task._id }).sort({ startedAt: -1 }).limit(25).lean() };
   }
   async admin(actor: Actor, input: unknown) {
@@ -255,8 +256,8 @@ export class Service {
       if (a.action === 'member') {
         const p = await Project.findById(a.projectId).session(s);
         requireThat(p!.version === a.version, 'Version conflict');
-        if (a.role) p!.members.set(memberKey(a.userId), a.role); else p!.members.delete(memberKey(a.userId));
-        requireThat([...p!.members.values()].includes('administrador'), 'Last project administrator required');
+        if (a.role) p!.members!.set(memberKey(a.userId), a.role); else p!.members!.delete(memberKey(a.userId));
+        requireThat([...p!.members!.values()].includes('administrador'), 'Last project administrator required');
         p!.version! += 1;
         await p!.save({ session: s }); await this.event(s, actor, a.action, a.projectId, a.projectId, a); return p;
       }

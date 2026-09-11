@@ -5,6 +5,8 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { tools } from './schema.js';
 import { authenticate, trustedLocal, DomainError, Service } from './service.js';
+import { env } from './env.js';
+import { logger } from './logger.js';
 import { z, ZodError } from 'zod';
 
 export function createApp(service: Service, origins: string[]) {
@@ -14,14 +16,14 @@ export function createApp(service: Service, origins: string[]) {
     const startedAt = process.hrtime.bigint();
     res.on('finish', () => {
       const durationMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
-      console.info(JSON.stringify({
+      logger.info(req.method + ' ' + req.path, {
         event: 'http_request',
         method: req.method,
         path: req.path,
         status: res.statusCode,
         durationMs: Number(durationMs.toFixed(1)),
         remoteAddress: req.socket.remoteAddress
-      }));
+      });
     });
     next();
   });  app.use((req, res, next) => {
@@ -43,10 +45,10 @@ export function createApp(service: Service, origins: string[]) {
     const actor = await authenticate(token(req.headers.authorization), 'human');
     const startedAt = process.hrtime.bigint();
     const result = await service.admin(actor, req.body);
-    console.info(JSON.stringify({ event: 'admin_action', action: req.body?.action, actor: actor.userId, projectId: req.body?.projectId, taskId: req.body?.taskId, outcome: 'success', durationMs: Number((Number(process.hrtime.bigint() - startedAt) / 1000000).toFixed(1)) }));
+    logger.info('Administrative action completed', { event: 'admin_action', action: req.body?.action, actor: actor.userId, projectId: req.body?.projectId, taskId: req.body?.taskId, outcome: 'success', durationMs: Number((Number(process.hrtime.bigint() - startedAt) / 1000000).toFixed(1)) });
     res.json(result);
   });
-  type Session = { transport: StreamableHTTPServerTransport; server: McpServer; actor: any; subscriptions: Set<string> };
+  type Session = { transport: StreamableHTTPServerTransport; server: McpServer; actor: any; subscriptions: Set<string>; projectId?: string; area?: 'backend' | 'frontend' | 'outro' };
   const sessions = new Map<string, Session>();
   service.onTaskEvent(event => {
     for (const session of sessions.values()) {
@@ -55,12 +57,12 @@ export function createApp(service: Service, origins: string[]) {
       }
     }
   });
-  const authenticateMcp = async (req: express.Request) => process.env.MCP_AUTH_MODE === 'trusted_local'
+  const authenticateMcp = async (req: express.Request) => env.authMode === 'trusted_local'
     ? trustedLocal(String(req.headers['x-project-tasks-email'] ?? ''))
     : await authenticate(token(req.headers.authorization), 'agent');
   const createSession = async (req: express.Request) => {
     const actor = await authenticateMcp(req);
-    const server = new McpServer({ name: 'project-tasks-mcp', version: '0.1.0' });
+    const server = new McpServer({ name: 'project-tasks-mcp', version: '0.1.0', instructions: 'Ao iniciar uma conversa, chame get_session_context. Se projectId ou area estiverem ausentes, pergunte ao usuario qual projeto assumir e qual area assumir (backend, frontend ou outro) antes de executar qualquer mutacao. Depois use list_records/list_pending para localizar registros; nunca invente IDs.' });
     const session: Session = { transport: new StreamableHTTPServerTransport({ sessionIdGenerator: randomUUID, enableJsonResponse: true }), server, actor, subscriptions: new Set() };
     for (const [name, schema] of Object.entries(tools)) {
       const readOnly = !('operationId' in (schema as any).shape);
@@ -73,11 +75,19 @@ export function createApp(service: Service, origins: string[]) {
         const startedAt = process.hrtime.bigint();
         const meta = { tool: name, actor: session.actor.userId, projectId: (args as any).projectId, taskId: (args as any).taskId };
         try {
+          if (name === 'get_session_context') {
+            const missing = [!session.projectId ? 'Qual projeto devo assumir? Informe o nome do projeto.' : undefined,!session.area ? 'Qual area devo assumir? Escolha: backend, frontend ou outro.' : undefined].filter(Boolean);
+            const result = { projectId: session.projectId ?? null, area: session.area ?? null, missing, ready: missing.length === 0 };
+            return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
+          }
           const result = await service.call(session.actor, name, args);
-          console.info(JSON.stringify({ event: 'mcp_tool', ...meta, outcome: 'success', durationMs: Number((Number(process.hrtime.bigint() - startedAt) / 1000000).toFixed(1)) }));
+          if (args.projectId) session.projectId = args.projectId;
+          if (args.area) session.area = args.area;
+          if (args.data?.area) session.area = args.data.area;
+          logger.info('MCP tool completed', { event: 'mcp_tool', ...meta, outcome: 'success', durationMs: Number((Number(process.hrtime.bigint() - startedAt) / 1000000).toFixed(1)) });
           if (name === 'subscribe_task_events') session.subscriptions.add(`${(args as any).projectId}:${(args as any).taskId}`);
           return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
-        } catch (error) { console.warn(JSON.stringify({ event: 'mcp_tool', ...meta, outcome: 'error', error: error instanceof DomainError || error instanceof ZodError ? error.message : 'Internal service error', durationMs: Number((Number(process.hrtime.bigint() - startedAt) / 1000000).toFixed(1)) })); return { isError: true, content: [{ type: 'text' as const, text: error instanceof DomainError || error instanceof ZodError ? error.message : 'Internal service error' }] }; }
+        } catch (error) { logger.warn('MCP tool failed', { event: 'mcp_tool', ...meta, outcome: 'error', error: error instanceof DomainError || error instanceof ZodError ? error.message : 'Internal service error', durationMs: Number((Number(process.hrtime.bigint() - startedAt) / 1000000).toFixed(1)) }); return { isError: true, content: [{ type: 'text' as const, text: error instanceof DomainError || error instanceof ZodError ? error.message : 'Internal service error' }] }; }
       });
     }
     session.transport.onclose = () => { if (session.transport.sessionId) sessions.delete(session.transport.sessionId); void server.close(); };

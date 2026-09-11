@@ -15,6 +15,7 @@ const op = { operationId: id };
 const target = { projectId: id, taskId: id, executionId: id, version: z.number().int().nonnegative(), ...op };
 const messageType = z.enum(['pergunta', 'resposta', 'bloqueio', 'contrato', 'progresso']);
 export const tools = {
+  get_session_context: z.object({}).strict(),
   create_project: z.object({ ...op, data: projectData }).strict(),
   create_feature: z.object({ ...op, projectId: id, data: featureData }).strict(),
   create_task: z.object({ ...op, projectId: id, data: taskData }).strict(),

@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { randomBytes, randomUUID } from 'node:crypto';
 import mongoose from 'mongoose';
 import { connect } from './db.js';
+import { env } from './env.js';
 import { bootstrap } from './service.js';
 import { adminSchema } from './schema.js';
 
@@ -9,7 +10,7 @@ async function main() {
   const [command, ...args] = process.argv.slice(2);
   if (command === 'bootstrap') {
     if (!args[0]) throw new Error('Usage: yarn cli -- bootstrap <userId>');
-    await connect(process.env.MONGODB_URI ?? 'mongodb://localhost:27017/project_tasks?replicaSet=rs0');
+    await connect(env.mongodbUri);
     try { console.log(JSON.stringify({ token: await bootstrap(args[0]) })); }
     finally { await mongoose.disconnect(); }
     return;
@@ -29,7 +30,7 @@ async function main() {
   if (endpoint === '/admin') adminSchema.parse(body);
   const adminToken = process.env.ADMIN_TOKEN ?? '';
   if (!/^[a-f0-9]{64}$/.test(adminToken)) throw new Error('ADMIN_TOKEN must be the active 64-character hexadecimal human token; a credentialId UUID or agent token will not work.');
-  const url = new URL(endpoint, process.env.SERVICE_URL ?? 'http://localhost:3443');
+  const url = new URL(endpoint, env.serviceUrl);
   if (url.protocol !== 'http:') throw new Error('HTTP required');
   const response = await fetch(url, { method: 'POST', headers: { authorization: `Bearer ${adminToken}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
   if (!response.ok) throw new Error(`${response.status}: ${await response.text()}`);
