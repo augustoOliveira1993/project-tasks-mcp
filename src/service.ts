@@ -1,6 +1,6 @@
 import mongoose, { type ClientSession, type Model } from 'mongoose';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { Project, Feature, Task, Execution, Event, TaskMessage, Operation, Credential, Bootstrap } from './db.js';
+import { Project, Feature, Task, Execution, Event, TaskMessage, MarkdownDocument, MarkdownRevision, Operation, Credential, Bootstrap } from './db.js';
 import { tools, adminSchema, projectData, featureData, taskData, states, userId as userIdSchema } from './schema.js';
 
 export class DomainError extends Error { constructor(message: string, public status = 409) { super(message); } }
@@ -36,6 +36,13 @@ export class Service {
   constructor(public leaseMs = 30 * 60 * 1000) { requireThat(Number.isFinite(leaseMs) && leaseMs > 0, 'Invalid lease'); }
   onTaskEvent(listener: (event: { projectId: string; taskId?: string; action: string }) => void) { this.listeners.add(listener); return () => this.listeners.delete(listener); }
   private emitTaskEvent(event: { projectId: string; taskId?: string; action: string }) { for (const listener of this.listeners) { try { listener(event); } catch {} } }
+  private markdownMeta(doc: any) { const value = plain(doc); delete value.__v; return value; }
+  private async markdowns(projectId: string, targetKind: string, targetId: string, after?: string, limit = 25) {
+    const filter: any = { projectId, targetKind, targetId };
+    const items = await MarkdownDocument.find(after ? { $and: [filter, { _id: { $gt: after } }] } : filter).sort({ _id: 1 }).limit(limit + 1).lean();
+    const more = items.length > limit; if (more) items.pop();
+    return { items: items.map(d => this.markdownMeta(d)), next: more ? items.at(-1)!._id : null };
+  }
   private async access(actor: Actor, projectId: string, write = false, admin = false, session?: ClientSession) {
     const p = await Project.findById(projectId).session(session ?? null);
     const role = p?.members?.get(memberKey(actor.userId));
@@ -68,7 +75,7 @@ export class Service {
   private async graph(projectId: string, taskId: string, data: any, s: ClientSession) {
     const p = await Project.findById(projectId).session(s);
     requireThat(p?.repositories.some(r => r.id === data.repositoryId), 'Unknown repository');
-    requireThat(await Feature.exists({ _id: data.featureId, projectId, archived: false }).session(s), 'Unknown or archived feature');
+    if (data.featureId) requireThat(await Feature.exists({ _id: data.featureId, projectId, archived: false }).session(s), 'Unknown or archived feature');
     const nodes = await Task.find({ projectId }).session(s).lean();
     const graph = new Map(nodes.map(t => [t._id!, t.dependencies]));
     for (const dep of data.dependencies) requireThat(nodes.some(t => t._id === dep && !t.archived && t.status !== 'cancelada'), 'Invalid dependency or different project');
@@ -96,6 +103,22 @@ export class Service {
         const [created] = await models[kind].create([{ _id: entityId, ...a.data, ...(kind === 'project' ? { members: { [memberKey(actor.userId)]: 'administrador' } } : { projectId: a.projectId }) }], { session: s });
         await this.event(s, actor, name, a.projectId ?? entityId, entityId, created);
         return created;
+      }
+      if (name === 'save_markdown') {
+        const target = a.targetKind === 'task' ? await Task.findOne({ _id: a.targetId, projectId: a.projectId, archived: false }).session(s) : await Feature.findOne({ _id: a.targetId, projectId: a.projectId, archived: false }).session(s);
+        requireThat(target, 'Markdown target not found or archived', 404);
+        if (a.targetKind === 'task') {
+          const t: any = target; const now = new Date();
+          requireThat(['pendente', 'bloqueada', 'em_execucao'].includes(t.status), 'Task markdown cannot be changed in this state');
+          if (t.status === 'em_execucao') { requireThat(t.executionId && t.leaseUntil > now, 'Execution inactive or expired'); const e = await Execution.findOne({ _id: t.executionId, credentialId: actor.id }).session(s); requireThat(e, 'Execution belongs to another credential', 403); }
+        }
+        const size = Buffer.byteLength(a.content, 'utf8'); const sha256 = hash(a.content); let doc: any;
+        if (a.id) { requireThat(a.version !== undefined, 'Version required for markdown update'); doc = await MarkdownDocument.findOne({ _id: a.id, projectId: a.projectId, targetKind: a.targetKind, targetId: a.targetId }).session(s); requireThat(doc && doc.version === a.version, 'Markdown version conflict or not found'); }
+        else { doc = await MarkdownDocument.findOne({ projectId: a.projectId, targetKind: a.targetKind, targetId: a.targetId, name: a.name }).session(s); requireThat(!doc, 'Markdown name already exists'); doc = new MarkdownDocument({ _id: randomUUID(), projectId: a.projectId, targetKind: a.targetKind, targetId: a.targetId, name: a.name, revision: 0 }); }
+        if (doc.revision && doc.sha256 === sha256 && doc.summary === a.summary && doc.name === a.name) return this.markdownMeta(doc);
+        doc.name = a.name; doc.summary = a.summary; doc.revision += 1; doc.author = actor.userId; doc.size = size; doc.sha256 = sha256; doc.version += 1; await doc.save({ session: s });
+        await MarkdownRevision.create([{ _id: randomUUID(), projectId: a.projectId, documentId: doc._id, revision: doc.revision, summary: a.summary, content: a.content, author: actor.userId, size, sha256, createdAt: new Date() }], { session: s });
+        const meta = this.markdownMeta(doc); await this.event(s, actor, 'save_markdown', a.projectId, doc._id, meta); return meta;
       }
       if (name === 'edit_record' || name === 'archive_record') {
         const filter = a.kind === 'project' ? { _id: a.projectId } : { _id: a.id, projectId: a.projectId };
@@ -125,7 +148,7 @@ export class Service {
       }
       const t = await Task.findOne({ _id: a.taskId, projectId: a.projectId, archived: false }).session(s);
       requireThat(t && t.version === a.version, 'Task missing or version conflict');
-      requireThat(await Feature.exists({ _id: t.featureId, archived: false }).session(s), 'Feature archived');
+      if (t.featureId) requireThat(await Feature.exists({ _id: t.featureId, archived: false }).session(s), 'Feature archived');
       const now = new Date();
       if (name === 'send_task_message') {
         requireThat(t.status === 'em_execucao' && t.executionId === a.executionId && t.leaseUntil! > now, 'Execution inactive or expired');
@@ -133,7 +156,7 @@ export class Service {
         requireThat(execution, 'Execution belongs to another credential', 403);
         if (a.relatedTaskId) {
           const related = await Task.findOne({ _id: a.relatedTaskId, projectId: a.projectId, archived: false }).session(s);
-          requireThat(related && (related.featureId === t.featureId || related.dependencies.includes(t._id!) || t.dependencies.includes(related._id!)), 'Tasks are not related', 403);
+          requireThat(related && (!!t.featureId && related.featureId === t.featureId || related.dependencies.includes(t._id!) || t.dependencies.includes(related._id!)), 'Tasks are not related', 403);
         }
         const [message] = await TaskMessage.create([{ _id: randomUUID(), projectId: a.projectId, taskId: t._id, relatedTaskId: a.relatedTaskId, executionId: a.executionId, operationId: a.operationId, author: actor.userId, type: a.type, message: a.message, references: a.references, createdAt: now }], { session: s });
         await this.event(s, actor, 'task_message', a.projectId, message._id!, { taskId: t._id, relatedTaskId: a.relatedTaskId, type: a.type });
@@ -198,9 +221,36 @@ export class Service {
       const kind = name === 'list_pending' ? 'task' : a.kind;
       const filter: any = kind === 'project' ? { [`members.${memberKey(actor.userId)}`]: { $exists: true }, ...(a.projectId ? { _id: a.projectId } : {}) } : { projectId: a.projectId };
       filter.archived = a.archived ?? false;
-      if (kind === 'task') for (const key of ['featureId', 'area', 'responsible', 'status']) if (a[key]) filter[key] = a[key];
+      if (kind === 'task') {
+        for (const key of ['area', 'responsible', 'status']) if (a[key]) filter[key] = a[key];
+        if (a.featureId) filter.featureId = a.featureId;
+        const clauses: any[] = [];
+        if (a.withoutFeature) clauses.push({ $or: [{ featureId: { $exists: false } }, { featureId: null }] });
+        if (a.type) clauses.push({ $or: [{ type: a.type }, ...(a.type === 'feature' ? [{ type: { $exists: false } }] : [])] });
+        if (clauses.length) filter.$and = clauses;
+      }
       if (name === 'list_pending') filter.status = 'pendente';
-      return page(models[kind], filter);
+      const result = await page(models[kind], filter);
+      if (kind === 'task' || kind === 'feature') {
+        const ids = result.items.map((x: any) => x._id);
+        const counts = await MarkdownDocument.aggregate([{ $match: { projectId: a.projectId, targetKind: kind, targetId: { $in: ids } } }, { $group: { _id: '$targetId', count: { $sum: 1 } } }]);
+        const map = Object.fromEntries(counts.map((x: any) => [x._id, x.count])); result.items = result.items.map((x: any) => ({ ...x, type: kind === 'task' ? x.type ?? 'feature' : undefined, markdownCount: map[x._id] ?? 0 }));
+      }
+      return result;
+    }
+    if (name === 'list_markdowns') return this.markdowns(a.projectId, a.targetKind, a.targetId, a.after, a.limit);
+    if (name === 'list_markdown_revisions') {
+      const doc = await MarkdownDocument.findOne({ _id: a.id, projectId: a.projectId }).lean(); requireThat(doc, 'Markdown not found', 404);
+      const rows = await MarkdownRevision.find({ documentId: a.id, ...(a.after ? { revision: { $lt: a.after } } : {}) }).sort({ revision: -1 }).limit(a.limit + 1).lean(); const more = rows.length > a.limit; if (more) rows.pop();
+      return { items: rows.map(({ content, ...revision }: any) => revision), next: more ? rows.at(-1)!.revision : null };
+    }
+    if (name === 'get_markdown') {
+      const doc = await MarkdownDocument.findOne({ _id: a.id, projectId: a.projectId }).lean(); requireThat(doc, 'Markdown not found', 404);
+      const revision = await MarkdownRevision.findOne({ documentId: a.id, revision: a.revision ?? doc.revision }).lean(); requireThat(revision, 'Markdown revision not found', 404);
+      const lines = revision.content.split('\n'); const start = a.line - 1; const selected: string[] = []; let size = 0;
+      for (const line of lines.slice(start, start + a.limit)) { const next = Buffer.byteLength((selected.length ? '\n' : '') + line, 'utf8'); if (selected.length && size + next > 32 * 1024) break; selected.push(line); size += next; }
+      const nextLine = start + selected.length < lines.length ? start + selected.length + 1 : null;
+      return { document: this.markdownMeta(doc), revision: ({ ...revision, content: undefined }), line: a.line, content: selected.join('\n'), nextLine };
     }
     if (name === 'get_record') {
       requireThat(a.kind !== 'project' || a.id === a.projectId, 'Project mismatch', 404);
@@ -219,21 +269,24 @@ export class Service {
     if (name === 'get_summary') {
       if (a.featureId) requireThat(await Feature.exists({ _id: a.featureId, projectId: a.projectId }), 'Feature not found', 404);
       const counts = Object.fromEntries(states.map(s => [s, 0]));
-      const rows = await Task.aggregate([{ $match: { projectId: a.projectId, ...(a.featureId ? { featureId: a.featureId } : {}) } }, { $group: { _id: '$status', count: { $sum: 1 } } }]);
+      const match = { projectId: a.projectId, ...(a.featureId ? { featureId: a.featureId } : {}) };
+      const rows = await Task.aggregate([{ $match: match }, { $group: { _id: '$status', count: { $sum: 1 } } }]);
       for (const row of rows) counts[row._id] = row.count;
       const total = Object.values(counts).reduce((a, b) => a + b, 0);
       const remaining = total - counts.concluida - counts.cancelada;
-      return { counts, blocked: counts.bloqueada, remaining, completed: total > 0 && counts.concluida > 0 && remaining === 0 };
+      const typeRows = await Task.aggregate([{ $match: match }, { $group: { _id: { $ifNull: ['$type', 'feature'] }, count: { $sum: 1 } } }]);
+      return { counts, typeCounts: Object.fromEntries(typeRows.map((row: any) => [row._id, row.count])), blocked: counts.bloqueada, remaining, completed: total > 0 && counts.concluida > 0 && remaining === 0 };
     }
     const taskMessages = await TaskMessage.find({ projectId: a.projectId, $or: [{ taskId: a.taskId }, { relatedTaskId: a.taskId }] }).sort({ createdAt: -1, _id: -1 }).limit(25).lean();
     const task = await Task.findOne({ _id: a.taskId, projectId: a.projectId }).lean();
     requireThat(task, 'Task not found', 404);
     const project = await Project.findById(a.projectId).lean();
-    const feature = await Feature.findById(task.featureId).lean();
+    const feature = task.featureId ? await Feature.findById(task.featureId).lean() : null;
     const dependencies = await Task.find({ _id: { $in: task.dependencies }, projectId: a.projectId }).lean();
     const executionIds = dependencies.flatMap(d => d.executionId ? [d.executionId] : []);
     const results = await Execution.find({ _id: { $in: executionIds } }).lean();
-    return { task, project, feature, repository: project!.repositories.find(r => r.id === task.repositoryId), messages: taskMessages, dependencies: dependencies.map(d => ({ ...d, execution: results.find(e => e._id === d.executionId) })), executions: await Execution.find({ taskId: task._id }).sort({ startedAt: -1 }).limit(25).lean() };
+    const [taskMarkdowns, featureMarkdowns] = await Promise.all([this.markdowns(a.projectId, 'task', task._id!, undefined, 25), task.featureId ? this.markdowns(a.projectId, 'feature', task.featureId, undefined, 25) : Promise.resolve({ items: [], next: null })]);
+    return { task: { ...task, type: task.type ?? 'feature' }, project, feature, repository: project!.repositories.find(r => r.id === task.repositoryId), markdowns: { task: taskMarkdowns, feature: featureMarkdowns }, messages: taskMessages, dependencies: dependencies.map(d => ({ ...d, type: d.type ?? 'feature', execution: results.find(e => e._id === d.executionId) })), executions: await Execution.find({ taskId: task._id }).sort({ startedAt: -1 }).limit(25).lean() };
   }
   async admin(actor: Actor, input: unknown) {
     requireThat(actor.scope === 'human', 'Human credential required', 403);

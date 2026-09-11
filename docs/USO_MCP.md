@@ -18,3 +18,11 @@ Use UUID novo em cada `operationId`. Use a `version` devolvida pelo MCP na próx
 Quando as tarefas pertencem à mesma feature ou têm dependência direta, o agente que possui uma execução ativa pode chamar `subscribe_task_events` e receber notificações MCP na sessão HTTP stateful. Use `send_task_message` com `type` `contrato`, `pergunta`, `resposta`, `bloqueio` ou `progresso`; informe `relatedTaskId` para endereçar a tarefa parceira.
 
 As mensagens são persistidas no MongoDB e aparecem em `get_task_context`. Se a sessão cair, continue pelo cursor retornado em `list_task_messages` ou aguarde com `wait_task_events` informando `after`. Apenas execuções ativas enviam mensagens; expiração bloqueia novos envios. Mensagens não mudam o estado da tarefa e a aprovação continua sendo feita pela CLI humana.
+
+## Planejamento Markdown
+
+Tasks podem ter `type`: `feature`, `fix`, `chore`, `docs`, `refactor`, `test`, `perf`, `build`, `ci` ou `revert`; `featureId` é opcional. Registros anteriores sem tipo são apresentados como `feature`.
+
+Use `save_markdown` para gravar um documento `.md` de até 100 KiB no alvo `feature` ou `task`. Na criação envie `targetKind`, `targetId`, `name`, `summary` e `content`. Para atualizar, envie também o `id` e a `version` retornada. Cada alteração cria uma revisão imutável; conteúdo idêntico não cria revisão.
+
+Outra máquina encontra planos com `list_markdowns`, consulta o histórico com `list_markdown_revisions` e lê somente o trecho necessário via `get_markdown` (`line` e `limit`). Listagens, eventos e `get_task_context` trazem apenas metadados e cursores, nunca o conteúdo do Markdown. As mesmas leituras estão disponíveis em `/admin/query` para o futuro frontend autenticado.

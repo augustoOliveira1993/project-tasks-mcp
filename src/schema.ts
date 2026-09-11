@@ -2,14 +2,17 @@ import { z } from 'zod';
 export const id = z.string().uuid();
 export const userId = z.string().min(1).max(320).refine(value => /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(value) || /^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(value), 'Invalid user ID or email').refine(value => !['prototype', 'constructor'].includes(value));
 const text = z.string().min(1).max(20000);
+const markdown = z.string().max(100 * 1024).refine(value => Buffer.byteLength(value, 'utf8') <= 100 * 1024, 'Markdown exceeds 100 KiB');
+const markdownSummary = z.string().max(500);
 export const states = ['pendente', 'em_execucao', 'bloqueada', 'em_revisao', 'concluida', 'cancelada'] as const;
 export const kind = z.enum(['project', 'feature', 'task']);
+export const taskType = z.enum(['feature', 'fix', 'chore', 'docs', 'refactor', 'test', 'perf', 'build', 'ci', 'revert']);
 export const repository = z.object({ id, name: text, url: z.string().url(), instructions: z.string().max(20000) }).strict();
 export const projectData = z.object({ name: text, description: text, instructions: text, repositories: z.array(repository).min(1).max(100) }).strict();
 export const featureData = z.object({ name: text, objective: text, context: text, acceptance: z.array(text).min(1).max(100) }).strict();
 export const taskData = z.object({
   name: text, instructions: text, acceptance: z.array(text).min(1).max(100), priority: z.number().int().min(0).max(5),
-  area: z.enum(['backend', 'frontend', 'outro']), repositoryId: id, featureId: id, dependencies: z.array(id).max(100)
+  area: z.enum(['backend', 'frontend', 'outro']), repositoryId: id, featureId: id.nullish(), type: taskType.default('feature'), dependencies: z.array(id).max(100)
 }).strict();
 const op = { operationId: id };
 const target = { projectId: id, taskId: id, executionId: id, version: z.number().int().nonnegative(), ...op };
@@ -21,13 +24,17 @@ export const tools = {
   create_task: z.object({ ...op, projectId: id, data: taskData }).strict(),
   edit_record: z.object({ ...op, projectId: id, kind, id, version: z.number().int().nonnegative(), data: z.record(z.string(), z.unknown()) }).strict(),
   archive_record: z.object({ ...op, projectId: id, kind, id, version: z.number().int().nonnegative() }).strict(),
-  list_records: z.object({ projectId: id.optional(), kind, featureId: id.optional(), area: z.enum(['backend', 'frontend', 'outro']).optional(), responsible: text.optional(), status: z.enum(states).optional(), archived: z.boolean().default(false), after: id.optional(), limit: z.number().int().min(1).max(100).default(25) }).strict(),
-  list_pending: z.object({ projectId: id, featureId: id.optional(), area: z.enum(['backend', 'frontend', 'outro']).optional(), responsible: text.optional(), after: id.optional(), limit: z.number().int().min(1).max(100).default(25) }).strict(),
+  list_records: z.object({ projectId: id.optional(), kind, featureId: id.optional(), withoutFeature: z.boolean().default(false), type: taskType.optional(), area: z.enum(['backend', 'frontend', 'outro']).optional(), responsible: text.optional(), status: z.enum(states).optional(), archived: z.boolean().default(false), after: id.optional(), limit: z.number().int().min(1).max(100).default(25) }).strict(),
+  list_pending: z.object({ projectId: id, featureId: id.optional(), withoutFeature: z.boolean().default(false), type: taskType.optional(), area: z.enum(['backend', 'frontend', 'outro']).optional(), responsible: text.optional(), after: id.optional(), limit: z.number().int().min(1).max(100).default(25) }).strict(),
   get_record: z.object({ projectId: id, kind, id }).strict(),
   list_executions: z.object({ projectId: id, taskId: id, after: id.optional(), limit: z.number().int().min(1).max(100).default(25) }).strict(),
   get_task_context: z.object({ projectId: id, taskId: id }).strict(),
   get_history: z.object({ projectId: id, entityId: id.optional(), after: id.optional(), limit: z.number().int().min(1).max(100).default(25) }).strict(),
   get_summary: z.object({ projectId: id, featureId: id.optional() }).strict(),
+  save_markdown: z.object({ ...op, projectId: id, targetKind: z.enum(['feature', 'task']), targetId: id, id: id.optional(), version: z.number().int().nonnegative().optional(), name: z.string().min(1).max(255).regex(/\.md$/i, 'Name must end in .md'), summary: markdownSummary, content: markdown }).strict(),
+  list_markdowns: z.object({ projectId: id, targetKind: z.enum(['feature', 'task']), targetId: id, after: id.optional(), limit: z.number().int().min(1).max(100).default(25) }).strict(),
+  get_markdown: z.object({ projectId: id, id, revision: z.number().int().positive().optional(), line: z.number().int().positive().default(1), limit: z.number().int().min(1).max(200).default(200) }).strict(),
+  list_markdown_revisions: z.object({ projectId: id, id, after: z.number().int().positive().optional(), limit: z.number().int().min(1).max(100).default(25) }).strict(),
   send_task_message: z.object({ ...target, relatedTaskId: id.optional(), type: messageType, message: text, references: z.array(text).max(100).default([]) }).strict(),
   list_task_messages: z.object({ projectId: id, taskId: id, after: id.optional(), limit: z.number().int().min(1).max(100).default(50) }).strict(),
   wait_task_events: z.object({ projectId: id, taskId: id, after: id.optional(), timeoutMs: z.number().int().min(0).max(30000).default(25000), limit: z.number().int().min(1).max(100).default(50) }).strict(),

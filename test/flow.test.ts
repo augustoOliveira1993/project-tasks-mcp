@@ -155,6 +155,34 @@ test('cooperative task messages are durable, scoped and idempotent', async () =>
   assert.match((await service.call(agent, 'get_task_context', { projectId: p._id, taskId: front._id })).messages[0].message, /API contract/);
   await assert.rejects(service.call(other, 'list_task_messages', { projectId: p._id, taskId: front._id }), /access denied/);
 });
+test('typed independent tasks and versioned markdown stay compact', async () => {
+  const { p, f, create } = await fixture();
+  const standalone = await service.call(agent, 'create_task', { operationId: op(), projectId: p._id, data: { name: 'Fix without feature', instructions: 'Fix it', acceptance: ['Fixed'], priority: 1, area: 'backend', repositoryId: p.repositories[0].id, featureId: null, type: 'fix', dependencies: [] } });
+  const listed = await service.call(agent, 'list_records', { kind: 'task', projectId: p._id, type: 'fix', withoutFeature: true, limit: 10 });
+  assert.equal(listed.items[0].type, 'fix'); assert.equal(listed.items[0].markdownCount, 0);
+  const source = '# Plano\n\nOlá 😀\n'.repeat(100);
+  const saved = await service.call(agent, 'save_markdown', { operationId: op(), projectId: p._id, targetKind: 'task', targetId: standalone._id, name: 'plan.md', summary: 'Initial', content: source });
+  assert.equal(saved.revision, 1); assert.equal((await service.call(agent, 'list_markdowns', { projectId: p._id, targetKind: 'task', targetId: standalone._id, limit: 10 })).items[0].sha256, saved.sha256);
+  const same = await service.call(agent, 'save_markdown', { operationId: op(), projectId: p._id, targetKind: 'task', targetId: standalone._id, id: saved._id, version: saved.version, name: 'plan.md', summary: 'Initial', content: source });
+  assert.equal(same.revision, 1);
+  const updated = await service.call(agent, 'save_markdown', { operationId: op(), projectId: p._id, targetKind: 'task', targetId: standalone._id, id: saved._id, version: saved.version, name: 'plan.md', summary: 'Updated', content: source + 'next' });
+  assert.equal(updated.revision, 2);
+  const page = await service.call(agent, 'get_markdown', { projectId: p._id, id: saved._id, limit: 2 });
+  assert.equal(page.content, '# Plano\n'); assert.equal(page.nextLine, 3);
+  assert.equal((await service.call(agent, 'list_markdown_revisions', { projectId: p._id, id: saved._id, limit: 10 })).items.length, 2);
+  const context = await service.call(agent, 'get_task_context', { projectId: p._id, taskId: standalone._id });
+  assert.equal(context.markdowns.task.items[0].name, 'plan.md'); assert.equal(JSON.stringify(context).includes(source), false);
+  await assert.rejects(service.call(agent, 'save_markdown', { operationId: op(), projectId: p._id, targetKind: 'task', targetId: standalone._id, id: saved._id, version: 0, name: 'plan.md', summary: 'Bad', content: 'bad' }), /version conflict/);
+  const running = await claim(p, standalone);
+  await assert.rejects(service.call(rival, 'save_markdown', { operationId: op(), projectId: p._id, targetKind: 'task', targetId: standalone._id, id: saved._id, version: updated.version, name: 'plan.md', summary: 'Blocked', content: 'blocked' }), /another credential/);
+  const duringExecution = await service.call(agent, 'save_markdown', { operationId: op(), projectId: p._id, targetKind: 'task', targetId: standalone._id, id: saved._id, version: updated.version, name: 'plan.md', summary: 'Executor', content: 'executor' });
+  const reviewing = await service.call(agent, 'submit_task', { ...active(p, { ...standalone, ...running }), result });
+  await assert.rejects(service.call(agent, 'save_markdown', { operationId: op(), projectId: p._id, targetKind: 'task', targetId: standalone._id, id: saved._id, version: duringExecution.version, name: 'plan.md', summary: 'Frozen', content: 'frozen' }), /cannot be changed/);
+  assert.equal(reviewing.status, 'em_revisao');
+  await create('Feature task');
+  const featureDoc = await service.call(agent, 'save_markdown', { operationId: op(), projectId: p._id, targetKind: 'feature', targetId: f._id, name: 'overview.md', summary: 'Overview', content: 'Feature plan' });
+  assert.equal(featureDoc.revision, 1);
+});
 test('pagination, direct records, immutable archival retries and human queries', async () => {
   const { p, f, create } = await fixture();
   const tasks = await Promise.all([create('One'), create('Two'), create('Three')]);
