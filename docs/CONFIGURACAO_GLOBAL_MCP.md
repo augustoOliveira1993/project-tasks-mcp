@@ -2,6 +2,8 @@
 
 Configure uma vez no perfil de cada IA. Nenhum repositório recebe `.mcp.json`.
 
+Para instalar o servidor no Windows ou Ubuntu, configurar clientes com bearer/HTTPS e executores opcionais, siga o [guia passo a passo de instalação](INSTALACAO_PASSO_A_PASSO.md). As instruções abaixo descrevem a conexão privada existente com `trusted_local`.
+
 ## Servidor
 
 No `.env` de `project-tasks-mcp`:

@@ -45,6 +45,7 @@ Consulte o guia de [configuração global](docs/CONFIGURACAO_GLOBAL_MCP.md) para
 
 | Assunto | Documento |
 | --- | --- |
+| Instalação passo a passo: Windows, Ubuntu, clientes e executores | [Guia de instalação](docs/INSTALACAO_PASSO_A_PASSO.md) |
 | Fluxo de projetos, tarefas, dependências e revisão | [Uso do MCP](docs/USO_MCP.md) |
 | Configuração global no Codex e Claude Code | [Configuração global](docs/CONFIGURACAO_GLOBAL_MCP.md) |
 | Operação do servidor na rede privada | [Rede interna](docs/REDE_INTERNA.md) |
