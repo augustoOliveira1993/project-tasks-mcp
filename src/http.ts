@@ -8,6 +8,7 @@ import { authenticate, trustedLocal, DomainError, Service } from './service.js';
 import { env } from './env.js';
 import { logger } from './logger.js';
 import { z, ZodError } from 'zod';
+import { eventCursor, type EventFilter } from './events.js';
 
 export function createApp(service: Service, origins: string[]) {
   const app = express();
@@ -48,22 +49,36 @@ export function createApp(service: Service, origins: string[]) {
     logger.info('Administrative action completed', { event: 'admin_action', action: req.body?.action, actor: actor.userId, projectId: req.body?.projectId, taskId: req.body?.taskId, outcome: 'success', durationMs: Number((Number(process.hrtime.bigint() - startedAt) / 1000000).toFixed(1)) });
     res.json(result);
   });
-  type Session = { transport: StreamableHTTPServerTransport; server: McpServer; actor: any; subscriptions: Set<string>; projectId?: string; area?: 'backend' | 'frontend' | 'outro' };
+  app.post('/runner', async (req, res) => {
+    const actor = await authenticate(token(req.headers.authorization), 'agent');
+    res.json(await service.automation.runner(actor, req.body));
+  });
+  type Session = { transport: StreamableHTTPServerTransport; server: McpServer; actor: any; subscriptions: Set<string>; filters: Map<string, EventFilter>; waits: number; busy: boolean; lastSeen: number; projectId?: string; area?: 'backend' | 'frontend' | 'outro' };
   const sessions = new Map<string, Session>();
-  service.onTaskEvent(event => {
+  service.events.start();
+  const removeListener = service.onTaskEvent(event => {
+    if (!event) return;
     for (const session of sessions.values()) {
-      if (!event.taskId || session.subscriptions.has(`${event.projectId}:${event.taskId}`)) {
-        void session.server.sendLoggingMessage({ level: 'info', logger: 'task-events', data: { type: 'task_event', ...event } }).catch(() => undefined);
+      if (!session.busy && (event.taskIds.some((id: string) => session.subscriptions.has(`${event.projectId}:${id}`)) || [...session.filters.values()].some(f => f.projectId === event.projectId && (!f.taskIds?.length || f.taskIds.some(id => event.taskIds.includes(id))) && (!f.actions?.length || f.actions.includes(event.action))))) {
+        session.busy = true;
+        const action = ['approve', 'changes', 'unblock', 'cancel'].includes(event.action) ? `review:${event.action}` : event.action;
+        void service.access(session.actor, event.projectId).then(() => session.server.sendLoggingMessage({ level: 'info', logger: 'task-events', data: { type: 'task_event', ...event, taskId: event.taskIds[0], action, eventAction: event.action } })).catch(() => session.server.close()).finally(() => { session.busy = false; });
       }
     }
   });
-  const authenticateMcp = async (req: express.Request) => env.authMode === 'trusted_local'
+  const cleanup = setInterval(() => {
+    for (const [id, session] of sessions) if (Date.now() - session.lastSeen > 30 * 60000) { sessions.delete(id); void session.server.close(); }
+  }, 60000); cleanup.unref();
+  app.locals.close = async () => { clearInterval(cleanup); removeListener(); await Promise.allSettled([...sessions.values()].map(s => s.server.close())); sessions.clear(); await service.events.close(); };
+  const authenticateMcp = async (req: express.Request) => req.headers.authorization?.startsWith('Bearer ')
+    ? await authenticate(token(req.headers.authorization), 'agent') : env.authMode === 'trusted_local'
     ? trustedLocal(String(req.headers['x-project-tasks-email'] ?? ''))
     : await authenticate(token(req.headers.authorization), 'agent');
   const createSession = async (req: express.Request) => {
+    if (sessions.size >= 500) throw new DomainError('MCP session capacity reached', 503);
     const actor = await authenticateMcp(req);
-    const server = new McpServer({ name: 'project-tasks-mcp', version: '0.1.0', instructions: 'Ao iniciar uma conversa, chame get_session_context. Se projectId ou area estiverem ausentes, pergunte ao usuario qual projeto assumir e qual area assumir (backend, frontend ou outro) antes de executar qualquer mutacao. Depois use list_records/list_pending para localizar registros; nunca invente IDs.' });
-    const session: Session = { transport: new StreamableHTTPServerTransport({ sessionIdGenerator: randomUUID, enableJsonResponse: true }), server, actor, subscriptions: new Set() };
+    const server = new McpServer({ name: 'project-tasks-mcp', version: '0.2.0' }, { capabilities: { logging: {} }, instructions: 'Ao iniciar uma conversa, chame get_session_context. Se projectId ou area estiverem ausentes, pergunte ao usuario qual projeto assumir e qual area assumir (backend, frontend ou outro) antes de executar qualquer mutacao. Depois use list_records/list_pending para localizar registros; nunca invente IDs.' });
+    const session: Session = { transport: new StreamableHTTPServerTransport({ sessionIdGenerator: randomUUID, enableJsonResponse: true }), server, actor, subscriptions: new Set(), filters: new Map(), waits: 0, busy: false, lastSeen: Date.now() };
     for (const [name, schema] of Object.entries(tools)) {
       const readOnly = !('operationId' in (schema as any).shape);
       server.registerTool(name, {
@@ -72,6 +87,9 @@ export function createApp(service: Service, origins: string[]) {
         inputSchema: schema,
         annotations: { readOnlyHint: readOnly, destructiveHint: ['archive_record', 'cancel'].includes(name), idempotentHint: readOnly || name === 'send_task_message' }
       }, async (args: any) => {
+        const waiting = name.startsWith('wait_');
+        if (waiting && session.waits >= 10) return { isError: true, content: [{ type: 'text' as const, text: 'Concurrent wait capacity reached' }] };
+        if (waiting) session.waits++;
         const startedAt = process.hrtime.bigint();
         const meta = { tool: name, actor: session.actor.userId, projectId: (args as any).projectId, taskId: (args as any).taskId };
         try {
@@ -85,9 +103,16 @@ export function createApp(service: Service, origins: string[]) {
           if (args.area) session.area = args.area;
           if (args.data?.area) session.area = args.data.area;
           logger.info('MCP tool completed', { event: 'mcp_tool', ...meta, outcome: 'success', durationMs: Number((Number(process.hrtime.bigint() - startedAt) / 1000000).toFixed(1)) });
-          if (name === 'subscribe_task_events') session.subscriptions.add(`${(args as any).projectId}:${(args as any).taskId}`);
+          if (name === 'subscribe_task_events') { if (session.subscriptions.size >= 100 && !session.subscriptions.has(`${args.projectId}:${args.taskId}`)) throw new DomainError('Subscription capacity reached', 429); session.subscriptions.add(`${args.projectId}:${args.taskId}`); }
+          if (name === 'subscribe_project_events' || name === 'unsubscribe_project_events') {
+            const filter = { projectId: args.projectId, taskIds: args.taskIds, actions: args.actions };
+            const key = eventCursor(filter, 0);
+            if (name === 'subscribe_project_events') { if (session.filters.size >= 100 && !session.filters.has(key)) throw new DomainError('Subscription capacity reached', 429); session.filters.set(key, filter); }
+            else session.filters.delete(key);
+          }
           return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
         } catch (error) { logger.warn('MCP tool failed', { event: 'mcp_tool', ...meta, outcome: 'error', error: error instanceof DomainError || error instanceof ZodError ? error.message : 'Internal service error', durationMs: Number((Number(process.hrtime.bigint() - startedAt) / 1000000).toFixed(1)) }); return { isError: true, content: [{ type: 'text' as const, text: error instanceof DomainError || error instanceof ZodError ? error.message : 'Internal service error' }] }; }
+        finally { if (waiting) session.waits--; }
       });
     }
     session.transport.onclose = () => { if (session.transport.sessionId) sessions.delete(session.transport.sessionId); void server.close(); };
@@ -99,6 +124,7 @@ export function createApp(service: Service, origins: string[]) {
       const id = String(req.headers['mcp-session-id'] ?? '');
       let session = id ? sessions.get(id) : undefined;
       if (id && !session) return res.status(404).json({ error: 'Unknown MCP session' });
+      if (session) { const actor = await authenticateMcp(req); if (actor.id !== session.actor.id) throw new DomainError('MCP session belongs to another identity', 403); session.lastSeen = Date.now(); }
       if (!session) session = await createSession(req);
       await session.transport.handleRequest(req, res, req.body);
       if (session.transport.sessionId) sessions.set(session.transport.sessionId, session);
@@ -107,11 +133,13 @@ export function createApp(service: Service, origins: string[]) {
   app.get('/mcp', async (req, res) => {
     const id = String(req.headers['mcp-session-id'] ?? ''); const session = sessions.get(id);
     if (!session) return res.set('Allow', 'POST').status(405).json({ error: 'Mcp-Session-Id required' });
+    const actor = await authenticateMcp(req); if (actor.id !== session.actor.id) throw new DomainError('MCP session belongs to another identity', 403); session.lastSeen = Date.now();
     await session.transport.handleRequest(req, res);
   });
   app.delete('/mcp', async (req, res) => {
     const id = String(req.headers['mcp-session-id'] ?? ''); const session = sessions.get(id);
     if (!session) return res.status(404).json({ error: 'Unknown MCP session' });
+    const actor = await authenticateMcp(req); if (actor.id !== session.actor.id) throw new DomainError('MCP session belongs to another identity', 403);
     await session.transport.handleRequest(req, res); sessions.delete(id);
   });  app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     const status = err instanceof DomainError ? err.status : err instanceof ZodError || err instanceof SyntaxError ? 400 : 500;

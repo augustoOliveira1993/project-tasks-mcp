@@ -20,6 +20,8 @@ async function main() {
   if (command === 'context') {
     endpoint = '/admin/query';
     body = { tool: 'get_task_context', arguments: { projectId: args[0], taskId: args[1] } };
+  } else if (command === 'automation' && args[0]) {
+    endpoint = '/admin/query'; body = { tool: 'get_automation_status', arguments: { projectId: args[0] } };
   } else if (command === 'query' && args[0] && args[1]) {
     endpoint = '/admin/query';
     body = { tool: args[0], arguments: JSON.parse(await readFile(args[1], 'utf8')) };
@@ -31,7 +33,7 @@ async function main() {
   const adminToken = process.env.ADMIN_TOKEN ?? '';
   if (!/^[a-f0-9]{64}$/.test(adminToken)) throw new Error('ADMIN_TOKEN must be the active 64-character hexadecimal human token; a credentialId UUID or agent token will not work.');
   const url = new URL(endpoint, env.serviceUrl);
-  if (url.protocol !== 'http:') throw new Error('HTTP required');
+  if (!['http:', 'https:'].includes(url.protocol)) throw new Error('HTTP(S) required');
   const response = await fetch(url, { method: 'POST', headers: { authorization: `Bearer ${adminToken}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
   if (!response.ok) throw new Error(`${response.status}: ${await response.text()}`);
   console.log(JSON.stringify({ ...await response.json() as object, ...(body.action === 'issue' ? { token: body.token } : {}) }, null, 2));

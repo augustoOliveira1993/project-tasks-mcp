@@ -17,6 +17,10 @@ export const taskData = z.object({
 const op = { operationId: id };
 const target = { projectId: id, taskId: id, executionId: id, version: z.number().int().nonnegative(), ...op };
 const messageType = z.enum(['pergunta', 'resposta', 'bloqueio', 'contrato', 'progresso']);
+const messageThread = { conversationId: id.optional(), replyTo: id.optional(), correlationId: id.optional() };
+const eventFilter = { projectId: id, taskIds: z.array(id).max(100).default([]), actions: z.array(z.string().min(1).max(100)).max(50).default([]) };
+const cursor = z.string().min(1).max(2048);
+export const provider = z.enum(['codex', 'claude']);
 export const tools = {
   get_session_context: z.object({}).strict(),
   create_project: z.object({ ...op, data: projectData }).strict(),
@@ -36,9 +40,14 @@ export const tools = {
   list_markdowns: z.object({ projectId: id, targetKind: z.enum(['feature', 'task']), targetId: id, after: id.optional(), limit: z.number().int().min(1).max(100).default(25) }).strict(),
   get_markdown: z.object({ projectId: id, id, revision: z.number().int().positive().optional(), line: z.number().int().positive().default(1), limit: z.number().int().min(1).max(200).default(200) }).strict(),
   list_markdown_revisions: z.object({ projectId: id, id, after: z.number().int().positive().optional(), limit: z.number().int().min(1).max(100).default(25) }).strict(),
-  send_task_message: z.object({ ...target, relatedTaskId: id.optional(), type: messageType, message: text, references: z.array(text).max(100).default([]) }).strict(),
+  send_task_message: z.object({ ...target, ...messageThread, relatedTaskId: id.optional(), type: messageType, message: text, references: z.array(text).max(100).default([]) }).strict(),
+  send_collaboration_message: z.object({ ...op, projectId: id, taskId: id, relatedTaskId: id.optional(), ...messageThread, type: messageType, message: text, references: z.array(text).max(100).default([]) }).strict(),
+  get_automation_status: z.object({ projectId: id, after: id.optional(), limit: z.number().int().min(1).max(100).default(25) }).strict(),
+  subscribe_project_events: z.object({ ...eventFilter, cursor: cursor.optional() }).strict(),
+  unsubscribe_project_events: z.object(eventFilter).strict(),
+  wait_project_events: z.object({ ...eventFilter, cursor: cursor.optional(), timeoutMs: z.number().int().min(0).max(30000).default(25000), limit: z.number().int().min(1).max(100).default(50) }).strict(),
   list_task_messages: z.object({ projectId: id, taskId: id, after: id.optional(), limit: z.number().int().min(1).max(100).default(50) }).strict(),
-  wait_task_events: z.object({ projectId: id, taskId: id, after: id.optional(), timeoutMs: z.number().int().min(0).max(30000).default(25000), limit: z.number().int().min(1).max(100).default(50) }).strict(),
+  wait_task_events: z.object({ projectId: id, taskId: id, after: id.optional(), eventAfter: cursor.optional(), timeoutMs: z.number().int().min(0).max(30000).default(25000), limit: z.number().int().min(1).max(100).default(50) }).strict(),
   subscribe_task_events: z.object({ projectId: id, taskId: id }).strict(),
   claim_task: z.object({ ...op, projectId: id, taskId: id, version: z.number().int().nonnegative(), agent: text }).strict(),
   heartbeat_task: z.object(target).strict(),
@@ -47,6 +56,9 @@ export const tools = {
   submit_task: z.object({ ...target, result: z.object({ summary: text, changedFiles: z.array(text).max(1000), checksRun: z.array(text).max(100), checksOmitted: z.array(text).max(100), evidence: z.array(text).max(100), branch: text.optional(), commit: text.optional(), pr: z.string().url().optional() }).strict() }).strict()
 };
 export const adminSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('automation_policy'), ...op, projectId: id, version: z.number().int().nonnegative(), enabled: z.boolean(), maxConcurrent: z.number().int().min(1).max(50).default(10), routes: z.array(z.object({ repositoryId: id, area: z.enum(['backend', 'frontend', 'outro']), provider }).strict()).max(100) }).strict(),
+  z.object({ action: z.literal('automation_release'), ...op, projectId: id, taskId: id, version: z.number().int().nonnegative(), provider: provider.optional() }).strict(),
+  z.object({ action: z.literal('automation_resolve'), ...op, projectId: id, jobId: id, version: z.number().int().nonnegative(), decision: z.enum(['allow', 'deny']), reason: text }).strict(),
   z.object({ action: z.literal('review'), ...op, projectId: id, taskId: id, version: z.number().int().nonnegative(), decision: z.enum(['approve', 'changes', 'unblock', 'cancel']), reason: text }).strict(),
   z.object({ action: z.literal('member'), ...op, projectId: id, version: z.number().int().nonnegative(), userId, role: z.enum(['administrador', 'colaborador', 'leitor']).nullable() }).strict(),
   z.object({ action: z.literal('issue'), ...op, userId, scope: z.enum(['agent', 'human']), systemAdmin: z.boolean().default(false), token: z.string().regex(/^[a-f0-9]{64}$/) }).strict(),

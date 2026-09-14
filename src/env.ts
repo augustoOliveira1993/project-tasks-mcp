@@ -13,6 +13,7 @@ const leaseMinutes = Number(process.env.LEASE_MINUTES);
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT deve ser um inteiro entre 1 e 65535.');
 if (!Number.isFinite(leaseMinutes) || leaseMinutes <= 0) throw new Error('LEASE_MINUTES deve ser um número positivo.');
 if (!['trusted_local', 'bearer'].includes(process.env.MCP_AUTH_MODE!)) throw new Error('MCP_AUTH_MODE deve ser trusted_local ou bearer.');
+if (!!process.env.TLS_CERT_PATH !== !!process.env.TLS_KEY_PATH) throw new Error('TLS_CERT_PATH e TLS_KEY_PATH devem ser definidos juntos.');
 
 export const env = {
   mongodbUri: process.env.MONGODB_URI!,
@@ -20,6 +21,8 @@ export const env = {
   serviceUrl: process.env.SERVICE_URL!,
   allowedOrigins: (process.env.ALLOWED_ORIGINS ?? '').split(',').map(origin => origin.trim()).filter(Boolean),
   authMode: process.env.MCP_AUTH_MODE! as 'trusted_local' | 'bearer',
+  tlsCertPath: process.env.TLS_CERT_PATH,
+  tlsKeyPath: process.env.TLS_KEY_PATH,
   leaseMinutes,
   logLevel: process.env.LOG_LEVEL ?? 'info',
   mongodPath: process.env.MONGOD_PATH

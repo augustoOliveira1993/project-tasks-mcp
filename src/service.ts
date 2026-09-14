@@ -1,10 +1,12 @@
 import mongoose, { type ClientSession, type Model } from 'mongoose';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { Project, Feature, Task, Execution, Event, TaskMessage, MarkdownDocument, MarkdownRevision, Operation, Credential, Bootstrap } from './db.js';
+import { Project, Feature, Task, Execution, Event, TaskMessage, DeliveryEvent, AutomationJob, MarkdownDocument, MarkdownRevision, Operation, Credential, Bootstrap } from './db.js';
+import { EventHub, readEvents } from './events.js';
+import { Automation } from './automation.js';
 import { tools, adminSchema, projectData, featureData, taskData, states, userId as userIdSchema } from './schema.js';
 
 export class DomainError extends Error { constructor(message: string, public status = 409) { super(message); } }
-export type Actor = { id: string; userId: string; scope: string; systemAdmin: boolean; sessionId?: string };
+export type Actor = { id: string; userId: string; scope: string; systemAdmin: boolean; sessionId?: string; jobId?: string; runnerId?: string };
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const plain = (value: unknown) => JSON.parse(JSON.stringify(value));
 const memberKey = (userId: string) => /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(userId) ? userId : 'email_' + hash(userId.toLowerCase()).slice(0, 32);
@@ -32,10 +34,10 @@ export async function bootstrap(userId: string) {
   return token;
 }
 export class Service {
-  private readonly listeners = new Set<(event: { projectId: string; taskId?: string; action: string }) => void>();
+  readonly events = new EventHub();
+  readonly automation = new Automation(this);
   constructor(public leaseMs = 30 * 60 * 1000) { requireThat(Number.isFinite(leaseMs) && leaseMs > 0, 'Invalid lease'); }
-  onTaskEvent(listener: (event: { projectId: string; taskId?: string; action: string }) => void) { this.listeners.add(listener); return () => this.listeners.delete(listener); }
-  private emitTaskEvent(event: { projectId: string; taskId?: string; action: string }) { for (const listener of this.listeners) { try { listener(event); } catch {} } }
+  onTaskEvent(listener: (event: any) => void) { return this.events.on(listener); }
   private markdownMeta(doc: any) { const value = plain(doc); delete value.__v; return value; }
   private async markdowns(projectId: string, targetKind: string, targetId: string, after?: string, limit = 25) {
     const filter: any = { projectId, targetKind, targetId };
@@ -43,17 +45,29 @@ export class Service {
     const more = items.length > limit; if (more) items.pop();
     return { items: items.map(d => this.markdownMeta(d)), next: more ? items.at(-1)!._id : null };
   }
-  private async access(actor: Actor, projectId: string, write = false, admin = false, session?: ClientSession) {
+  async access(actor: Actor, projectId: string, write = false, admin = false, session?: ClientSession) {
+    if (actor.scope !== 'trusted_local' && actor.scope !== 'system') requireThat(await Credential.exists({ _id: actor.id, revoked: false, scope: actor.scope }).session(session ?? null), 'Credential revoked', 401);
     const p = await Project.findById(projectId).session(session ?? null);
     const role = p?.members?.get(memberKey(actor.userId));
     requireThat(p && role && (!write || role !== 'leitor') && (!admin || role === 'administrador'), 'Project access denied', 403);
     if (write) requireThat(!p.archived, 'Project archived');
     return p;
   }
-  private async event(s: ClientSession, actor: Actor, action: string, projectId: string | undefined, entityId: string, data: unknown) {
-    await Event.create([{ _id: randomUUID(), projectId, entityId, action, author: actor.userId, credentialId: actor.id, at: new Date(), data }], { session: s });
+  async event(s: ClientSession, actor: Actor, action: string, projectId: string | undefined, entityId: string, data: any) {
+    const eventId = randomUUID(); const at = new Date();
+    await Event.create([{ _id: eventId, projectId, entityId, action, author: actor.userId, credentialId: actor.id, at, data }], { session: s });
+    if (!projectId) return;
+    const project = await Project.findByIdAndUpdate(projectId, { $inc: { eventSequence: 1 } }, { returnDocument: 'after', session: s });
+    if (!project) return;
+    const ids = new Set<string>([data?.taskId, data?.relatedTaskId].filter(Boolean));
+    if (await Task.exists({ _id: entityId, projectId }).session(s)) ids.add(entityId);
+    if (data?.targetKind === 'task') ids.add(data.targetId);
+    if (data?.targetKind === 'feature' || await Feature.exists({ _id: entityId, projectId }).session(s)) {
+      for (const task of await Task.find({ projectId, featureId: data?.targetKind === 'feature' ? data.targetId : entityId }).select('_id').session(s)) ids.add(task._id!);
+    }
+    await DeliveryEvent.create([{ _id: eventId, projectId, sequence: project.eventSequence, taskIds: [...ids], action, entityId, entityVersion: data?.task?.version ?? data?.version, at }], { session: s });
   }
-  private async mutate(actor: Actor, name: string, a: any, run: (s: ClientSession) => Promise<any>) {
+  async mutate(actor: Actor, name: string, a: any, run: (s: ClientSession) => Promise<any>) {
     const key = `${actor.id}:${a.operationId}`;
     const fingerprint = hash(JSON.stringify({ name, a }));
     return mongoose.connection.transaction(async s => {
@@ -95,7 +109,9 @@ export class Service {
     requireThat(schema, 'Unknown tool', 404);
     const a: any = schema.parse(input);
     if (!('operationId' in a)) return this.read(actor, name, a);
+    if (name === 'send_collaboration_message') return this.automation.message(actor, a);
     const result = await this.mutate(actor, name, a, async s => {
+      await this.automation.guard(actor, name, a, s);
       if (name.startsWith('create_')) {
         const kind = name.slice(7); const entityId = randomUUID();
         if (kind === 'task') await this.graph(a.projectId, entityId, a.data, s);
@@ -144,6 +160,10 @@ export class Service {
           Object.assign(doc, data);
         }
         doc.version += 1; await doc.save({ session: s });
+        if (name === 'edit_record') {
+          const affected = a.kind === 'task' ? [a.id] : (await Task.find({ projectId: a.projectId, ...(a.kind === 'feature' ? { featureId: a.id } : {}) }).select('_id').session(s)).map(t => t._id);
+          await AutomationJob.updateMany({ projectId: a.projectId, taskId: { $in: affected } }, { $set: { authorizationValid: false }, $inc: { version: 1 } }, { session: s });
+        }
         await this.event(s, actor, name, a.projectId, a.id, doc); return doc;
       }
       const t = await Task.findOne({ _id: a.taskId, projectId: a.projectId, archived: false }).session(s);
@@ -159,6 +179,9 @@ export class Service {
           requireThat(related && (!!t.featureId && related.featureId === t.featureId || related.dependencies.includes(t._id!) || t.dependencies.includes(related._id!)), 'Tasks are not related', 403);
         }
         const [message] = await TaskMessage.create([{ _id: randomUUID(), projectId: a.projectId, taskId: t._id, relatedTaskId: a.relatedTaskId, executionId: a.executionId, operationId: a.operationId, author: actor.userId, type: a.type, message: a.message, references: a.references, createdAt: now }], { session: s });
+        await this.automation.validateReply(a, s);
+        Object.assign(message, { credentialId: actor.id, conversationId: a.conversationId, replyTo: a.replyTo, correlationId: a.correlationId }); await message.save({ session: s });
+        await this.automation.onMessage(message, s);
         await this.event(s, actor, 'task_message', a.projectId, message._id!, { taskId: t._id, relatedTaskId: a.relatedTaskId, type: a.type });
         return message;
       }
@@ -167,7 +190,7 @@ export class Service {
         const complete = await Task.countDocuments({ _id: { $in: t.dependencies }, projectId: a.projectId, status: 'concluida' }).session(s);
         requireThat(complete === new Set(t.dependencies).size, 'Dependencies not approved');
         t.executionId = randomUUID(); t.status = 'em_execucao'; t.responsible = actor.userId; t.leaseUntil = new Date(now.getTime() + this.leaseMs);
-        await Execution.create([{ _id: t.executionId, projectId: a.projectId, taskId: t._id, credentialId: actor.id, userId: actor.userId, agent: a.agent, startedAt: now, lastActivity: now, status: 'em_execucao' }], { session: s });
+        await Execution.create([{ _id: t.executionId, projectId: a.projectId, taskId: t._id, credentialId: actor.id, userId: actor.userId, agent: a.agent, managedJobId: actor.jobId, startedAt: now, lastActivity: now, status: 'em_execucao' }], { session: s });
       } else {
         requireThat(t.status === 'em_execucao' && t.executionId === a.executionId && t.leaseUntil! > now, 'Execution inactive or expired');
         const e = await Execution.findOne({ _id: a.executionId, credentialId: actor.id }).session(s);
@@ -180,9 +203,9 @@ export class Service {
         await e.save({ session: s });
       }
       t.version! += 1; await t.save({ session: s });
+      await this.automation.afterTaskMutation(actor, t, name, s);
       await this.event(s, actor, name, a.projectId, a.taskId, { ...a, task: plain(t) }); return t;
     });
-    if (a.projectId && a.taskId) this.emitTaskEvent({ projectId: a.projectId, taskId: a.taskId, action: name });
     return result;
   }
   async query(actor: Actor, name: string, input: unknown) {
@@ -201,6 +224,22 @@ export class Service {
       const more = items.length > a.limit; if (more) items.pop();
       return { items, next: more ? items.at(-1)!._id : null };
     };
+    if (name === 'get_automation_status') return this.automation.status(actor, a);
+    if (name.endsWith('_project_events')) {
+      if (name === 'unsubscribe_project_events') return { subscribed: false };
+      const filter = { projectId: a.projectId, taskIds: a.taskIds, actions: a.actions };
+      const deadline = Date.now() + (a.timeoutMs ?? 0);
+      let cursor = a.cursor;
+      do {
+        const wait = this.events.wait(filter, Math.max(1, deadline - Date.now()));
+        let result;
+        try { result = await readEvents(filter, cursor, a.limit ?? 50, name === 'subscribe_project_events'); }
+        catch (error) { wait.cancel(); throw new DomainError((error as Error).message, 400); }
+        if (name === 'subscribe_project_events' || result.items.length || Date.now() >= deadline || this.events.closed) { wait.cancel(); await this.access(actor, a.projectId); return { ...result, ...(name === 'subscribe_project_events' ? { subscribed: true } : {}) }; }
+        cursor = result.cursor;
+        await wait.promise; await this.access(actor, a.projectId);
+      } while (true);
+    }
     if (name === 'subscribe_task_events') {
       await this.access(actor, a.projectId);
       requireThat(await Task.exists({ _id: a.taskId, projectId: a.projectId, archived: false }), 'Task not found', 404);
@@ -209,13 +248,16 @@ export class Service {
     if (name === 'list_task_messages' || name === 'wait_task_events') {
       const readMessages = async () => {
         const filter: any = { projectId: a.projectId, $or: [{ taskId: a.taskId }, { relatedTaskId: a.taskId }] };
-        if (a.after) { const cursor = await TaskMessage.findById(a.after).lean(); requireThat(cursor, 'Invalid message cursor', 400); filter.$and = [{ $or: [{ createdAt: { $gt: cursor.createdAt } }, { createdAt: cursor.createdAt, _id: { $gt: a.after } }] }]; }
+        if (a.after) { const cursor = await TaskMessage.findOne({ ...filter, _id: a.after }).lean(); requireThat(cursor, 'Invalid message cursor', 400); filter.$and = [{ $or: [{ createdAt: { $gt: cursor.createdAt } }, { createdAt: cursor.createdAt, _id: { $gt: a.after } }] }]; }
         const items = await TaskMessage.find(filter).sort({ createdAt: 1, _id: 1 }).limit(a.limit).lean();
-        const events = name === 'wait_task_events' ? await Event.find({ projectId: a.projectId, entityId: a.taskId }).sort({ at: -1 }).limit(a.limit).lean() : [];
-        return { items, events, next: items.length === a.limit ? items.at(-1)!._id : null };
+        let feed;
+        try { feed = name === 'wait_task_events' ? await readEvents({ projectId: a.projectId, taskIds: [a.taskId] }, a.eventAfter, a.limit, !a.eventAfter) : undefined; }
+        catch (error) { throw new DomainError((error as Error).message, 400); }
+        const events = name === 'wait_task_events' ? a.eventAfter ? feed!.items : await Event.find({ projectId: a.projectId, entityId: a.taskId }).sort({ at: -1 }).limit(a.limit).lean() : [];
+        return { items, events, next: items.length === a.limit ? items.at(-1)!._id : null, messageCursor: items.at(-1)?._id ?? a.after ?? null, eventCursor: feed?.cursor };
       };
       let result = await readMessages();
-      if (name === 'wait_task_events' && !result.items.length && !result.events.length && a.timeoutMs > 0) { const deadline = Date.now() + a.timeoutMs; while (Date.now() < deadline && !result.items.length && !result.events.length) { await new Promise(resolve => setTimeout(resolve, Math.min(1000, deadline - Date.now()))); result = await readMessages(); } }
+      if (name === 'wait_task_events' && !result.items.length && !result.events.length && a.timeoutMs > 0) { const deadline = Date.now() + a.timeoutMs; while (Date.now() < deadline && !result.items.length && !result.events.length) { await this.events.wait({ projectId: a.projectId, taskIds: [a.taskId] }, Math.min(1000, deadline - Date.now())).promise; await this.access(actor, a.projectId); result = await readMessages(); } }
       return result;
     }    if (name === 'list_records' || name === 'list_pending') {
       const kind = name === 'list_pending' ? 'task' : a.kind;
@@ -247,7 +289,7 @@ export class Service {
     if (name === 'get_markdown') {
       const doc = await MarkdownDocument.findOne({ _id: a.id, projectId: a.projectId }).lean(); requireThat(doc, 'Markdown not found', 404);
       const revision = await MarkdownRevision.findOne({ documentId: a.id, revision: a.revision ?? doc.revision }).lean(); requireThat(revision, 'Markdown revision not found', 404);
-      const lines = revision.content.split('\n'); const start = a.line - 1; const selected: string[] = []; let size = 0;
+      const lines = revision.content!.split('\n'); const start = a.line - 1; const selected: string[] = []; let size = 0;
       for (const line of lines.slice(start, start + a.limit)) { const next = Buffer.byteLength((selected.length ? '\n' : '') + line, 'utf8'); if (selected.length && size + next > 32 * 1024) break; selected.push(line); size += next; }
       const nextLine = start + selected.length < lines.length ? start + selected.length + 1 : null;
       return { document: this.markdownMeta(doc), revision: ({ ...revision, content: undefined }), line: a.line, content: selected.join('\n'), nextLine };
@@ -283,13 +325,13 @@ export class Service {
       const tasks = await Task.find({ projectId: a.projectId, archived: false, ...(a.featureId ? { featureId: a.featureId } : {}) }).sort({ area: 1, status: 1, priority: 1, _id: 1 }).lean();
       const label: Record<string, string> = { backend: 'Backend', frontend: 'Frontend', outro: 'Outro' };
       const escape = (value: string) => value.replace(/[|\x0D\x0A]/g, ' ');
-      const lines = [`# Resumo do projeto: ${escape(project!.name)}`, '', `Gerado em ${new Date().toISOString()}.${a.featureId ? ` Filtrado pela feature ${a.featureId}.` : ''}`];
+      const lines = [`# Resumo do projeto: ${escape(project!.name!)}`, '', `Gerado em ${new Date().toISOString()}.${a.featureId ? ` Filtrado pela feature ${a.featureId}.` : ''}`];
       for (const area of ['backend', 'frontend', 'outro']) {
         const rows = tasks.filter(t => t.area === area); lines.push('', `## ${label[area]}`, '');
         for (const group of [['Concluídas', rows.filter(t => t.status === 'concluida')], ['Pendentes', rows.filter(t => t.status === 'pendente')], ['Outros estados', rows.filter(t => !['concluida', 'pendente'].includes(t.status!))]] as const) {
           lines.push(`### ${group[0]} (${group[1].length})`);
           if (!group[1].length) lines.push('- Nenhuma.');
-          else for (const task of group[1]) lines.push(`- [${task.status}] [${task.type ?? 'feature'}] ${escape(task.name)}`);
+          else for (const task of group[1]) lines.push(`- [${task.status}] [${task.type ?? 'feature'}] ${escape(task.name!)}`);
           lines.push('');
         }
       }
@@ -309,6 +351,7 @@ export class Service {
   async admin(actor: Actor, input: unknown) {
     requireThat(actor.scope === 'human', 'Human credential required', 403);
     const a = adminSchema.parse(input);
+    if (a.action === 'automation_policy' || a.action === 'automation_release' || a.action === 'automation_resolve') return this.automation.admin(actor, a);
     const result = await this.mutate(actor, 'admin', a, async s => {
       if (a.action === 'issue' || a.action === 'revoke') {
         requireThat(actor.systemAdmin, 'System administrator required', 403);
@@ -339,9 +382,9 @@ export class Service {
       t.status = ({ approve: 'concluida', changes: 'pendente', unblock: 'pendente', cancel: 'cancelada' })[a.decision];
       if (t.executionId) await Execution.updateOne({ _id: t.executionId }, { status: a.decision, endedAt: new Date() }, { session: s });
       t.leaseUntil = undefined; t.version! += 1;
+      if (['changes', 'unblock', 'cancel'].includes(a.decision)) await AutomationJob.updateMany({ taskId: t._id }, { $set: { authorizationValid: false }, $inc: { version: 1 } }, { session: s });
       await t.save({ session: s }); await this.event(s, actor, a.decision, a.projectId, a.taskId, a); return t;
     });
-    if ((a as any).action === 'review' && (a as any).projectId && (a as any).taskId) this.emitTaskEvent({ projectId: (a as any).projectId, taskId: (a as any).taskId, action: `review:${(a as any).decision}` });
     return result;
   }
   async expire() {
@@ -351,7 +394,6 @@ export class Service {
       if (!t) return;
       await Execution.updateOne({ _id: t.executionId }, { $set: { status: 'expired', endedAt: new Date() }, $push: { impediments: 'Execution lease expired; explicit human recovery required' } }, { session: s });
       await this.event(s, { id: 'system', userId: 'system', scope: 'system', systemAdmin: false }, 'expired', t.projectId!, t._id!, { executionId: t.executionId });
-      this.emitTaskEvent({ projectId: t.projectId!, taskId: t._id!, action: 'expired' });
     });
   }
 }
