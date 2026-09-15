@@ -3,7 +3,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import mongoose from 'mongoose';
 import { connect } from './db.js';
 import { env } from './env.js';
-import { bootstrap } from './service.js';
+import { bootstrap, recoverHumanToken } from './service.js';
 import { adminSchema } from './schema.js';
 
 async function main() {
@@ -12,6 +12,13 @@ async function main() {
     if (!args[0]) throw new Error('Usage: yarn cli -- bootstrap <userId>');
     await connect(env.mongodbUri);
     try { console.log(JSON.stringify({ token: await bootstrap(args[0]) })); }
+    finally { await mongoose.disconnect(); }
+    return;
+  }
+  if (command === 'recover') {
+    if (!args[0] || args[1] !== '--confirm') throw new Error('Usage: yarn cli -- recover <userId> --confirm');
+    await connect(env.mongodbUri);
+    try { console.log(JSON.stringify({ token: await recoverHumanToken(args[0]) })); }
     finally { await mongoose.disconnect(); }
     return;
   }
@@ -28,7 +35,7 @@ async function main() {
   } else if (command === 'issue') {
     body = { action: 'issue', operationId: randomUUID(), userId: args[0], scope: args[1], token: randomBytes(32).toString('hex') };
   } else if (command === 'apply' && args[0]) body = JSON.parse(await readFile(args[0], 'utf8'));
-  else throw new Error('Usage: cli bootstrap <userId> | issue <userId> <agent|human> | apply <operation.json> | context <projectId> <taskId> | query <tool> <arguments.json>');
+  else throw new Error('Usage: cli bootstrap <userId> | recover <userId> --confirm | issue <userId> <agent|human> | apply <operation.json> | context <projectId> <taskId> | query <tool> <arguments.json>');
   if (endpoint === '/admin') adminSchema.parse(body);
   const adminToken = process.env.ADMIN_TOKEN ?? '';
   if (!/^[a-f0-9]{64}$/.test(adminToken)) throw new Error('ADMIN_TOKEN must be the active 64-character hexadecimal human token; a credentialId UUID or agent token will not work.');

@@ -6,7 +6,7 @@ import { Automation } from './automation.js';
 import { tools, adminSchema, projectData, featureData, taskData, states, userId as userIdSchema } from './schema.js';
 
 export class DomainError extends Error { constructor(message: string, public status = 409) { super(message); } }
-export type Actor = { id: string; userId: string; scope: string; systemAdmin: boolean; sessionId?: string; jobId?: string; runnerId?: string };
+export type Actor = { id: string; userId: string; scope: string; systemAdmin: boolean; projectToken?: string; sessionId?: string; jobId?: string; runnerId?: string };
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const plain = (value: unknown) => JSON.parse(JSON.stringify(value));
 const memberKey = (userId: string) => /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(userId) ? userId : 'email_' + hash(userId.toLowerCase()).slice(0, 32);
@@ -17,10 +17,10 @@ export async function authenticate(token: string, scope: string): Promise<Actor>
   requireThat(c, 'Invalid credential or scope', 401);
   return { id: c._id!, userId: c.userId!, scope: c.scope!, systemAdmin: !!c.systemAdmin };
 }
-export function trustedLocal(email: string): Actor {
+export function trustedLocal(email: string, projectToken?: string): Actor {
   const normalized = email.trim().toLowerCase();
   requireThat(/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(normalized), 'X-Project-Tasks-Email must be a valid email', 401);
-  return { id: 'trusted:' + memberKey(normalized), userId: normalized, scope: 'trusted_local', systemAdmin: false };
+  return { id: 'trusted:' + memberKey(normalized), userId: normalized, scope: 'trusted_local', systemAdmin: false, projectToken };
 }
 export async function bootstrap(userId: string) {
   userIdSchema.parse(userId);
@@ -30,6 +30,19 @@ export async function bootstrap(userId: string) {
     const credentialId = randomUUID();
     await Credential.create([{ _id: credentialId, userId, hash: hash(token), scope: 'human', systemAdmin: true }], { session: s });
     await Event.create([{ _id: randomUUID(), entityId: credentialId, action: 'bootstrap', author: userId, at: new Date() }], { session: s });
+  });
+  return token;
+}
+export async function recoverHumanToken(userId: string) {
+  userIdSchema.parse(userId);
+  const token = randomBytes(32).toString('hex');
+  await mongoose.connection.transaction(async s => {
+    const credentials = await Credential.find({ userId, scope: 'human', revoked: false }).session(s).lean();
+    requireThat(credentials.length > 0, 'No active human credential for user', 404);
+    await Credential.updateMany({ _id: { $in: credentials.map(c => c._id) } }, { $set: { revoked: true }, $inc: { fence: 1 } }, { session: s });
+    const credentialId = randomUUID();
+    await Credential.create([{ _id: credentialId, userId, hash: hash(token), scope: 'human', systemAdmin: credentials.some(c => c.systemAdmin) }], { session: s });
+    await Event.create([{ _id: randomUUID(), entityId: credentialId, action: 'recover', author: userId, at: new Date() }], { session: s });
   });
   return token;
 }
@@ -48,6 +61,18 @@ export class Service {
   async access(actor: Actor, projectId: string, write = false, admin = false, session?: ClientSession) {
     if (actor.scope !== 'trusted_local' && actor.scope !== 'system') requireThat(await Credential.exists({ _id: actor.id, revoked: false, scope: actor.scope }).session(session ?? null), 'Credential revoked', 401);
     const p = await Project.findById(projectId).session(session ?? null);
+    if (actor.systemAdmin) {
+      requireThat(p, 'Project access denied', 403);
+      if (write) requireThat(!p.archived, 'Project archived');
+      return p;
+    }
+    if (actor.scope === 'trusted_local') {
+      requireThat(p, 'Project access denied', 403);
+      requireThat(p.visibility !== 'private' || (!!actor.projectToken && hash(actor.projectToken) === p.accessTokenHash), 'Project access token required', 403);
+      if (admin) requireThat(p.members?.get(memberKey(actor.userId)) === 'administrador', 'Project administrator required', 403);
+      if (write) requireThat(!p.archived, 'Project archived');
+      return p;
+    }
     const role = p?.members?.get(memberKey(actor.userId));
     requireThat(p && role && (!write || role !== 'leitor') && (!admin || role === 'administrador'), 'Project access denied', 403);
     if (write) requireThat(!p.archived, 'Project archived');
@@ -116,7 +141,8 @@ export class Service {
         const kind = name.slice(7); const entityId = randomUUID();
         if (kind === 'task') await this.graph(a.projectId, entityId, a.data, s);
         if (kind === 'project') requireThat(new Set(a.data.repositories.map((r: any) => r.id)).size === a.data.repositories.length, 'Duplicate repository');
-        const [created] = await models[kind].create([{ _id: entityId, ...a.data, ...(kind === 'project' ? { members: { [memberKey(actor.userId)]: 'administrador' } } : { projectId: a.projectId }) }], { session: s });
+        const { accessToken, ...data } = a.data;
+        const [created] = await models[kind].create([{ _id: entityId, ...data, ...(kind === 'project' ? { accessTokenHash: accessToken ? hash(accessToken) : undefined, members: { [memberKey(actor.userId)]: 'administrador' } } : { projectId: a.projectId }) }], { session: s });
         await this.event(s, actor, name, a.projectId ?? entityId, entityId, created);
         return created;
       }
@@ -151,6 +177,12 @@ export class Service {
           doc.archived = true;
         } else {
           const data = ({ project: projectData, feature: featureData, task: taskData }[a.kind as 'project' | 'feature' | 'task']).partial().parse(a.data);
+          if (a.kind === 'project') {
+            const projectData = data as any;
+            if (projectData.accessToken) { projectData.accessTokenHash = hash(projectData.accessToken); delete projectData.accessToken; }
+            if (projectData.visibility === 'private') requireThat(projectData.accessTokenHash || doc.accessTokenHash, 'Private project requires an access token');
+            if (projectData.visibility === 'public') projectData.accessTokenHash = undefined;
+          }
           if (a.kind === 'task') await this.graph(a.projectId, a.id, { ...plain(doc), ...data }, s);
           if (a.kind === 'project' && 'repositories' in data && data.repositories) {
             const ids = data.repositories.map((r: any) => r.id);
@@ -189,6 +221,13 @@ export class Service {
         requireThat(t.status === 'pendente', 'Task unavailable');
         const complete = await Task.countDocuments({ _id: { $in: t.dependencies }, projectId: a.projectId, status: 'concluida' }).session(s);
         requireThat(complete === new Set(t.dependencies).size, 'Dependencies not approved');
+        if (actor.scope === 'trusted_local') {
+          const project = await Project.findById(a.projectId).session(s);
+          if (project?.visibility !== 'private' && !project?.members?.has(memberKey(actor.userId))) {
+            project!.members!.set(memberKey(actor.userId), 'colaborador'); project!.version! += 1; await project!.save({ session: s });
+            await this.event(s, actor, 'auto_member', a.projectId, a.projectId, { userId: actor.userId, role: 'colaborador' });
+          }
+        }
         t.executionId = randomUUID(); t.status = 'em_execucao'; t.responsible = actor.userId; t.leaseUntil = new Date(now.getTime() + this.leaseMs);
         await Execution.create([{ _id: t.executionId, projectId: a.projectId, taskId: t._id, credentialId: actor.id, userId: actor.userId, agent: a.agent, managedJobId: actor.jobId, startedAt: now, lastActivity: now, status: 'em_execucao' }], { session: s });
       } else {
@@ -261,7 +300,8 @@ export class Service {
       return result;
     }    if (name === 'list_records' || name === 'list_pending') {
       const kind = name === 'list_pending' ? 'task' : a.kind;
-      const filter: any = kind === 'project' ? { [`members.${memberKey(actor.userId)}`]: { $exists: true }, ...(a.projectId ? { _id: a.projectId } : {}) } : { projectId: a.projectId };
+      const trustedFilter = actor.projectToken ? { $or: [{ visibility: { $ne: 'private' } }, { accessTokenHash: hash(actor.projectToken) }] } : { visibility: { $ne: 'private' } };
+      const filter: any = kind === 'project' ? { ...(actor.scope === 'trusted_local' ? trustedFilter : { [`members.${memberKey(actor.userId)}`]: { $exists: true } }), ...(a.projectId ? { _id: a.projectId } : {}) } : { projectId: a.projectId };
       filter.archived = a.archived ?? false;
       if (kind === 'task') {
         for (const key of ['area', 'responsible', 'status']) if (a[key]) filter[key] = a[key];

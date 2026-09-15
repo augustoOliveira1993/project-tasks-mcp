@@ -5,7 +5,7 @@ const base = { _id: String, version: { type: Number, default: 0 }, archived: { t
 const options = { timestamps: true, strict: true, versionKey: false } as const;
 const repository = new Schema({ id: String, name: String, url: String, instructions: String }, { _id: false });
 export const Project = mongoose.model('Project', new Schema({ ...base, eventSequence: { type: Number, default: 0 }, fence: { type: Number, default: 0 }, name: String, description: String, instructions: String,
-  members: { type: Map, of: String }, repositories: [repository] }, options));
+  visibility: { type: String, default: 'public' }, accessTokenHash: String, members: { type: Map, of: String }, repositories: [repository] }, options));
 export const Feature = mongoose.model('Feature', new Schema({ ...base, projectId: { type: String, index: true }, name: String, objective: String, context: String, acceptance: [String] }, options));
 export const Task = mongoose.model('Task', new Schema({ ...base, projectId: { type: String, index: true }, featureId: String, name: String,
   instructions: String, acceptance: [String], priority: Number, area: String, type: { type: String, default: 'feature' }, repositoryId: String, dependencies: [String],

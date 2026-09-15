@@ -1,6 +1,6 @@
 import { z } from 'zod';
 export const id = z.string().uuid();
-export const userId = z.string().min(1).max(320).refine(value => /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(value) || /^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(value), 'Invalid user ID or email').refine(value => !['prototype', 'constructor'].includes(value));
+export const userId = z.string().min(1).max(320).refine(value => /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(value) || /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value), 'Invalid user ID or email').refine(value => !['prototype', 'constructor'].includes(value));
 const text = z.string().min(1).max(20000);
 const markdown = z.string().max(100 * 1024).refine(value => Buffer.byteLength(value, 'utf8') <= 100 * 1024, 'Markdown exceeds 100 KiB');
 const markdownSummary = z.string().max(500);
@@ -8,7 +8,7 @@ export const states = ['pendente', 'em_execucao', 'bloqueada', 'em_revisao', 'co
 export const kind = z.enum(['project', 'feature', 'task']);
 export const taskType = z.enum(['feature', 'fix', 'chore', 'docs', 'refactor', 'test', 'perf', 'build', 'ci', 'revert']);
 export const repository = z.object({ id, name: text, url: z.string().url(), instructions: z.string().max(20000) }).strict();
-export const projectData = z.object({ name: text, description: text, instructions: text, repositories: z.array(repository).min(1).max(100) }).strict();
+export const projectData = z.object({ name: text, description: text, instructions: text, repositories: z.array(repository).min(1).max(100), visibility: z.enum(['public', 'private']).default('public'), accessToken: z.string().min(16).max(512).optional() }).strict().refine(data => data.visibility !== 'private' || !!data.accessToken, 'Private project requires an access token');
 export const featureData = z.object({ name: text, objective: text, context: text, acceptance: z.array(text).min(1).max(100) }).strict();
 export const taskData = z.object({
   name: text, instructions: text, acceptance: z.array(text).min(1).max(100), priority: z.number().int().min(0).max(5),

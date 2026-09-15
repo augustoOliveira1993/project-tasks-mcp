@@ -6,7 +6,7 @@ import { MongoMemoryReplSet } from 'mongodb-memory-server';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { connect, Project, Task, Event, Execution, Credential } from '../src/db.js';
-import { Service, authenticate, bootstrap, type Actor } from '../src/service.js';
+import { Service, authenticate, bootstrap, recoverHumanToken, trustedLocal, type Actor } from '../src/service.js';
 import { createApp } from '../src/http.js';
 
 let repl: MongoMemoryReplSet;
@@ -123,6 +123,30 @@ test('project permissions, reader restrictions, human scope and revocation', asy
   await assert.rejects(authenticate(token, 'agent'), /credential/);
   assert.equal(await Credential.countDocuments({ hash: token }), 0);
 });
+test('system administrators can administer projects outside their membership', async () => {
+  const repositoryId = op();
+  const project = await service.call(other, 'create_project', { operationId: op(), data: { name: 'Other', description: 'Other', instructions: 'Other', repositories: [{ id: repositoryId, name: 'repo', url: 'https://example.com/other.git', instructions: 'Other' }] } });
+  await service.admin(human, { action: 'member', operationId: op(), projectId: project._id, version: project.version, userId: 'owner', role: 'administrador' });
+  assert.equal((await Project.findById(project._id))!.members!.get('owner'), 'administrador');
+});
+test('trusted local identities discover and work on shared projects', async () => {
+  const { p, create } = await fixture();
+  const collaborator = trustedLocal('frontend@ferroeste.com.br');
+  const projects = await service.call(collaborator, 'list_records', { kind: 'project', limit: 100 });
+  assert.ok(projects.items.some((project: any) => project._id === p._id));
+  const task = await create('Shared frontend task');
+  const claimed = await claim(p, task, collaborator);
+  assert.equal(claimed.responsible, 'frontend@ferroeste.com.br');
+});
+test('private projects require a trusted-local project token', async () => {
+  const repositoryId = op(); const accessToken = 'shared-private-token';
+  const project = await service.call(agent, 'create_project', { operationId: op(), data: { name: 'Private', description: 'Private', instructions: 'Private', visibility: 'private', accessToken, repositories: [{ id: repositoryId, name: 'repo', url: 'https://example.com/private.git', instructions: 'Private' }] } });
+  const collaborator = trustedLocal('frontend@ferroeste.com.br');
+  assert.ok(!(await service.call(collaborator, 'list_records', { kind: 'project', limit: 100 })).items.some((item: any) => item._id === project._id));
+  await assert.rejects(service.call(collaborator, 'get_summary', { projectId: project._id }), /access token/);
+  const authorized = trustedLocal('frontend@ferroeste.com.br', accessToken);
+  assert.ok((await service.call(authorized, 'list_records', { kind: 'project', limit: 100 })).items.some((item: any) => item._id === project._id));
+});
 test('MCP real HTTP handshake, tool listing, tool call and endpoint boundaries', async () => {
   const server = createApp(service, ['https://trusted.internal']).listen(0, '127.0.0.1');
   await new Promise<void>(resolve => server.once('listening', resolve));
@@ -154,6 +178,16 @@ test('cooperative task messages are durable, scoped and idempotent', async () =>
   assert.equal(listed.items.length, 1);
   assert.match((await service.call(agent, 'get_task_context', { projectId: p._id, taskId: front._id })).messages[0].message, /API contract/);
   await assert.rejects(service.call(other, 'list_task_messages', { projectId: p._id, taskId: front._id }), /access denied/);
+});
+test('recovery rotates a human credential without persisting its token', async () => {
+  const recoveredToken = await recoverHumanToken('owner');
+  const recovered = await authenticate(recoveredToken, 'human');
+  assert.equal(recovered.userId, 'owner');
+  assert.equal(recovered.systemAdmin, true);
+  await assert.rejects(authenticate(humanToken, 'human'), /credential/);
+  assert.equal(await Credential.exists({ hash: recoveredToken }), null);
+  humanToken = recoveredToken;
+  human = recovered;
 });
 test('typed independent tasks and versioned markdown stay compact', async () => {
   const { p, f, create } = await fixture();

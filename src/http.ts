@@ -72,7 +72,7 @@ export function createApp(service: Service, origins: string[]) {
   app.locals.close = async () => { clearInterval(cleanup); removeListener(); await Promise.allSettled([...sessions.values()].map(s => s.server.close())); sessions.clear(); await service.events.close(); };
   const authenticateMcp = async (req: express.Request) => req.headers.authorization?.startsWith('Bearer ')
     ? await authenticate(token(req.headers.authorization), 'agent') : env.authMode === 'trusted_local'
-    ? trustedLocal(String(req.headers['x-project-tasks-email'] ?? ''))
+    ? trustedLocal(String(req.headers['x-project-tasks-email'] ?? ''), String(req.headers['x-project-tasks-project-token'] ?? '') || undefined)
     : await authenticate(token(req.headers.authorization), 'agent');
   const createSession = async (req: express.Request) => {
     if (sessions.size >= 500) throw new DomainError('MCP session capacity reached', 503);
