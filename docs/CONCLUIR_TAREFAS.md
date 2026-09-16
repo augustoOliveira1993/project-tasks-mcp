@@ -119,3 +119,36 @@ Para consultar a tarefa no Postman antes de decidir, envie `POST /admin/query` c
 O Postman substitui `{{$guid}}` automaticamente por um UUID novo a cada envio. Copie a `version` atual de `task.version` para o corpo de `/admin`.
 
 Se a rede falhar depois do envio, nao use `{{$guid}}` para o retry: copie o UUID usado do Postman, substitua-o no body por texto fixo e repita o mesmo corpo. Isso preserva a idempotencia e evita aprovar duas vezes.
+
+## Diagnostico de erros comuns
+
+### `Project access denied`
+
+Confira, nesta ordem:
+
+1. A URL chama o processo certo: em desenvolvimento use `http://localhost:3443/admin`; em servidor compartilhado use a URL publicada dele. Nao misture o token de um banco com a URL de outro servidor.
+2. O token deve ser uma credencial `human`. Token de agente, token privado de projeto e `credentialId` nao servem para `/admin`.
+3. Para um administrador normal, o e-mail da credencial precisa estar em `project.members` com papel `administrador`. Uma credencial `systemAdmin` pode administrar qualquer projeto.
+4. O `projectId` precisa ser o mesmo da tarefa. Consulte `POST /admin/query` com `get_task_context` e use `task.projectId`/`project._id` retornados.
+
+### `Version conflict`
+
+Nao reutilize uma versao copiada de outra tela. Consulte a tarefa imediatamente antes da decisao e copie `task.version` atual para o campo `version`. Cada mutacao bem-sucedida incrementa a versao.
+
+### `Invalid user ID or email`
+
+Em uma acao `member`, envie apenas o e-mail puro em `userId`. Nao escape o `@` e nao inclua token, barras, asteriscos ou espacos:
+
+```json
+"userId": "nome@empresa.com.br"
+```
+
+### Token exposto
+
+Nunca cole token em conversa, log, print ou arquivo versionado. Se isso acontecer, rotacione-o no ambiente correto:
+
+```powershell
+yarn cli recover nome@empresa.com.br --confirm
+```
+
+Use o token novo somente no header `Authorization: Bearer ...` e remova `ADMIN_TOKEN` da sessao ao terminar.

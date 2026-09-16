@@ -46,6 +46,17 @@ export async function recoverHumanToken(userId: string) {
   });
   return token;
 }
+export async function restoreSystemAdminToken(userId: string) {
+  userIdSchema.parse(userId);
+  const token = randomBytes(32).toString('hex');
+  await mongoose.connection.transaction(async s => {
+    requireThat(!await Credential.exists({ scope: 'human', systemAdmin: true, revoked: false }).session(s), 'An active system administrator already exists', 409);
+    const credentialId = randomUUID();
+    await Credential.create([{ _id: credentialId, userId, hash: hash(token), scope: 'human', systemAdmin: true }], { session: s });
+    await Event.create([{ _id: randomUUID(), entityId: credentialId, action: 'restore_system_admin', author: userId, at: new Date() }], { session: s });
+  });
+  return token;
+}
 export class Service {
   readonly events = new EventHub();
   readonly automation = new Automation(this);
