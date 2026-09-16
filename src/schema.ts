@@ -12,7 +12,7 @@ export const projectData = z.object({ name: text, description: text, instruction
 export const featureData = z.object({ name: text, objective: text, context: text, acceptance: z.array(text).min(1).max(100) }).strict();
 export const taskData = z.object({
   name: text, instructions: text, acceptance: z.array(text).min(1).max(100), priority: z.number().int().min(0).max(5),
-  area: z.enum(['backend', 'frontend', 'outro']), repositoryId: id, featureId: id.nullish(), type: taskType.default('feature'), dependencies: z.array(id).max(100)
+  area: z.enum(['backend', 'frontend', 'outro']), repositoryId: id, featureId: id.nullish(), type: taskType.default('feature'), dependencies: z.array(id).max(100), responsible: text.optional()
 }).strict();
 const op = { operationId: id };
 const target = { projectId: id, taskId: id, executionId: id, version: z.number().int().nonnegative(), ...op };
@@ -33,6 +33,7 @@ export const tools = {
   get_record: z.object({ projectId: id, kind, id }).strict(),
   list_executions: z.object({ projectId: id, taskId: id, after: id.optional(), limit: z.number().int().min(1).max(100).default(25) }).strict(),
   get_task_context: z.object({ projectId: id, taskId: id }).strict(),
+  get_task_markdown_summary: z.object({ projectId: id, taskId: id }).strict(),
   get_history: z.object({ projectId: id, entityId: id.optional(), after: id.optional(), limit: z.number().int().min(1).max(100).default(25) }).strict(),
   get_summary: z.object({ projectId: id, featureId: id.optional() }).strict(),
   get_project_area_summary: z.object({ projectId: id, featureId: id.optional() }).strict(),
@@ -64,3 +65,14 @@ export const adminSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('issue'), ...op, userId, scope: z.enum(['agent', 'human']), systemAdmin: z.boolean().default(false), token: z.string().regex(/^[a-f0-9]{64}$/) }).strict(),
   z.object({ action: z.literal('revoke'), ...op, credentialId: id }).strict()
 ]);
+export const approveTasksSchema = z.object({
+  projectId: id,
+  taskIds: z.array(id).min(1).max(100).refine(ids => new Set(ids).size === ids.length, 'Task IDs must be unique'),
+  reason: text.default('Aprovado manualmente em lote')
+}).strict();
+export const changeTaskStatusSchema = z.object({
+  projectId: id,
+  taskId: id,
+  status: z.enum(['pendente', 'em_revisao', 'concluida', 'cancelada']),
+  reason: text
+}).strict();

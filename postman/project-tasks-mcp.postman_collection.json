@@ -328,6 +328,27 @@
             },
             "url": "{{baseUrl}}/admin"
           }
+        },
+        {
+          "name": "Approve tasks in batch",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{humanToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"projectId\": \"{{projectId}}\",\n  \"taskIds\": [\"{{taskId}}\"],\n  \"reason\": \"Aprovado manualmente em lote\"\n}"
+            },
+            "url": "{{baseUrl}}/admin/tasks/approve"
+          }
         }
       ]
     }

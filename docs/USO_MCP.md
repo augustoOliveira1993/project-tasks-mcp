@@ -2,6 +2,8 @@
 
 Depois de instalar globalmente o MCP, inicie o chat dizendo qual projeto e feature devem ser usados. O protocolo MCP não fornece ao servidor o ID da conversa; por isso, o agente deve resolver o projeto e enviar o `projectId` explicitamente em cada ferramenta.
 
+Para instruções operacionais completas de uma IA, consulte o [GUIA_AGENTE_MCP.md](GUIA_AGENTE_MCP.md).
+
 Fluxo recomendado:
 
 1. `list_records` encontra o projeto FBI ou `create_project` o cria.

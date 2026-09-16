@@ -3,7 +3,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { Project, Feature, Task, Execution, Event, TaskMessage, DeliveryEvent, AutomationJob, MarkdownDocument, MarkdownRevision, Operation, Credential, Bootstrap } from './db.js';
 import { EventHub, readEvents } from './events.js';
 import { Automation } from './automation.js';
-import { tools, adminSchema, projectData, featureData, taskData, states, userId as userIdSchema } from './schema.js';
+import { tools, adminSchema, approveTasksSchema, changeTaskStatusSchema, projectData, featureData, taskData, states, userId as userIdSchema } from './schema.js';
 
 export class DomainError extends Error { constructor(message: string, public status = 409) { super(message); } }
 export type Actor = { id: string; userId: string; scope: string; systemAdmin: boolean; projectToken?: string; sessionId?: string; jobId?: string; runnerId?: string };
@@ -50,6 +50,7 @@ export class Service {
   readonly events = new EventHub();
   readonly automation = new Automation(this);
   constructor(public leaseMs = 30 * 60 * 1000) { requireThat(Number.isFinite(leaseMs) && leaseMs > 0, 'Invalid lease'); }
+  private responsibleFor(actor: Actor) { const responsible = actor.userId.trim(); requireThat(responsible, 'Authenticated agent has no user identity', 401); return responsible; }
   onTaskEvent(listener: (event: any) => void) { return this.events.on(listener); }
   private markdownMeta(doc: any) { const value = plain(doc); delete value.__v; return value; }
   private async markdowns(projectId: string, targetKind: string, targetId: string, after?: string, limit = 25) {
@@ -228,7 +229,7 @@ export class Service {
             await this.event(s, actor, 'auto_member', a.projectId, a.projectId, { userId: actor.userId, role: 'colaborador' });
           }
         }
-        t.executionId = randomUUID(); t.status = 'em_execucao'; t.responsible = actor.userId; t.leaseUntil = new Date(now.getTime() + this.leaseMs);
+        t.executionId = randomUUID(); t.status = 'em_execucao'; t.responsible = this.responsibleFor(actor); t.leaseUntil = new Date(now.getTime() + this.leaseMs);
         await Execution.create([{ _id: t.executionId, projectId: a.projectId, taskId: t._id, credentialId: actor.id, userId: actor.userId, agent: a.agent, managedJobId: actor.jobId, startedAt: now, lastActivity: now, status: 'em_execucao' }], { session: s });
       } else {
         requireThat(t.status === 'em_execucao' && t.executionId === a.executionId && t.leaseUntil! > now, 'Execution inactive or expired');
@@ -386,6 +387,28 @@ export class Service {
     const executionIds = dependencies.flatMap(d => d.executionId ? [d.executionId] : []);
     const results = await Execution.find({ _id: { $in: executionIds } }).lean();
     const [taskMarkdowns, featureMarkdowns] = await Promise.all([this.markdowns(a.projectId, 'task', task._id!, undefined, 25), task.featureId ? this.markdowns(a.projectId, 'feature', task.featureId, undefined, 25) : Promise.resolve({ items: [], next: null })]);
+    if (name === 'get_task_markdown_summary') {
+      const escape = (value: string) => value.replace(/[\x0D\x0A]/g, ' ').replace(/#/g, '\\#');
+      const date = (value?: Date) => value ? new Date(value).toISOString() : 'Não informado';
+      const repository = project!.repositories.find(item => item.id === task.repositoryId);
+      const lines = [`# ${escape(task.name!)}`, '', '## Identificação', '', `- **ID:** \`${task._id}\``, `- **Status:** \`${task.status}\``, `- **Área:** ${task.area}`, `- **Tipo:** ${task.type ?? 'feature'}`, `- **Prioridade:** ${task.priority}`, `- **Responsável:** ${task.responsible ?? 'Não atribuído'}`, `- **Criada em:** ${date(task.createdAt)}`, `- **Atualizada em:** ${date(task.updatedAt)}`, '', '## Projeto', '', `- **Nome:** ${escape(project!.name!)}`, `- **Descrição:** ${project!.description || '_Não informada._'}`, '', '## Feature', ''];
+      if (feature) lines.push(`- **Nome:** ${escape(feature.name!)}`, `- **Objetivo:** ${feature.objective || '_Não informado._'}`, `- **Contexto:** ${feature.context || '_Não informado._'}`); else lines.push('_Tarefa independente, sem feature vinculada._');
+      lines.push('', '## Repositório', '');
+      if (repository) lines.push(`- **Nome:** ${escape(repository.name)}`, `- **URL:** ${repository.url}`, `- **Instruções:** ${repository.instructions || '_Não informadas._'}`); else lines.push('_Repositório não encontrado no projeto._');
+      lines.push('', '## Instruções', '', task.instructions || '_Não informado._', '', '## Critérios de aceite', '');
+      if (task.acceptance?.length) for (const item of task.acceptance) lines.push(`- ${item}`); else lines.push('_Nenhum critério informado._');
+      lines.push('', `## Dependências (${dependencies.length})`, '');
+      if (dependencies.length) for (const dependency of dependencies) lines.push(`- **${escape(dependency.name!)}** — \`${dependency.status}\`${dependency.execution ? `; execução: \`${dependency.execution.status}\`` : ''}`); else lines.push('_Sem dependências._');
+      const executions = await Execution.find({ taskId: task._id }).sort({ startedAt: -1 }).limit(25).lean();
+      lines.push('', `## Execuções (${executions.length})`, '');
+      if (executions.length) for (const execution of executions) { lines.push(`- **${execution.status}** — iniciada em ${date(execution.startedAt)}`); if (execution.result?.summary) lines.push(`  - Resultado: ${execution.result.summary}`); if (execution.result?.evidence?.length) lines.push(`  - Evidências: ${execution.result.evidence.join('; ')}`); } else lines.push('_Nenhuma execução registrada._');
+      lines.push('', `## Mensagens (${taskMessages.length})`, '');
+      if (taskMessages.length) for (const message of taskMessages) lines.push(`- **${message.type}** por ${message.author} em ${date(message.createdAt)}: ${message.message}`); else lines.push('_Nenhuma mensagem registrada._');
+      const documents = [...taskMarkdowns.items.map(document => ({ scope: 'tarefa', ...document })), ...featureMarkdowns.items.map(document => ({ scope: 'feature', ...document }))];
+      lines.push('', `## Documentos (${documents.length})`, '');
+      if (documents.length) for (const document of documents) lines.push(`- **${escape(document.name)}** (${document.scope}, revisão ${document.revision})${document.summary ? ` — ${document.summary}` : ''}`); else lines.push('_Nenhum documento vinculado._');
+      return { markdown: lines.join('\n').trimEnd() + '\n', generatedAt: new Date().toISOString(), taskId: task._id };
+    }
     return { task: { ...task, type: task.type ?? 'feature' }, project, feature, repository: project!.repositories.find(r => r.id === task.repositoryId), markdowns: { task: taskMarkdowns, feature: featureMarkdowns }, messages: taskMessages, dependencies: dependencies.map(d => ({ ...d, type: d.type ?? 'feature', execution: results.find(e => e._id === d.executionId) })), executions: await Execution.find({ taskId: task._id }).sort({ startedAt: -1 }).limit(25).lean() };
   }
   async admin(actor: Actor, input: unknown) {
@@ -426,6 +449,47 @@ export class Service {
       await t.save({ session: s }); await this.event(s, actor, a.decision, a.projectId, a.taskId, a); return t;
     });
     return result;
+  }
+  async approveTasks(actor: Actor, input: unknown) {
+    requireThat(actor.scope === 'human', 'Human credential required', 403);
+    const body = approveTasksSchema.parse(input);
+    const operationId = randomUUID();
+    return this.mutate(actor, 'admin', { action: 'approve_tasks', operationId, ...body }, async s => {
+      const tasks = await Task.find({ _id: { $in: body.taskIds }, projectId: body.projectId, archived: false }).session(s);
+      requireThat(tasks.length === body.taskIds.length, 'Task not found', 404);
+      requireThat(tasks.every(task => task.status === 'em_revisao'), 'Only tasks in review can be approved');
+      const byId = new Map(tasks.map(task => [task._id!, task]));
+      for (const taskId of body.taskIds) {
+        const task = byId.get(taskId)!;
+        task.status = 'concluida'; task.leaseUntil = undefined; task.version! += 1;
+        if (task.executionId) await Execution.updateOne({ _id: task.executionId }, { status: 'approve', endedAt: new Date() }, { session: s });
+        await task.save({ session: s });
+        await this.event(s, actor, 'approve', body.projectId, taskId, { action: 'approve', operationId, projectId: body.projectId, taskId, reason: body.reason, task: plain(task) });
+      }
+      return { operationId, tasks: body.taskIds.map(taskId => plain(byId.get(taskId)!)) };
+    });
+  }
+  async changeTaskStatus(actor: Actor, input: unknown) {
+    requireThat(actor.scope === 'human', 'Human credential required', 403);
+    const body = changeTaskStatusSchema.parse(input);
+    const operationId = randomUUID();
+    return this.mutate(actor, 'admin', { action: 'change_task_status', operationId, ...body }, async s => {
+      const task = await Task.findOne({ _id: body.taskId, projectId: body.projectId, archived: false }).session(s);
+      requireThat(task, 'Task not found', 404);
+      const allowed: Record<string, string[]> = {
+        pendente: ['em_revisao', 'concluida', 'cancelada'],
+        bloqueada: ['pendente', 'em_revisao', 'concluida', 'cancelada'],
+        em_revisao: ['pendente', 'concluida', 'cancelada'],
+        concluida: ['pendente']
+      };
+      requireThat(allowed[task.status!]?.includes(body.status), 'Invalid administrative status transition');
+      task.status = body.status; task.leaseUntil = undefined; task.version! += 1;
+      if (task.executionId && ['concluida', 'cancelada'].includes(body.status)) await Execution.updateOne({ _id: task.executionId }, { status: body.status === 'concluida' ? 'approve' : 'cancel', endedAt: new Date() }, { session: s });
+      await AutomationJob.updateMany({ taskId: task._id }, { $set: { authorizationValid: false }, $inc: { version: 1 } }, { session: s });
+      await task.save({ session: s });
+      await this.event(s, actor, 'manual_status_change', body.projectId, body.taskId, { action: 'change_task_status', operationId, ...body, task: plain(task) });
+      return { operationId, task: plain(task) };
+    });
   }
   async expire() {
     const expired = await Task.find({ status: 'em_execucao', leaseUntil: { $lte: new Date() } }).select('_id').limit(100).lean();

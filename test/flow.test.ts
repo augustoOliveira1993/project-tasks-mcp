@@ -1,13 +1,14 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { adminPage } from '../src/admin-page.js';
 import { randomBytes, randomUUID } from 'node:crypto';
 import mongoose from 'mongoose';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { connect, Project, Task, Event, Execution, Credential } from '../src/db.js';
-import { Service, authenticate, bootstrap, recoverHumanToken, trustedLocal, type Actor } from '../src/service.js';
-import { createApp } from '../src/http.js';
+import { DomainError, Service, authenticate, bootstrap, recoverHumanToken, trustedLocal, type Actor } from '../src/service.js';
+import { createApp, mcpError } from '../src/http.js';
 
 let repl: MongoMemoryReplSet;
 let service: Service;
@@ -45,6 +46,7 @@ test('complete backend -> human approval -> frontend, history and persistence', 
   let back = await create('Back'); let front = await create('Front', [back._id], 'frontend');
   await assert.rejects(claim(p, front), /Dependencies/);
   back = await claim(p, back);
+  assert.equal(back.responsible, 'owner');
   back = await service.call(agent, 'submit_task', { ...active(p, back), result });
   await assert.rejects(claim(p, front), /Dependencies/);
   back = await review(p, back, 'approve');
@@ -108,6 +110,24 @@ test('changes preserve evidence, block/unblock and cancellation', async () => {
   await service.call(agent, 'archive_record', { operationId: op(), projectId: p._id, kind: 'task', id: t._id, version: t.version });
   assert.equal((await Task.findById(t._id))!.archived, true);
 });
+test('planned responsible is configurable before claim and executor identity replaces it', async () => {
+  const { p, create } = await fixture(); const task = await create('Assigned task');
+  const assigned = await service.call(agent, 'edit_record', { operationId: op(), projectId: p._id, kind: 'task', id: task._id, version: task.version, data: { responsible: 'Equipe PCP' } });
+  assert.equal(assigned.responsible, 'Equipe PCP');
+  const claimed = await claim(p, assigned);
+  assert.equal(claimed.responsible, 'owner');
+});
+test('human status override moves blocked tasks to review or completion', async () => {
+  const { p, create } = await fixture(); let task = await claim(p, await create('Blocked override'));
+  task = await service.call(agent, 'block_task', { ...active(p, task), reason: 'Needs human decision' });
+  const reviewed = await service.changeTaskStatus(human, { projectId: p._id, taskId: task._id, status: 'em_revisao', reason: 'Evidence checked manually' });
+  assert.equal(reviewed.task.status, 'em_revisao');
+  const completed = await service.changeTaskStatus(human, { projectId: p._id, taskId: task._id, status: 'concluida', reason: 'Approved manually' });
+  assert.equal(completed.task.status, 'concluida');
+  const reopened = await service.changeTaskStatus(human, { projectId: p._id, taskId: task._id, status: 'pendente', reason: 'Work must be redone' });
+  assert.equal(reopened.task.status, 'pendente');
+  await assert.rejects(service.changeTaskStatus(human, { projectId: p._id, taskId: task._id, status: 'em_execucao', reason: 'Invalid' }), /Invalid option/);
+});
 test('project permissions, reader restrictions, human scope and revocation', async () => {
   const { p, create } = await fixture(); let t = await create('Secret');
   await assert.rejects(service.call(other, 'get_task_context', { projectId: p._id, taskId: t._id }), /access denied/);
@@ -122,6 +142,17 @@ test('project permissions, reader restrictions, human scope and revocation', asy
   await service.admin(human, { action: 'revoke', operationId: op(), credentialId: issued.credentialId });
   await assert.rejects(authenticate(token, 'agent'), /credential/);
   assert.equal(await Credential.countDocuments({ hash: token }), 0);
+});
+test('human bulk approval is atomic and generates its operation ID', async () => {
+  const { p, create } = await fixture();
+  let first = await create('First'); let second = await create('Second'); const pending = await create('Pending');
+  first = await service.call(agent, 'submit_task', { ...active(p, await claim(p, first)), result });
+  second = await service.call(agent, 'submit_task', { ...active(p, await claim(p, second)), result });
+  const approved = await service.approveTasks(human, { projectId: p._id, taskIds: [first._id, second._id], reason: 'Batch review' });
+  assert.match(approved.operationId, /^[0-9a-f-]{36}$/);
+  assert.deepEqual(approved.tasks.map((task: any) => task.status), ['concluida', 'concluida']);
+  await assert.rejects(service.approveTasks(human, { projectId: p._id, taskIds: [pending._id], reason: 'Invalid batch' }), /Only tasks in review/);
+  assert.equal((await Task.findById(pending._id))!.status, 'pendente');
 });
 test('system administrators can administer projects outside their membership', async () => {
   const repositoryId = op();
@@ -155,9 +186,18 @@ test('MCP real HTTP handshake, tool listing, tool call and endpoint boundaries',
   try {
     await client.connect(new StreamableHTTPClientTransport(new URL(`${url}/mcp`), { requestInit: { headers: { authorization: `Bearer ${agentToken}` } } }));
     const listed = await client.listTools(); assert.ok(listed.tools.some(t => t.name === 'claim_task'));
+    assert.match(listed.tools.find(t => t.name === 'claim_task')!.description!, /responsible.*usuário autenticado atual/);
     assert.ok(!listed.tools.some(t => /approve|review/.test(t.name)));
     const response = await client.callTool({ name: 'list_records', arguments: { kind: 'project', limit: 1 } });
     assert.ok(!response.isError);
+    const { p, create } = await fixture(); let task = await create('HTTP approval');
+    const claimError = await client.callTool({ name: 'claim_task', arguments: { operationId: op(), projectId: p._id, taskId: task._id, version: task.version + 1, agent: 'Codex' } });
+    assert.ok(claimError.isError);
+    assert.deepEqual(JSON.parse((claimError.content as any)[0].text), { code: 'VERSION_CONFLICT', reason: 'O registro foi alterado desde a versão enviada.', recoverable: true, nextAction: 'Leia o contexto ou registro novamente, use a version atual e gere outro operationId.', error: 'Task missing or version conflict' });
+    task = await service.call(agent, 'submit_task', { ...active(p, await claim(p, task)), result });
+    const approved = await fetch(`${url}/admin/tasks/approve`, { method: 'POST', headers: { authorization: `Bearer ${humanToken}`, 'content-type': 'application/json' }, body: JSON.stringify({ projectId: p._id, taskIds: [task._id] }) });
+    assert.equal(approved.status, 200); assert.match((await approved.json()).operationId, /^[0-9a-f-]{36}$/);
+    assert.equal((await fetch(`${url}/admin`)).status, 200);
     assert.equal((await fetch(`${url}/admin`, { method: 'POST', headers: { authorization: `Bearer ${agentToken}`, 'content-type': 'application/json' }, body: '{}' })).status, 401);
     assert.equal((await fetch(`${url}/mcp`, { method: 'POST', headers: { authorization: `Bearer ${humanToken}`, 'content-type': 'application/json' }, body: '{}' })).status, 401);
     assert.equal((await fetch(`${url}/mcp`, { method: 'POST', headers: { origin: 'https://evil.example' } })).status, 403);
@@ -178,6 +218,14 @@ test('cooperative task messages are durable, scoped and idempotent', async () =>
   assert.equal(listed.items.length, 1);
   assert.match((await service.call(agent, 'get_task_context', { projectId: p._id, taskId: front._id })).messages[0].message, /API contract/);
   await assert.rejects(service.call(other, 'list_task_messages', { projectId: p._id, taskId: front._id }), /access denied/);
+});
+test('MCP error catalog explains recovery paths without exposing internals', () => {
+  assert.deepEqual(JSON.parse(mcpError(new DomainError('Dependencies not approved'))), { code: 'DEPENDENCY_PENDING', reason: 'Há dependências ou tarefas ativas que impedem a operação.', recoverable: true, nextAction: 'Use get_task_context ou get_summary para localizar as pendências e aguarde a aprovação ou conclusão necessária.', error: 'Dependencies not approved' });
+  assert.equal(JSON.parse(mcpError(new DomainError('Execution inactive or expired'))).recoverable, false);
+  assert.equal(JSON.parse(mcpError(new DomainError('Task has an active runner'))).code, 'AUTOMATION_CONFIGURATION');
+  assert.equal(JSON.parse(mcpError(new DomainError('Only task participants may collaborate'))).code, 'COLLABORATION_SCOPE');
+  assert.equal(JSON.parse(mcpError(new DomainError('Consultation is read-only'))).code, 'RUNNER_SCOPE');
+  assert.deepEqual(JSON.parse(mcpError(new Error('database password leaked'))), { code: 'INTERNAL_ERROR', reason: 'O servidor encontrou uma falha inesperada; detalhes internos foram ocultados.', recoverable: false, nextAction: 'Não repita automaticamente. Registre o horário e a ferramenta usada e solicite suporte humano.', error: 'Internal service error' });
 });
 test('recovery rotates a human credential without persisting its token', async () => {
   const recoveredToken = await recoverHumanToken('owner');
@@ -228,6 +276,29 @@ test('project area summary returns current markdown without persistence', async 
   assert.match(summary.markdown, /## Frontend[\s\S]*Pendentes \(1\)[\s\S]*Pending frontend/);
   assert.match(summary.markdown, /## Outro[\s\S]*Other item/);
   assert.equal(summary.taskCount, 3); assert.equal(front.status, 'pendente'); assert.equal(other.status, 'pendente');
+});
+test('admin page delivers a parseable script with markdown views, chained filters and pagination', () => {
+  const script = adminPage.match(/<script>([\s\S]*)<\/script>/)?.[1];
+  assert.ok(script);
+  assert.doesNotThrow(() => new Function(script));
+  assert.match(script, /activeMarkdown/);
+  assert.match(script, /function showRendered/);
+  for (const id of ['search', 'area', 'status', 'type', 'priority', 'responsible', 'featureId', 'created-from', 'created-to', 'updated-from', 'updated-to', 'clear-filters', 'page-size', 'page-info', 'previous-page', 'next-page']) assert.match(adminPage, new RegExp('id="' + id + '"'));
+  assert.match(script, /function refreshFilterOptions/);
+  assert.match(script, /function matches/);
+  assert.match(script, /featuresById/);
+  assert.match(script, /pageSize/);
+  assert.match(adminPage, />Responsável</);
+  assert.match(script, /t\.responsible\|\|'Não atribuído'/);
+});
+test('task markdown summary turns task context into readable sections', async () => {
+  const { p, create } = await fixture(); const task = await create('Readable task');
+  const summary = await service.call(agent, 'get_task_markdown_summary', { projectId: p._id, taskId: task._id });
+  assert.match(summary.markdown, /# Readable task/);
+  assert.match(summary.markdown, /## Instruções/);
+  assert.match(summary.markdown, /## Critérios de aceite/);
+  assert.match(summary.markdown, /## Dependências \(0\)/);
+  assert.match(summary.markdown, /## Execuções \(0\)/);
 });
 test('pagination, direct records, immutable archival retries and human queries', async () => {
   const { p, f, create } = await fixture();
