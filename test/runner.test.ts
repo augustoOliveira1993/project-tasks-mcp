@@ -13,7 +13,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { connect, Task, AutomationJob, TaskMessage, Execution } from '../src/db.js';
 import { Service, bootstrap, authenticate, type Actor } from '../src/service.js';
 import { createApp } from '../src/http.js';
-import { LocalRunner, RunnerClient, runnerConfig } from '../src/runner/runtime.js';
+import { LocalRunner, RunnerClient, limitedTaskContext, runnerConfig, runnerPrompt } from '../src/runner/runtime.js';
 import { CodexAdapter, ClaudeAdapter, type AgentAdapter, type AdapterOptions } from '../src/runner/adapters.js';
 import { createJobBridge } from '../src/runner/bridge.js';
 
@@ -94,6 +94,23 @@ for (const real of [false, true]) test(`${real ? 'real providers' : 'simulation'
 
 test('runner forbids plaintext bearer transport outside loopback', () => {
   assert.throws(() => new RunnerClient('http://internal-server:3443', token), /HTTPS/);
+});
+
+test('runner prompt limits the initial context to the authorized area and repository', () => {
+  const state = {
+    task: { _id: 'task-backend', area: 'backend', repositoryId: 'repo-backend', name: 'Backend task', type: 'feature', priority: 1, instructions: 'Only this task', acceptance: ['Done'] },
+    repository: { id: 'repo-backend', name: 'backend-repo', url: 'file:///backend', instructions: 'Backend only' },
+    project: { repositories: [{ name: 'frontend-repo' }] }, dependencies: [{ name: 'Frontend task', area: 'frontend' }], messages: [{ message: 'Frontend detail' }]
+  };
+  const context = limitedTaskContext(state);
+  assert.deepEqual(context, {
+    scope: { taskId: 'task-backend', area: 'backend', repositoryId: 'repo-backend' },
+    task: { id: 'task-backend', name: 'Backend task', area: 'backend', type: 'feature', priority: 1, instructions: 'Only this task', acceptance: ['Done'] },
+    repository: { id: 'repo-backend', name: 'backend-repo', url: 'file:///backend', instructions: 'Backend only' }
+  });
+  const prompt = runnerPrompt(state, { mode: 'execution' });
+  assert.match(prompt, /Do not implement, edit, or expand work from another area/);
+  assert.doesNotMatch(prompt, /frontend-repo|Frontend task|Frontend detail/);
 });
 
 test('read-only bridge rejects traversal, linked paths and write tools', async () => {
