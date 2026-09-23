@@ -34,3 +34,5 @@ Mostre o plano antes de criar a tarefa.
 5. Use `submit_task` com resumo, arquivos, verificações, evidências, branch, commit e PR quando existirem.
 
 A pessoa revisora aprova pela CLI. Depois da aprovação, tarefas de frontend que dependem dela ficam disponíveis.
+
+Quando o checkout estiver vinculado por Git, publique a evidência técnica com `publish_task_diff`. Inclua patch somente quando a revisão precisar dele; commits e arquivos são sempre suficientes para rastreabilidade básica.

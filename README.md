@@ -4,6 +4,8 @@ Servidor MCP para coordenar projetos, features e tarefas entre equipes. Mantém 
 
 O serviço não executa agentes nem acessa repositórios de trabalho.
 
+Opcionalmente, `yarn bridge` inicia uma bridge MCP stdio local. Ela lê somente o Git do checkout atual, resolve um repositório previamente vinculado e publica diffs; o MCP HTTP continua sendo a API canônica.
+
 ## Executar localmente
 
 ```powershell
@@ -52,6 +54,7 @@ Consulte o guia de [configuração global](docs/CONFIGURACAO_GLOBAL_MCP.md) para
 | Cadastro e execução de tarefas de backend | [Tarefas de backend](docs/TAREFAS_BACKEND.md) |
 | Cadastro e execução de tarefas de frontend | [Tarefas de frontend](docs/TAREFAS_FRONTEND.md) |
 | Chamadas HTTP administrativas | [Collection Postman](postman/project-tasks-mcp.postman_collection.json) |
+| Colaboração Git, diffs e contexto automático | [Uso do MCP](docs/USO_MCP.md) |
 
 ## Validação
 

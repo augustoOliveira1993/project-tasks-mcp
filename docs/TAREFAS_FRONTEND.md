@@ -34,3 +34,5 @@ Mostre o plano antes de criar a tarefa.
 5. Implemente, registre progresso e use `submit_task` com arquivos, verificações e evidências.
 
 Não altere `fbi_back` a partir de uma tarefa frontend. Se o contrato precisar mudar, crie ou ajuste uma tarefa backend separada.
+
+Ao receber um contrato ou diff do backend, consulte `get_project_novelties` ou a bridge `status` antes de iniciar a implementação. O vínculo Git facilita seleção de contexto, mas não permite alterar a tarefa ou repositório de outra área.

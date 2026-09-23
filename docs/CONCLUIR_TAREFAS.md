@@ -36,6 +36,10 @@ yarn cli context ID_DO_PROJETO ID_DA_TAREFA
 
 Use o valor atual de `task.version`. A aprovacao falha se a versao estiver desatualizada ou se a tarefa nao estiver em `em_revisao`.
 
+## Diffs e evidencias
+
+`submit_task` pode referenciar `diffIds` produzidos por `publish_task_diff`. A aprovacao humana continua baseada no estado `em_revisao`, verificacoes e evidencias registradas; o diff nao aprova, faz merge ou implanta codigo.
+
 ## 3. Enviar a aprovacao
 
 Crie um arquivo temporario `aprovar.json` fora do repositorio com os IDs e a versao consultada:

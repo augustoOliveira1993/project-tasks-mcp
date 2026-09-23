@@ -13,6 +13,7 @@
     "mongo:local": "node --env-file-if-exists=.env --import tsx src/local-mongo.ts",
     "test:clients": "node --import tsx --test test/clients.test.ts",
     "runner": "node --import tsx src/runner/main.ts",
+    "bridge": "node --env-file-if-exists=.env --import tsx src/bridge/main.ts",
     "test:realtime": "node --import tsx --test test/realtime.test.ts test/runner.test.ts"
   },
   "dependencies": {

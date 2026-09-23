@@ -283,13 +283,16 @@ test('admin page delivers a parseable script with markdown views, chained filter
   assert.doesNotThrow(() => new Function(script));
   assert.match(script, /activeMarkdown/);
   assert.match(script, /function showRendered/);
-  for (const id of ['search', 'area', 'status', 'type', 'priority', 'responsible', 'featureId', 'created-from', 'created-to', 'updated-from', 'updated-to', 'clear-filters', 'page-size', 'page-info', 'previous-page', 'next-page']) assert.match(adminPage, new RegExp('id="' + id + '"'));
+  for (const id of ['search', 'area', 'status', 'type', 'priority', 'responsible', 'featureId', 'created-from', 'created-to', 'updated-from', 'updated-to', 'clear-filters', 'page-size', 'page-info', 'previous-page', 'next-page', 'novelties', 'git-binding', 'git-modal', 'git-form']) assert.match(adminPage, new RegExp('id="' + id + '"'));
   assert.match(script, /function refreshFilterOptions/);
   assert.match(script, /function matches/);
   assert.match(script, /featuresById/);
   assert.match(script, /pageSize/);
   assert.match(adminPage, />Responsável</);
   assert.match(script, /t\.responsible\|\|'Não atribuído'/);
+  assert.match(script, /get_project_novelties/);
+  assert.match(script, /list_task_diffs/);
+  assert.match(script, /bind_repository_git/);
 });
 test('task markdown summary turns task context into readable sections', async () => {
   const { p, create } = await fixture(); const task = await create('Readable task');
@@ -321,4 +324,22 @@ test('pagination, direct records, immutable archival retries and human queries',
   const archived = await service.call(agent, 'archive_record', args);
   assert.deepEqual(await service.call(agent, 'archive_record', args), archived);
   assert.equal(await Event.countDocuments({ entityId: p._id, action: 'archive_record' }), 1);
+});
+
+test('Git bindings, task diffs, novelties and concurrent Markdown updates are compatible additions', async () => {
+  const { p, create } = await fixture();
+  const bound = await service.admin(human, { action: 'bind_repository_git', operationId: op(), projectId: p._id, version: p.version, repositoryId: p.repositories[0].id, canonicalRemoteUrl: 'https://example.com/repo', rootCommit: 'a'.repeat(40) });
+  assert.equal(bound.repositories[0].git.canonicalRemoteUrl, 'https://example.com/repo');
+  const task = await create('Diff task');
+  const diff = await service.call(agent, 'record_task_diff', { operationId: op(), projectId: p._id, taskId: task._id, repositoryId: p.repositories[0].id, baseCommit: 'a'.repeat(40), commit: 'b'.repeat(40), branch: 'codex/task-diff', files: ['src/example.ts'], patch: '+export const value = 1;\n', truncated: false, agent: 'Codex' });
+  assert.equal((await service.call(agent, 'list_task_diffs', { projectId: p._id, taskId: task._id, limit: 10 })).items[0]._id, diff._id);
+  assert.match((await service.call(agent, 'get_task_diff', { projectId: p._id, taskId: task._id, id: diff._id })).patch, /value/);
+  const saved = await service.call(agent, 'save_markdown', { operationId: op(), projectId: p._id, targetKind: 'task', targetId: task._id, name: 'git.md', summary: 'Initial', content: 'one' });
+  const updated = await service.call(agent, 'update_markdown', { operationId: op(), projectId: p._id, documentId: saved._id, baseRevision: saved.revision, summary: 'Updated', content: 'two' });
+  assert.equal(updated.revision, 2);
+  await assert.rejects(service.call(agent, 'update_markdown', { operationId: op(), projectId: p._id, documentId: saved._id, baseRevision: 1, summary: 'Stale', content: 'three' }), /Markdown revision conflict/);
+  const novelty = await service.call(rival, 'get_project_novelties', { projectId: p._id, limit: 100 });
+  assert.ok(novelty.items.some((item: any) => item.kind === 'task.diff.published'));
+  await service.call(rival, 'mark_project_read', { operationId: op(), projectId: p._id, cursor: novelty.cursor });
+  assert.equal((await service.call(rival, 'get_project_novelties', { projectId: p._id, limit: 100 })).count, 0);
 });

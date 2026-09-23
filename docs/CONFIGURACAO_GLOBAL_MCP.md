@@ -55,3 +55,7 @@ No chat, use `/mcp` e então peça: `Use project_tasks no projeto FBI, feature P
 ## Identidade e revisão
 
 O e-mail é registrado em eventos e execuções sem token de agente. A aprovação humana ainda exige `ADMIN_TOKEN` pela CLI. Não use `trusted_local` fora de uma rede privada controlada.
+
+## Bridge Git opcional
+
+Para clientes MCP que executam um processo local, prefira bearer individual e registre a bridge no perfil do usuário, fora do repositório. Ela exige `PTM_SERVICE_URL` e `PTM_BRIDGE_TOKEN` no ambiente e executa `yarn bridge` a partir desta instalação. A bridge lê Git localmente; não envie caminho de checkout, patch ou token ao arquivo versionado de configuração.

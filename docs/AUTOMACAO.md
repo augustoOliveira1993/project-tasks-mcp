@@ -57,6 +57,8 @@ Perguntas dirigidas podem criar consultas somente leitura para tasks ja liberada
 
 O executor usa um MCP local com token efemero restrito ao job. Identidade, task, versao e executionId sao fornecidos pelo processo supervisor. Chamadas de heartbeat e ferramentas passam por fila serial por execucao. Os provedores nao recebem o bearer do servidor.
 
+O runner continua independente da bridge manual. Ao submeter uma tarefa, pode informar commits, branch, arquivos e `diffIds`; a publicação de patch completo só ocorre pela bridge local, mediante opt-in e limite de 100 KiB.
+
 ## Recuperacao e rollback
 
 Reserve, registre checkout/sessao e confirme cada turno. Uma queda no meio de um turno deixa resultado incerto: bloquear e revisar a sessao e os arquivos antes de nova liberacao. Nunca repetir automaticamente publicacoes ou comandos externos. Retomada segura exige mesma maquina, checkout, sessao e reserva ainda ativa. O lease do executor e 90 segundos, renovado a cada 20 segundos; o lease da task permanece com a configuracao existente.

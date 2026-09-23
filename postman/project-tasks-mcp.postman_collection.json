@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "d744cd5e-a2b0-4cfe-b8bf-5ad9c94cc645",
     "name": "project-tasks-mcp",
-    "description": "Colecao para o MCP local com sessoes stateful. Execute Initialize primeiro para capturar Mcp-Session-Id. Configure agentEmail e os IDs do projeto/tarefa.",
+    "description": "Colecao para o MCP local com sessoes stateful. Execute Initialize primeiro para capturar Mcp-Session-Id. Configure agentEmail e os IDs do projeto/tarefa. List tools inclui get_project_novelties, update_markdown, record_task_diff e leitura de diffs; bind_repository_git e uma acao administrativa humana em /admin.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -20,6 +20,26 @@
     },
     {
       "key": "taskId",
+      "value": ""
+    },
+    {
+      "key": "repositoryId",
+      "value": ""
+    },
+    {
+      "key": "rootCommit",
+      "value": ""
+    },
+    {
+      "key": "documentId",
+      "value": ""
+    },
+    {
+      "key": "baseRevision",
+      "value": "1"
+    },
+    {
+      "key": "diffId",
       "value": ""
     },
     {

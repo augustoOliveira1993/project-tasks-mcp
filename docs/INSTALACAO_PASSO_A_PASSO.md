@@ -566,7 +566,19 @@ Pelo canal administrativo humano:
 
 Os JSONs das operações, limites, recuperação e rollback estão em [Automação supervisionada](AUTOMACAO.md). Ausência de rota, liberação ou dependência aprovada impede despacho; troca de mensagens não substitui aprovação.
 
-## 7. Operação e diagnóstico
+## 7. Bridge MCP Git opcional
+
+Em um cliente que suporte MCP stdio, instale a bridge no perfil do usuário e mantenha os segredos somente no ambiente:
+
+```powershell
+$env:PTM_SERVICE_URL = 'https://SERVIDOR:3443'
+$env:PTM_BRIDGE_TOKEN = 'TOKEN_DE_AGENTE'
+yarn bridge
+```
+
+Abra o chat dentro do checkout e chame `status`. Um administrador humano deve primeiro vincular o repositório cadastrado com `bind_repository_git`, usando a URL remota canônica e o commit raiz. A bridge não substitui autorização do servidor, não lê arquivos fora do Git e não deve receber token em configuração versionada.
+
+## 8. Operação e diagnóstico
 
 | Sintoma | Verificação |
 | --- | --- |

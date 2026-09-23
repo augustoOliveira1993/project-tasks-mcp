@@ -4,6 +4,16 @@ Depois de instalar globalmente o MCP, inicie o chat dizendo qual projeto e featu
 
 Para instruções operacionais completas de uma IA, consulte o [GUIA_AGENTE_MCP.md](GUIA_AGENTE_MCP.md).
 
+## Colaboração Git opcional
+
+`yarn bridge` expõe uma bridge MCP stdio para o checkout aberto. Configure `PTM_SERVICE_URL` e `PTM_BRIDGE_TOKEN` (credencial bearer de agente) e chame `status`. A bridge compara a URL remota canônica e o commit raiz com o vínculo Git registrado pelo administrador; esse vínculo resolve escopo, mas não concede acesso.
+
+Um administrador humano registra o vínculo com `action: "bind_repository_git"`, `repositoryId`, `canonicalRemoteUrl` e `rootCommit`. Com um único vínculo compatível, `publish_task_diff` calcula arquivos e commits localmente e chama o servidor para gravar a evidência. O patch é opt-in (`includePatch: true`) e limitado a 100 KiB.
+
+No painel administrativo (`/admin`), após selecionar um projeto, use **Novidades** para consultar eventos recentes e **Vínculo Git** para registrar ou atualizar o vínculo de um repositório. Os detalhes de cada tarefa também incluem os metadados dos diffs publicados; patches não são renderizados por padrão.
+
+Use `get_project_novelties` para obter eventos de outros participantes após o cursor de leitura e `mark_project_read` para avançar esse cursor. Eventos mantêm `action` e `data`, mas também incluem `kind`, `summary`, `actor` e dados Git quando disponíveis.
+
 Fluxo recomendado:
 
 1. `list_records` encontra o projeto FBI ou `create_project` o cria.
@@ -28,6 +38,8 @@ Tasks podem ter `type`: `feature`, `fix`, `chore`, `docs`, `refactor`, `test`, `
 Use `save_markdown` para gravar um documento `.md` de até 100 KiB no alvo `feature` ou `task`. Na criação envie `targetKind`, `targetId`, `name`, `summary` e `content`. Para atualizar, envie também o `id` e a `version` retornada. Cada alteração cria uma revisão imutável; conteúdo idêntico não cria revisão.
 
 Outra máquina encontra planos com `list_markdowns`, consulta o histórico com `list_markdown_revisions` e lê somente o trecho necessário via `get_markdown` (`line` e `limit`). Listagens, eventos e `get_task_context` trazem apenas metadados e cursores, nunca o conteúdo do Markdown. As mesmas leituras estão disponíveis em `/admin/query` para o futuro frontend autenticado.
+
+Para atualização sem sobrescrita concorrente, use `update_markdown` com `documentId`, `baseRevision`, `summary` e `content`. Em conflito, leia a revisão atual e resolva o conteúdo antes de tentar novamente. `save_markdown` permanece para criação e clientes legados.
 
 ## Resumo do projeto por área
 

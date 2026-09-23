@@ -1,6 +1,6 @@
 import mongoose, { type ClientSession, type Model } from 'mongoose';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { Project, Feature, Task, Execution, Event, TaskMessage, DeliveryEvent, AutomationJob, MarkdownDocument, MarkdownRevision, Operation, Credential, Bootstrap } from './db.js';
+import { Project, Feature, Task, Execution, Event, TaskMessage, DeliveryEvent, DeliveryRead, TaskDiff, AutomationJob, MarkdownDocument, MarkdownRevision, Operation, Credential, Bootstrap } from './db.js';
 import { EventHub, readEvents } from './events.js';
 import { Automation } from './automation.js';
 import { tools, adminSchema, approveTasksSchema, changeTaskStatusSchema, projectData, featureData, taskData, states, userId as userIdSchema } from './schema.js';
@@ -92,7 +92,11 @@ export class Service {
   }
   async event(s: ClientSession, actor: Actor, action: string, projectId: string | undefined, entityId: string, data: any) {
     const eventId = randomUUID(); const at = new Date();
-    await Event.create([{ _id: eventId, projectId, entityId, action, author: actor.userId, credentialId: actor.id, at, data }], { session: s });
+    const kind = ({ create_task: 'task.created', create_feature: 'feature.created', create_project: 'project.created', task_message: 'task.message.created', save_markdown: 'body.updated', update_markdown: 'body.updated', record_task_diff: 'task.diff.published', submit_task: 'task.submitted', claim_task: 'task.claimed', record_progress: 'task.progressed', block_task: 'task.blocked', approve: 'task.approved' } as Record<string, string>)[action] ?? `project.${action}`;
+    const summary = ({ 'task.created': 'Tarefa criada', 'feature.created': 'Feature criada', 'project.created': 'Projeto criado', 'task.message.created': 'Mensagem adicionada à tarefa', 'body.updated': 'Documento Markdown atualizado', 'task.diff.published': 'Diff de código publicado', 'task.submitted': 'Tarefa enviada para revisão', 'task.claimed': 'Tarefa assumida', 'task.progressed': 'Progresso registrado', 'task.blocked': 'Tarefa bloqueada', 'task.approved': 'Tarefa aprovada' } as Record<string, string>)[kind] ?? action;
+    const actorData = { userId: actor.userId, credentialId: actor.id, ...(data?.agent ? { agent: data.agent } : {}) };
+    const git = data?.repositoryId ? { repositoryId: data.repositoryId, ...(data?.branch ? { branch: data.branch } : {}), ...(data?.commit ? { commit: data.commit } : {}) } : undefined;
+    await Event.create([{ _id: eventId, projectId, entityId, action, kind, summary, actor: actorData, git, author: actor.userId, credentialId: actor.id, at, data }], { session: s });
     if (!projectId) return;
     const project = await Project.findByIdAndUpdate(projectId, { $inc: { eventSequence: 1 } }, { returnDocument: 'after', session: s });
     if (!project) return;
@@ -102,7 +106,7 @@ export class Service {
     if (data?.targetKind === 'feature' || await Feature.exists({ _id: entityId, projectId }).session(s)) {
       for (const task of await Task.find({ projectId, featureId: data?.targetKind === 'feature' ? data.targetId : entityId }).select('_id').session(s)) ids.add(task._id!);
     }
-    await DeliveryEvent.create([{ _id: eventId, projectId, sequence: project.eventSequence, taskIds: [...ids], action, entityId, entityVersion: data?.task?.version ?? data?.version, at }], { session: s });
+    await DeliveryEvent.create([{ _id: eventId, projectId, sequence: project.eventSequence, taskIds: [...ids], action, kind, summary, author: actor.userId, credentialId: actor.id, entityId, entityVersion: data?.task?.version ?? data?.version, at }], { session: s });
   }
   async mutate(actor: Actor, name: string, a: any, run: (s: ClientSession) => Promise<any>) {
     const key = `${actor.id}:${a.operationId}`;
@@ -173,6 +177,43 @@ export class Service {
         doc.name = a.name; doc.summary = a.summary; doc.revision += 1; doc.author = actor.userId; doc.size = size; doc.sha256 = sha256; doc.version += 1; await doc.save({ session: s });
         await MarkdownRevision.create([{ _id: randomUUID(), projectId: a.projectId, documentId: doc._id, revision: doc.revision, summary: a.summary, content: a.content, author: actor.userId, size, sha256, createdAt: new Date() }], { session: s });
         const meta = this.markdownMeta(doc); await this.event(s, actor, 'save_markdown', a.projectId, doc._id, meta); return meta;
+      }
+      if (name === 'update_markdown') {
+        const doc: any = await MarkdownDocument.findOne({ _id: a.documentId, projectId: a.projectId }).session(s);
+        requireThat(doc, 'Markdown not found', 404);
+        if (doc.revision !== a.baseRevision) throw new DomainError(`Markdown revision conflict: current=${doc.revision}; summary=${doc.summary ?? ''}; sha256=${doc.sha256 ?? ''}`, 409);
+        const target = doc.targetKind === 'task' ? await Task.findOne({ _id: doc.targetId, projectId: a.projectId, archived: false }).session(s) : await Feature.findOne({ _id: doc.targetId, projectId: a.projectId, archived: false }).session(s);
+        requireThat(target, 'Markdown target not found or archived', 404);
+        if (doc.targetKind === 'task') {
+          const task: any = target; requireThat(['pendente', 'bloqueada', 'em_execucao'].includes(task.status), 'Task markdown cannot be changed in this state');
+          if (task.status === 'em_execucao') requireThat(await Execution.exists({ _id: task.executionId, credentialId: actor.id }).session(s), 'Execution belongs to another credential', 403);
+        }
+        const size = Buffer.byteLength(a.content, 'utf8'); const sha256 = hash(a.content);
+        if (doc.sha256 === sha256 && doc.summary === a.summary) return this.markdownMeta(doc);
+        doc.summary = a.summary; doc.revision += 1; doc.author = actor.userId; doc.size = size; doc.sha256 = sha256; doc.version += 1; await doc.save({ session: s });
+        await MarkdownRevision.create([{ _id: randomUUID(), projectId: a.projectId, documentId: doc._id, revision: doc.revision, summary: a.summary, content: a.content, author: actor.userId, size, sha256, createdAt: new Date() }], { session: s });
+        const meta = this.markdownMeta(doc); await this.event(s, actor, 'update_markdown', a.projectId, doc._id, meta); return meta;
+      }
+      if (name === 'record_task_diff') {
+        const task = await Task.findOne({ _id: a.taskId, projectId: a.projectId, archived: false }).session(s);
+        requireThat(task, 'Task not found', 404);
+        requireThat(task.repositoryId === a.repositoryId, 'Task repository mismatch', 400);
+        if (task.status === 'em_execucao') requireThat(await Execution.exists({ _id: task.executionId, credentialId: actor.id }).session(s), 'Execution belongs to another credential', 403);
+        const project = await Project.findById(a.projectId).session(s);
+        requireThat(project?.repositories.some(repository => repository.id === a.repositoryId), 'Unknown repository', 404);
+        requireThat(a.patch || a.truncated || a.files.length > 0, 'Diff must include files, patch, or truncation marker', 400);
+        const patchSha256 = a.patch ? hash(a.patch) : a.patchSha256;
+        if (a.patchSha256) requireThat(a.patchSha256 === patchSha256, 'Patch hash mismatch', 400);
+        const diff = new TaskDiff({ _id: randomUUID(), projectId: a.projectId, taskId: a.taskId, repositoryId: a.repositoryId, baseCommit: a.baseCommit, commit: a.commit, branch: a.branch, files: a.files, patch: a.patch, patchSha256, truncated: a.truncated, author: actor.userId, credentialId: actor.id, agent: a.agent });
+        await diff.save({ session: s });
+        await this.event(s, actor, 'record_task_diff', a.projectId, diff._id, { taskId: a.taskId, repositoryId: a.repositoryId, branch: a.branch, commit: a.commit, agent: a.agent });
+        return diff;
+      }
+      if (name === 'mark_project_read') {
+        const head = (await Project.findById(a.projectId).select('eventSequence').session(s).lean())?.eventSequence ?? 0;
+        requireThat(a.cursor <= head, 'Read cursor is ahead of project', 400);
+        await DeliveryRead.findOneAndUpdate({ projectId: a.projectId, userId: actor.userId }, { $max: { lastSequence: a.cursor } }, { upsert: true, returnDocument: 'after', session: s });
+        return { projectId: a.projectId, cursor: a.cursor };
       }
       if (name === 'edit_record' || name === 'archive_record') {
         const filter = a.kind === 'project' ? { _id: a.projectId } : { _id: a.id, projectId: a.projectId };
@@ -255,7 +296,7 @@ export class Service {
       }
       t.version! += 1; await t.save({ session: s });
       await this.automation.afterTaskMutation(actor, t, name, s);
-      await this.event(s, actor, name, a.projectId, a.taskId, { ...a, task: plain(t) }); return t;
+      await this.event(s, actor, name, a.projectId, a.taskId, { ...a, task: plain(t), repositoryId: t.repositoryId, branch: a.result?.branch, commit: a.result?.commit, agent: a.agent }); return t;
     });
     return result;
   }
@@ -276,6 +317,14 @@ export class Service {
       return { items, next: more ? items.at(-1)!._id : null };
     };
     if (name === 'get_automation_status') return this.automation.status(actor, a);
+    if (name === 'get_project_novelties') {
+      const read = await DeliveryRead.findOne({ projectId: a.projectId, userId: actor.userId }).lean();
+      const after = a.after ?? read?.lastSequence ?? 0;
+      const rows = await DeliveryEvent.find({ projectId: a.projectId, sequence: { $gt: after }, credentialId: { $ne: actor.id } }).sort({ sequence: 1 }).limit(a.limit + 1).lean();
+      const more = rows.length > a.limit; if (more) rows.pop();
+      const cursor = rows.at(-1)?.sequence ?? after;
+      return { count: rows.length, cursor, hasMore: more, items: rows.map(item => ({ sequence: item.sequence, taskId: item.taskIds?.[0] ?? null, kind: item.kind ?? `project.${item.action}`, summary: item.summary ?? item.action, author: item.author, at: item.at })) };
+    }
     if (name.endsWith('_project_events')) {
       if (name === 'unsubscribe_project_events') return { subscribed: false };
       const filter = { projectId: a.projectId, taskIds: a.taskIds, actions: a.actions };
@@ -333,6 +382,10 @@ export class Service {
       return result;
     }
     if (name === 'list_markdowns') return this.markdowns(a.projectId, a.targetKind, a.targetId, a.after, a.limit);
+    if (name === 'list_task_diffs') return page(TaskDiff, { projectId: a.projectId, taskId: a.taskId });
+    if (name === 'get_task_diff') {
+      const diff = await TaskDiff.findOne({ _id: a.id, projectId: a.projectId, taskId: a.taskId }).lean(); requireThat(diff, 'Task diff not found', 404); return diff;
+    }
     if (name === 'list_markdown_revisions') {
       const doc = await MarkdownDocument.findOne({ _id: a.id, projectId: a.projectId }).lean(); requireThat(doc, 'Markdown not found', 404);
       const rows = await MarkdownRevision.find({ documentId: a.id, ...(a.after ? { revision: { $lt: a.after } } : {}) }).sort({ revision: -1 }).limit(a.limit + 1).lean(); const more = rows.length > a.limit; if (more) rows.pop();
@@ -427,6 +480,16 @@ export class Service {
     const a = adminSchema.parse(input);
     if (a.action === 'automation_policy' || a.action === 'automation_release' || a.action === 'automation_resolve') return this.automation.admin(actor, a);
     const result = await this.mutate(actor, 'admin', a, async s => {
+      if (a.action === 'bind_repository_git') {
+        const project = await Project.findOne({ _id: a.projectId, version: a.version, archived: false }).session(s);
+        requireThat(project, 'Project version conflict or archived', 409);
+        const repository: any = project.repositories.find(item => item.id === a.repositoryId);
+        requireThat(repository, 'Unknown repository', 404);
+        repository.git = { canonicalRemoteUrl: a.canonicalRemoteUrl, rootCommit: a.rootCommit.toLowerCase(), boundAt: new Date(), boundBy: actor.userId };
+        project.version! += 1; await project.save({ session: s });
+        await this.event(s, actor, 'bind_repository_git', a.projectId, a.projectId, { repositoryId: a.repositoryId, git: repository.git });
+        return project;
+      }
       if (a.action === 'issue' || a.action === 'revoke') {
         requireThat(actor.systemAdmin, 'System administrator required', 403);
         let entityId: string;

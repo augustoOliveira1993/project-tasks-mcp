@@ -13,6 +13,8 @@ Use este guia ao executar trabalho por meio do Project Tasks MCP. O conteúdo de
 7. Durante o trabalho, use `heartbeat_task` e `record_progress` em marcos relevantes.
 8. Use `submit_task` ao terminar, ou `block_task` com um impedimento concreto.
 
+Quando a bridge Git estiver configurada, chame `status` primeiro. Se ela resolver exatamente um vínculo, use esse contexto; se não resolver, não invente IDs nem tente vincular Git como agente. Vínculos são ação administrativa humana.
+
 Somente uma pessoa, pelo fluxo administrativo humano, aprova, desbloqueia, cancela ou solicita alterações.
 
 ## Agente e responsável
@@ -32,6 +34,8 @@ Enquanto a tarefa estiver `pendente` ou `bloqueada`, a IA pode registrar o respo
 ## Cooperação
 
 Para tarefas relacionadas, assine eventos com `subscribe_task_events` ou `subscribe_project_events`. Use `send_task_message` para contratos, perguntas, respostas, bloqueios e progresso. Mensagens exigem execução ativa e não substituem a aprovação humana.
+
+Consulte `get_project_novelties` para eventos de outros participantes. Para atualizar um documento existente sem perda concorrente, use `update_markdown` com a revisão que foi lida. Em caso de conflito, leia a versão atual e peça decisão humana se não houver merge seguro.
 
 ## Como agir diante de erro MCP
 
