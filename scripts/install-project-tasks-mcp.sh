@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DEFAULT_URL="http://AVB-NB-00295:3443/mcp"
+DEFAULT_URL="http://192.168.17.26:3443/mcp"
 SERVER_NAME="project_tasks"
 
 read_value() {

@@ -50,6 +50,7 @@ Consulte o guia de [configuração global](docs/CONFIGURACAO_GLOBAL_MCP.md) para
 | Instalação passo a passo: Windows, Ubuntu, clientes e executores | [Guia de instalação](docs/INSTALACAO_PASSO_A_PASSO.md) |
 | Fluxo de projetos, tarefas, dependências e revisão | [Uso do MCP](docs/USO_MCP.md) |
 | Configuração global no Codex e Claude Code | [Configuração global](docs/CONFIGURACAO_GLOBAL_MCP.md) |
+| Instalação em outras máquinas (servidor 192.168.17.26) | [Instalação remota](docs/INSTALAR_MCP_EM_OUTRAS_MAQUINAS.md) |
 | Operação do servidor na rede privada | [Rede interna](docs/REDE_INTERNA.md) |
 | Cadastro e execução de tarefas de backend | [Tarefas de backend](docs/TAREFAS_BACKEND.md) |
 | Cadastro e execução de tarefas de frontend | [Tarefas de frontend](docs/TAREFAS_FRONTEND.md) |

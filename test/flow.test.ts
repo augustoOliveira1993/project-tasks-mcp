@@ -283,7 +283,7 @@ test('admin page delivers a parseable script with markdown views, chained filter
   assert.doesNotThrow(() => new Function(script));
   assert.match(script, /activeMarkdown/);
   assert.match(script, /function showRendered/);
-  for (const id of ['search', 'area', 'status', 'type', 'priority', 'responsible', 'featureId', 'created-from', 'created-to', 'updated-from', 'updated-to', 'clear-filters', 'page-size', 'page-info', 'previous-page', 'next-page', 'novelties', 'git-binding', 'git-modal', 'git-form']) assert.match(adminPage, new RegExp('id="' + id + '"'));
+  for (const id of ['search', 'area', 'status', 'type', 'priority', 'responsible', 'featureId', 'created-from', 'created-to', 'updated-from', 'updated-to', 'clear-filters', 'page-size', 'page-info', 'previous-page', 'next-page', 'novelties', 'git-binding', 'git-modal', 'git-form', 'issue-agent-form', 'issue-agent-user', 'issue-agent-confirm', 'issue-agent-result', 'issue-agent-token', 'copy-agent-token', 'clear-agent-token']) assert.match(adminPage, new RegExp('id="' + id + '"'));
   assert.match(script, /function refreshFilterOptions/);
   assert.match(script, /function matches/);
   assert.match(script, /featuresById/);
@@ -295,6 +295,9 @@ test('admin page delivers a parseable script with markdown views, chained filter
   assert.match(script, /bind_repository_git/);
   for (const id of ['project-id-panel', 'project-id', 'copy-project-id']) assert.match(script, new RegExp('id="' + id + '"'));
   assert.match(script, /function copyProjectId/);
+  assert.match(script, /action:'issue'/);
+  assert.match(script, /crypto\.getRandomValues/);
+  assert.match(script, /issue-agent-token/);
 });
 test('task markdown summary turns task context into readable sections', async () => {
   const { p, create } = await fixture(); const task = await create('Readable task');

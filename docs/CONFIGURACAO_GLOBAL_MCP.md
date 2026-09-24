@@ -20,7 +20,7 @@ No Linux, em `~/.codex/config.toml` (no Windows, em `C:\Users\<usuario>\.codex\c
 
 ```toml
 [mcp_servers.project_tasks]
-url = "http://AVB-NB-00295:3443/mcp"
+url = "http://192.168.17.26:3443/mcp"
 http_headers = { "X-Project-Tasks-Email" = "pessoa@empresa.com" }
 startup_timeout_sec = 20
 ```
@@ -44,7 +44,7 @@ O instalador substitui uma entrada de usuário existente. Se preferir configurar
 
 ```bash
 claude mcp remove project_tasks --scope user 2>/dev/null || true
-claude mcp add --transport http --scope user project_tasks "http://AVB-NB-00295:3443/mcp" --header "X-Project-Tasks-Email: pessoa@empresa.com"
+claude mcp add --transport http --scope user project_tasks "http://192.168.17.26:3443/mcp" --header "X-Project-Tasks-Email: pessoa@empresa.com"
 ```
 
 Confirme e abra o chat:

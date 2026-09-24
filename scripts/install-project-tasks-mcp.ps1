@@ -1,8 +1,8 @@
 [CmdletBinding()]
-param()
+param([string]$McpAddress)
 
 $ErrorActionPreference = 'Stop'
-$DefaultServiceAddress = 'AVB-NB-00295:3443'
+$DefaultServiceAddress = '192.168.17.26:3443'
 $ServiceBaseUrl = $null
 $ServerUrl = $null
 $ServerName = 'project_tasks'
@@ -22,8 +22,12 @@ function Read-Email {
 }
 
 function Read-McpAddress {
+  param([string]$InputAddress)
+  $parameterProvided = -not [string]::IsNullOrWhiteSpace($InputAddress)
+
   while ($true) {
-    $address = (Read-Host "IP ou domínio do MCP [$DefaultServiceAddress]").Trim()
+    if ($parameterProvided) { $address = $InputAddress.Trim() }
+    else { $address = (Read-Host "IP ou domínio do MCP [$DefaultServiceAddress]").Trim() }
     if (-not $address) { $address = $DefaultServiceAddress }
 
     if ($address -notmatch '^https?://') { $address = "http://$address" }
@@ -35,6 +39,7 @@ function Read-McpAddress {
       return $uri.GetLeftPart([System.UriPartial]::Authority)
     }
 
+    if ($parameterProvided) { throw 'Endereço MCP inválido. Use IP/domínio com porta opcional ou URL HTTP(S) sem caminho adicional.' }
     Write-Host 'Endereço inválido. Informe um IP ou domínio, com porta opcional, sem caminho adicional.' -ForegroundColor Yellow
   }
 }
@@ -113,25 +118,34 @@ startup_timeout_sec = 20
   Write-Host "Codex configurado globalmente em $configPath" -ForegroundColor Green
 }
 
+function Test-ClaudeMcpServer {
+  param([string]$ClaudePath, [string]$Name)
+  $previousErrorActionPreference = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = 'Continue'
+    $null = & $ClaudePath mcp get $Name 2>$null
+    return $LASTEXITCODE -eq 0
+  } finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+  }
+}
+
 function Set-ClaudeMcp {
   param([string]$Email, [bool]$InstallBridge)
   $claude = Get-Command claude -ErrorAction SilentlyContinue
   if (-not $claude) { throw 'Claude Code não foi encontrado no PATH. Instale-o e execute este script novamente.' }
 
-  $configuration = @{ type = 'http'; url = $ServerUrl; headers = @{ 'X-Project-Tasks-Email' = $Email } } | ConvertTo-Json -Compress
-  $null = & $claude.Source mcp get $ServerName 2>$null
-  if ($LASTEXITCODE -eq 0) {
+  if (Test-ClaudeMcpServer -ClaudePath $claude.Source -Name $ServerName) {
     & $claude.Source mcp remove $ServerName --scope user
     if ($LASTEXITCODE -ne 0) { throw 'Não foi possível substituir a configuração MCP HTTP existente no Claude Code.' }
   }
-  & $claude.Source mcp add-json $ServerName $configuration --scope user
+  & $claude.Source mcp add --transport http --scope user $ServerName $ServerUrl --header "X-Project-Tasks-Email: $Email"
   if ($LASTEXITCODE -ne 0) { throw 'Claude Code recusou a configuração MCP HTTP.' }
   & $claude.Source mcp get $ServerName
   if ($LASTEXITCODE -ne 0) { throw 'Não foi possível confirmar a configuração MCP HTTP do Claude Code.' }
 
   if ($InstallBridge) {
-    $null = & $claude.Source mcp get $BridgeServerName 2>$null
-    if ($LASTEXITCODE -eq 0) {
+    if (Test-ClaudeMcpServer -ClaudePath $claude.Source -Name $BridgeServerName) {
       & $claude.Source mcp remove $BridgeServerName --scope user
       if ($LASTEXITCODE -ne 0) { throw 'Não foi possível substituir a bridge Git existente no Claude Code.' }
     }
@@ -144,7 +158,7 @@ function Set-ClaudeMcp {
 }
 
 Write-Host 'Instalador global do Project Tasks MCP' -ForegroundColor Cyan
-$ServiceBaseUrl = Read-McpAddress
+$ServiceBaseUrl = Read-McpAddress -InputAddress $McpAddress
 $ServerUrl = "$ServiceBaseUrl/mcp"
 Write-Host "Servidor MCP: $ServerUrl"
 $email = Read-Email
