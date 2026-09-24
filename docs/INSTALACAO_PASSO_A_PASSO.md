@@ -283,6 +283,27 @@ sudo ufw allow from 192.168.1.0/24 to any port 3443 proto tcp
 
 Não habilite um firewall novo em uma sessão remota sem antes garantir acesso SSH. Restrinja também o firewall externo/security group, quando houver.
 
+### 3.6. Alternativa: executar com PM2
+
+O arquivo `ecosystem.config.cjs` inicia a aplicação pelo Node do PM2, carrega `.env` e executa `src/main.ts` com `tsx`, sem duplicar segredos no ecosystem. Use-o **em vez** da unidade `project-tasks-mcp.service` da seção 3.5; não mantenha as duas formas ativas na mesma porta.
+
+Instale PM2 e inicie como o mesmo usuário de serviço que possui o checkout e o `.env`:
+
+```bash
+sudo npm install --global pm2
+cd /opt/project-tasks-mcp
+sudo -u projecttasks -H pm2 start ecosystem.config.cjs --env production
+sudo -u projecttasks -H pm2 save
+```
+
+Configure o início após reinicialização executando o gerador no perfil `projecttasks`:
+
+```bash
+sudo -u projecttasks -H pm2 startup systemd -u projecttasks --hp /var/lib/projecttasks
+```
+
+O PM2 exibirá um comando privilegiado para registrar o serviço systemd; copie e execute exatamente o comando que ele mostrar. Depois confira com `sudo -u projecttasks -H pm2 status` e consulte os logs com `sudo -u projecttasks -H pm2 logs project-tasks-mcp`. Após mudar Node.js de versão ou seu caminho, atualize o startup script do PM2. O fluxo de startup e persistência usa `pm2 startup` e `pm2 save`, conforme a [documentação oficial do PM2](https://pm2.keymetrics.io/docs/usage/startup/).
+
 ## 4. Criar administrador, credenciais e acesso aos projetos
 
 ### 4.1. Primeiro administrador
@@ -571,6 +592,8 @@ Os JSONs das operações, limites, recuperação e rollback estão em [Automaç�
 ## 7. Bridge MCP Git opcional
 
 No Windows, emita primeiro um token `agent` exclusivo para essa máquina conforme a seção 4.2. Depois execute `scripts/install-project-tasks-mcp.ps1` e escolha Codex, Claude Code ou ambos. Responda `s` para instalar também a bridge e cole o token de agente quando solicitado; o campo é oculto. Ele registra a bridge globalmente nos clientes selecionados e protege o token com DPAPI no perfil Windows atual; nenhum segredo entra no repositório ou na configuração MCP. Na próxima execução, você pode optar por reutilizar o token local protegido.
+
+Em Ubuntu/Linux, o script `scripts/install-project-tasks-mcp.sh` configura Codex, Claude Code ou ambos como clientes do endpoint HTTP sem instalar o repositório do MCP. Requer Bash e Python 3; instale também o Claude Code CLI se escolher esse cliente. Pode executar o script a partir de uma cópia, ou baixar somente o arquivo de uma versão publicada. A bridge Git não está incluída nesse instalador: ela precisa rodar na máquina e no checkout que o agente deve identificar.
 
 Para uma instalação manual em outro cliente stdio, configure `PTM_SERVICE_URL` (URL base do servidor, sem `/mcp`) e `PTM_BRIDGE_TOKEN` (credencial bearer `agent`) e inicie `yarn bridge` na instalação do MCP. Não salve o token em configuração versionada.
 

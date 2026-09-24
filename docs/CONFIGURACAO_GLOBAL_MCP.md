@@ -16,7 +16,7 @@ Reinicie `yarn start` depois de alterar esse valor. Para voltar ao modelo anteri
 
 ## Codex
 
-Em `C:\Users\<usuario>\.codex\config.toml`:
+No Linux, em `~/.codex/config.toml` (no Windows, em `C:\Users\<usuario>\.codex\config.toml`):
 
 ```toml
 [mcp_servers.project_tasks]
@@ -29,18 +29,22 @@ Reinicie Codex. Essa configuração é global para Codex CLI, IDE e aplicativo d
 
 ## Claude Code
 
-Remova uma entrada antiga de projeto, caso exista:
+Em Ubuntu/Linux, para configurar Codex, Claude Code ou ambos sem clonar o repositório do MCP, use o instalador independente `scripts/install-project-tasks-mcp.sh`. Ele pede URL, e-mail e clientes; cria backup antes de alterar o TOML do Codex e substitui a entrada `project_tasks` do Claude no escopo do usuário. Requer Bash e Python 3; para Claude, também requer o comando `claude` instalado. Execute com `bash scripts/install-project-tasks-mcp.sh`. Para baixar somente o script de uma versão já publicada no GitHub:
 
-```powershell
-claude mcp remove project_tasks -s project
+```bash
+curl -fsSLo install-project-tasks-mcp.sh https://raw.githubusercontent.com/augustoOliveira1993/project-tasks-mcp/main/scripts/install-project-tasks-mcp.sh
+bash ./install-project-tasks-mcp.sh
 ```
 
-Adicione no perfil do usuário. A ordem abaixo é compatível com versões que tratam `--header` como lista:
+Não é necessário clonar o projeto nem instalar suas dependências.
 
-```powershell
-$serverUrl = 'http' + '://AVB-NB-00295:3443/mcp'
-$email = 'pessoa@empresa.com'
-claude mcp add --transport http --scope user project_tasks $serverUrl --header "X-Project-Tasks-Email: $email"
+Este script configura apenas o MCP remoto HTTP. Não instala o servidor, não clona o MCP e não instala a bridge Git. A bridge é opcional e precisa executar localmente no checkout que será identificado.
+
+O instalador substitui uma entrada de usuário existente. Se preferir configurar manualmente, os comandos são:
+
+```bash
+claude mcp remove project_tasks --scope user 2>/dev/null || true
+claude mcp add --transport http --scope user project_tasks "http://AVB-NB-00295:3443/mcp" --header "X-Project-Tasks-Email: pessoa@empresa.com"
 ```
 
 Confirme e abra o chat:

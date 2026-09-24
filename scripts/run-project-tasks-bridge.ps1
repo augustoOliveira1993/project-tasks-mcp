@@ -12,7 +12,7 @@ try {
   $env:PTM_BRIDGE_TOKEN = [System.Net.NetworkCredential]::new('', $secureToken).Password
   $mcpRoot = Split-Path -Parent $PSScriptRoot
   Set-Location -LiteralPath $mcpRoot
-  & yarn bridge
+  & yarn --silent bridge
   $exitCode = $LASTEXITCODE
 } catch {
   [Console]::Error.WriteLine("Falha ao iniciar a bridge Project Tasks: $($_.Exception.Message)")
