@@ -1,5 +1,7 @@
 # Executores supervisionados (0.2)
 
+Para entender como testar o runner atual e planejar um ciclo executor/revisor sem coordenação pelo chat, consulte [Loop autônomo de IA](./LOOP_AUTONOMO_IA.md). A aprovação humana por tarefa continua sendo obrigatória no fluxo atual.
+
 Automacao e aditiva e desabilitada por padrao. O fluxo manual, as ferramentas existentes, o historico e a revisao humana continuam disponiveis. Nao exponha a porta MongoDB aos executores.
 
 ## Servidor e transporte

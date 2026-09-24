@@ -55,6 +55,7 @@ Consulte o guia de [configuração global](docs/CONFIGURACAO_GLOBAL_MCP.md) para
 | Cadastro e execução de tarefas de frontend | [Tarefas de frontend](docs/TAREFAS_FRONTEND.md) |
 | Chamadas HTTP administrativas | [Collection Postman](postman/project-tasks-mcp.postman_collection.json) |
 | Colaboração Git, diffs e contexto automático | [Uso do MCP](docs/USO_MCP.md) |
+| Runner e plano de colaboração autônoma entre IAs | [Loop autônomo de IA](docs/LOOP_AUTONOMO_IA.md) |
 
 ## Validação
 

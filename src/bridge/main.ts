@@ -17,7 +17,8 @@ type Context = { root: string; remoteUrl: string; rootCommit: string; branch: st
 async function git(root: string, ...args: string[]) { return (await exec('git', ['-C', root, ...args], { windowsHide: true })).stdout.trim(); }
 function canonical(url: string) { return url.trim().replace(/^git@([^:]+):/, 'https://$1/').replace(/\.git$/i, '').replace(/\/$/, '').toLowerCase(); }
 async function context(): Promise<Context> {
-  const root = await git(process.cwd(), 'rev-parse', '--show-toplevel');
+  const workingDirectory = process.env.CLAUDE_PROJECT_DIR || process.env.PTM_GIT_WORKDIR || process.cwd();
+  const root = await git(workingDirectory, 'rev-parse', '--show-toplevel');
   const [remote, rootCommit, branch, commit] = await Promise.all([
     git(root, 'remote', 'get-url', 'origin'), git(root, 'rev-list', '--max-parents=0', 'HEAD').then(value => value.split(/\r?\n/)[0]), git(root, 'branch', '--show-current'), git(root, 'rev-parse', 'HEAD')
   ]);

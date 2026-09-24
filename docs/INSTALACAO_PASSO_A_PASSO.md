@@ -314,7 +314,9 @@ sudo --preserve-env=ADMIN_TOKEN -u projecttasks yarn cli issue pessoa@empresa.co
 unset ADMIN_TOKEN
 ```
 
-Repita para cada identidade autorizada. O resultado contém o token de agente, com 64 caracteres hexadecimais. O `credentialId` é um identificador e não serve como token. Um executor também recebe token de agente próprio; nunca recebe `ADMIN_TOKEN`.
+O resultado contém o token de agente, com 64 caracteres hexadecimais. O `credentialId` é um identificador e não serve como token. Um executor também recebe token de agente próprio; nunca recebe `ADMIN_TOKEN`.
+
+Para a bridge Git, emita uma credencial `agent` por máquina usando o comando acima no servidor. O instalador Windows pede esse token ocultamente e o protege com DPAPI no perfil do usuário. Claude Code e Codex na mesma máquina compartilham a credencial. Em outra máquina, emita um token novo; nunca reutilize nem envie o token humano ao instalador. O instalador permite reutilizar o token já protegido quando você o executa novamente no mesmo perfil Windows.
 
 Em `trusted_local`, clientes manuais usam o e-mail em vez de token. A CLI administrativa e os executores continuam exigindo bearer.
 
@@ -568,15 +570,11 @@ Os JSONs das operações, limites, recuperação e rollback estão em [Automaç�
 
 ## 7. Bridge MCP Git opcional
 
-Em um cliente que suporte MCP stdio, instale a bridge no perfil do usuário e mantenha os segredos somente no ambiente:
+No Windows, emita primeiro um token `agent` exclusivo para essa máquina conforme a seção 4.2. Depois execute `scripts/install-project-tasks-mcp.ps1` e escolha Codex, Claude Code ou ambos. Responda `s` para instalar também a bridge e cole o token de agente quando solicitado; o campo é oculto. Ele registra a bridge globalmente nos clientes selecionados e protege o token com DPAPI no perfil Windows atual; nenhum segredo entra no repositório ou na configuração MCP. Na próxima execução, você pode optar por reutilizar o token local protegido.
 
-```powershell
-$env:PTM_SERVICE_URL = 'https://SERVIDOR:3443'
-$env:PTM_BRIDGE_TOKEN = 'TOKEN_DE_AGENTE'
-yarn bridge
-```
+Para uma instalação manual em outro cliente stdio, configure `PTM_SERVICE_URL` (URL base do servidor, sem `/mcp`) e `PTM_BRIDGE_TOKEN` (credencial bearer `agent`) e inicie `yarn bridge` na instalação do MCP. Não salve o token em configuração versionada.
 
-Abra o chat dentro do checkout e chame `status`. Um administrador humano deve primeiro vincular o repositório cadastrado com `bind_repository_git`, usando a URL remota canônica e o commit raiz. A bridge não substitui autorização do servidor, não lê arquivos fora do Git e não deve receber token em configuração versionada.
+Reinicie os clientes, abra o chat com o checkout desejado e peça para chamar `status` primeiro. Um administrador humano precisa ter vinculado antes o repositório com sua URL remota canônica e commit raiz. A bridge só seleciona automaticamente quando encontra exatamente um vínculo compatível; ela não concede acesso ao projeto.
 
 ## 8. Operação e diagnóstico
 

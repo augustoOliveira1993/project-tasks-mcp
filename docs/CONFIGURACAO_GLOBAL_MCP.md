@@ -58,4 +58,6 @@ O e-mail é registrado em eventos e execuções sem token de agente. A aprovaç�
 
 ## Bridge Git opcional
 
-Para clientes MCP que executam um processo local, prefira bearer individual e registre a bridge no perfil do usuário, fora do repositório. Ela exige `PTM_SERVICE_URL` e `PTM_BRIDGE_TOKEN` no ambiente e executa `yarn bridge` a partir desta instalação. A bridge lê Git localmente; não envie caminho de checkout, patch ou token ao arquivo versionado de configuração.
+No Windows, emita uma credencial `agent` individual no servidor para cada máquina e execute `scripts/install-project-tasks-mcp.ps1`. O instalador configura a bridge opcional globalmente para Codex e/ou Claude Code, recebe o token de forma oculta e o protege com DPAPI em `%LOCALAPPDATA%\ProjectTasks\bridge-token.dpapi`. Claude Code e Codex podem compartilhar o token na mesma máquina; em outra, emita outro token. Em nova execução, o instalador oferece reutilizar o token protegido local. Nunca coloque o token em arquivos do repositório ou no `config.toml`.
+
+A bridge recebe `PTM_SERVICE_URL` e o launcher local recupera o token protegido apenas no processo. Abra o chat no checkout esperado e chame `status` primeiro. No Claude Code, a bridge lê `CLAUDE_PROJECT_DIR`; no Codex desta instalação, o `cwd` global aponta para o checkout `project-tasks-mcp`. A seleção exige um único vínculo que coincida com a URL remota canônica e o commit raiz, e não concede acesso ao projeto.

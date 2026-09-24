@@ -293,6 +293,8 @@ test('admin page delivers a parseable script with markdown views, chained filter
   assert.match(script, /get_project_novelties/);
   assert.match(script, /list_task_diffs/);
   assert.match(script, /bind_repository_git/);
+  for (const id of ['project-id-panel', 'project-id', 'copy-project-id']) assert.match(script, new RegExp('id="' + id + '"'));
+  assert.match(script, /function copyProjectId/);
 });
 test('task markdown summary turns task context into readable sections', async () => {
   const { p, create } = await fixture(); const task = await create('Readable task');
