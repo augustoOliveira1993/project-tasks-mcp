@@ -165,6 +165,21 @@ sudo docker version
 
 O exemplo usa uma instalação de Node acessível ao sistema. Instalações via gerenciadores no perfil do administrador precisam ser substituídas por caminhos acessíveis ao usuário `projecttasks` nas unidades systemd.
 
+### Alternativa: MongoDB Community já instalado no host
+
+Se o servidor já usa o serviço `mongod` do Ubuntu (em vez do container criado abaixo), o script abaixo oferece diagnóstico somente leitura ou configuração completa do replica set `rs0`:
+
+```bash
+sudo bash scripts/configure-mongodb-prod.sh
+# Ou escolha diretamente:
+sudo bash scripts/configure-mongodb-prod.sh --diagnose
+sudo bash scripts/configure-mongodb-prod.sh --configure
+```
+
+Use a configuração completa apenas quando o MCP estiver no mesmo servidor que o MongoDB. Ela salva uma cópia datada de `/etc/mongod.conf`, mantém a autenticação existente, cria um keyFile protegido se necessário, limita o Mongo a `127.0.0.1`, reinicia `mongod`, solicita um usuário MongoDB existente para inicializar `rs0` e aguarda a eleição do primary. A senha é solicitada pelo `mongosh`, sem ser gravada pelo script. O usuário precisa poder executar `rs.initiate`. O script não cria usuários, não altera dados, `.env`, PM2 ou a instalação do MCP. Se o Mongo atende outros clientes remotos, não confirme a mudança de `bindIp` sem planejar antes a nova topologia.
+
+Depois, confira o primary com `mongosh --host 127.0.0.1 --port 27017 --username <usuario> --authenticationDatabase admin --eval 'db.hello()'` (o shell pedirá a senha; ajuste a porta se necessário). Atualize manualmente `MONGODB_URI` do MCP para a porta indicada pelo diagnóstico e `?replicaSet=rs0`, mantendo as credenciais de banco que a aplicação já usa. O script não cria usuário nem credencial da aplicação. Em caso de falha ao iniciar, consulte `sudo journalctl -u mongod -n 80 --no-pager` e restaure manualmente o backup indicado pelo script. Nunca apague o diretório de dados para corrigir configuração.
+
 ### 3.2. Criar o MongoDB dedicado
 
 Execute uma única vez em um host novo, sem outro container com esse nome:
