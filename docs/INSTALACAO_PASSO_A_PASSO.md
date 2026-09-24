@@ -629,6 +629,96 @@ Reinicie os clientes, abra o chat com o checkout desejado e peça para chamar `s
 | Executor conectado sem executar | Política habilitada, rota, liberação válida, dependências, token/membro, capacidade e limites |
 | Execução expirada/bloqueada | Intervenção humana; não force outra execução para repetir ações de resultado incerto |
 
+### 8.1. MongoDB local autenticado e replica set
+
+O MongoDB usado pelo MCP pode estar no mesmo servidor e aceitar conexões somente em `127.0.0.1`; isso é esperado e não exige expor a porta `27017` para os clientes. O serviço ativo ou `mongosh` conectando não confirma sozinho que autenticação e replica set estão prontos. Confira o estado com um usuário existente, informando a senha no prompt (não a coloque no comando):
+
+```bash
+sudo systemctl status mongod --no-pager
+sudo ss -lntp | grep -E ':27017|:27018'
+mongosh --host 127.0.0.1 --port 27017 --username mongo_admin \
+  --authenticationDatabase admin --eval 'db.hello()'
+```
+
+Se a autenticação estiver habilitada e `replication.replSetName: rs0` for configurado, MongoDB também exige um `security.keyFile`; sem ele, `mongod` encerra na inicialização com `security.keyFile is required when authorization is enabled with replica sets`. Use `scripts/configure-mongodb-prod.sh --diagnose` para inspecionar ou leia a seção “Alternativa: MongoDB Community já instalado no host” antes de executar a configuração completa. Se o serviço não subir, consulte `sudo journalctl -u mongod -n 80 --no-pager` e restaure manualmente o backup datado informado pelo script, se necessário. Não apague os dados do Mongo para corrigir a configuração.
+
+Inicialize `rs0` apenas depois que `mongod` estiver acessível e autenticando. Se `rs.initiate` retornar `Command replSetInitiate requires authentication`, abra o `mongosh` com `--username` e `--authenticationDatabase admin`, autentique com um usuário autorizado e só então execute `rs.initiate`. O script de configuração já solicita um usuário existente e não cria nem troca usuários. Confirme `setName: "rs0"` e `isWritablePrimary: true` em `db.hello()`.
+
+O `.env` do MCP precisa conter uma URI com credenciais válidas para o banco da aplicação e com os dois parâmetros de conexão. Exemplo ilustrativo (substitua os valores; caracteres especiais da senha devem ser codificados para URL):
+
+```dotenv
+MONGODB_URI=mongodb://<usuario>:<senha-codificada>@127.0.0.1:27017/project_tasks?authSource=admin&replicaSet=rs0
+```
+
+Se a URI já tem `?authSource=admin`, acrescente `&replicaSet=rs0` — não um segundo `?`. O erro `Command create requires authentication` indica que o MCP chegou ao Mongo, mas a operação de criação não foi autenticada/autorizada: confira se o processo carregou a URI certa, se `authSource` corresponde ao banco onde o usuário foi criado e se esse usuário tem as permissões necessárias em `project_tasks`. Não copie a URI completa para chats, logs ou chamados. Depois de alterar `.env`, reinicie o processo MCP.
+
+### 8.2. Desenvolvimento, produção e verificação do MCP
+
+`yarn dev` é o fluxo de desenvolvimento: usa `src/dev.ts` e o Mongo local próprio do projeto, que espera URI local sem autenticação e replica set `rs0` (normalmente porta `27018`). Ele não é o comando de produção e rejeita uma URI autenticada do `mongod` de produção. Para produção, use um único gerenciador — systemd **ou** PM2 — com o `.env` de produção:
+
+```bash
+# Na raiz do checkout e como o usuário proprietário do processo PM2
+pm2 start ecosystem.config.cjs --env production
+pm2 save
+pm2 status
+pm2 logs project-tasks-mcp --lines 100
+```
+
+Para aplicar uma mudança de `.env` em uma instância PM2 existente, reinicie-a com o ambiente atualizado: `pm2 restart project-tasks-mcp --update-env`. Faça isso como o mesmo usuário Unix que iniciou o PM2; executar `sudo pm2` pode abrir outro perfil de processos. A mensagem `Project Tasks MCP ready` confirma que o listener HTTP iniciou, mas não substitui a verificação da dependência Mongo. Confira também no servidor `curl -i http://127.0.0.1:3443/health` (ou `https://` quando TLS termina diretamente no MCP) e examine os logs recentes.
+
+### 8.3. Acesso HTTP por outras sub-redes
+
+Diagnostique primeiro o listener no servidor e o endereço de origem no cliente:
+
+```bash
+# Ubuntu: espera-se 0.0.0.0:3443 ou o IP de rede correto
+sudo ss -lntp | grep ':3443'
+ip -4 addr show
+sudo ufw status numbered
+```
+
+```powershell
+# Windows cliente: confira o SourceAddress e o resultado TCP
+Test-NetConnection 192.168.17.26 -Port 3443
+```
+
+Ping bem-sucedido só confirma alcance ICMP, não que a conexão TCP à porta esteja permitida. Compare o `SourceAddress` do teste com a origem autorizada no UFW. Por exemplo, `192.168.17.0/24` e `192.168.18.0/24` são sub-redes distintas; uma regra para a primeira não libera automaticamente clientes da segunda. Para liberar apenas uma máquina, use o IP exato:
+
+```bash
+sudo ufw allow proto tcp from 192.168.18.135 to any port 3443
+```
+
+Ou, somente se a máscara `/24` tiver sido confirmada com a equipe de rede, permita a sub-rede inteira:
+
+```bash
+sudo ufw allow proto tcp from 192.168.18.0/24 to any port 3443
+sudo ufw status numbered
+```
+
+Troque os IPs pelos valores reais da rede. Se o listener está em `0.0.0.0:3443`, a regra UFW cobre a origem e o teste TCP ainda falha, confira VLAN/roteamento, firewall de rede ou ACL intermediária. O acesso remoto à API exige a porta TCP `3443`; não abra `27017` para fazer `/health` ou o MCP funcionar. Remova regras MongoDB com origem `Anywhere` depois de conferir a numeração atual do UFW e mantenha somente as origens administrativas estritamente necessárias.
+
+### 8.4. Acessar MongoDB remotamente para administração
+
+O replica set de nó único pode anunciar `localhost:27017`. Por isso, conectar o Compass diretamente a `192.168.17.26:27017` não é uma configuração de cliente equivalente à conexão local do MCP; além de ampliar a superfície de ataque, o cliente pode tentar seguir o endereço `localhost` anunciado pelo replica set. Prefira um túnel SSH e mantenha o Mongo limitado ao servidor:
+
+```bash
+ssh -L 27018:127.0.0.1:27017 administrador@192.168.17.26
+```
+
+Com o túnel aberto, configure o Compass para `127.0.0.1:27018`, use o usuário Mongo existente e `authSource=admin`, e ative `directConnection=true` na opção avançada. Não habilite `directConnection` na URI de produção do MCP: a aplicação deve descobrir o primary via `replicaSet=rs0`.
+
+### 8.5. Token humano e emissão de token de agente no Windows
+
+O comando de emissão precisa de um token humano ativo de 64 caracteres hexadecimais em `ADMIN_TOKEN`; UUID de credencial e token de agente não substituem esse token. No PowerShell, `Read-Host` recebe um texto de prompt, não o segredo como argumento. Carregue-o sem eco e execute a CLI com o e-mail em texto simples (sem sintaxe Markdown):
+
+```powershell
+$env:ADMIN_TOKEN = [System.Net.NetworkCredential]::new('', (Read-Host 'Token humano' -AsSecureString)).Password
+yarn cli issue pessoa@empresa.com.br agent
+$env:ADMIN_TOKEN = $null
+```
+
+Não escreva o token dentro da string de prompt nem no histórico do terminal. Se a CLI disser que o token deve ser humano ativo, confirme que a variável correta é `$env:ADMIN_TOKEN` e que recebeu o token humano atual; o nome não tem barra invertida. Tokens que tenham sido colados em conversas, screenshots ou logs devem ser revogados/rotacionados pela administração e substituídos por novos, sem reutilizar o valor exposto.
+
 No Ubuntu, reinicie a aplicação após mudanças com `sudo systemctl restart project-tasks-mcp`. Para o executor, use `systemctl --user restart project-tasks-runner`. No Windows, reinicie o processo ou a tarefa agendada correspondente.
 
 Antes de atualizar, suspenda novos despachos e trate execuções em andamento. Preserve configuração, credenciais, dados MongoDB e worktrees. Faça backup consistente com ferramentas MongoDB e teste a restauração; copiar arquivos de um banco em execução não substitui backup consistente. Não apague volumes ou `.local/mongo` para resolver um problema de instalação.

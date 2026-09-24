@@ -2,8 +2,9 @@
 param()
 
 $ErrorActionPreference = 'Stop'
-$ServiceBaseUrl = 'http://AVB-NB-00295:3443'
-$ServerUrl = "$ServiceBaseUrl/mcp"
+$DefaultServiceAddress = 'AVB-NB-00295:3443'
+$ServiceBaseUrl = $null
+$ServerUrl = $null
 $ServerName = 'project_tasks'
 $BridgeServerName = 'project_tasks_git'
 $McpRoot = Split-Path -Parent $PSScriptRoot
@@ -18,6 +19,24 @@ function Read-Choice {
 function Read-Email {
   do { $email = (Read-Host 'E-mail que identificará suas execuções').Trim().ToLowerInvariant() } while ($email -notmatch '^[^@\s]+@[^@\s]+\.[^@\s]+$')
   return $email
+}
+
+function Read-McpAddress {
+  while ($true) {
+    $address = (Read-Host "IP ou domínio do MCP [$DefaultServiceAddress]").Trim()
+    if (-not $address) { $address = $DefaultServiceAddress }
+
+    if ($address -notmatch '^https?://') { $address = "http://$address" }
+    $uri = $null
+    $validUri = [System.Uri]::TryCreate($address, [System.UriKind]::Absolute, [ref]$uri)
+    $validPath = $validUri -and $uri.AbsolutePath -in @('', '/', '/mcp', '/mcp/')
+    $validPort = $validUri -and ($uri.IsDefaultPort -or ($uri.Port -ge 1 -and $uri.Port -le 65535))
+    if ($validUri -and $uri.Scheme -in @('http', 'https') -and $uri.Host -and -not $uri.UserInfo -and -not $uri.Query -and -not $uri.Fragment -and $validPath -and $validPort) {
+      return $uri.GetLeftPart([System.UriPartial]::Authority)
+    }
+
+    Write-Host 'Endereço inválido. Informe um IP ou domínio, com porta opcional, sem caminho adicional.' -ForegroundColor Yellow
+  }
 }
 
 function Save-BridgeToken {
@@ -125,7 +144,9 @@ function Set-ClaudeMcp {
 }
 
 Write-Host 'Instalador global do Project Tasks MCP' -ForegroundColor Cyan
-Write-Host "Servidor fixo: $ServerUrl"
+$ServiceBaseUrl = Read-McpAddress
+$ServerUrl = "$ServiceBaseUrl/mcp"
+Write-Host "Servidor MCP: $ServerUrl"
 $email = Read-Email
 $choice = Read-Choice 'IA: [c]odex, [l]claude ou [a]mbos' @('c', 'l', 'a')
 $installBridge = (Read-Choice 'Configurar também a bridge Git local? [s/n]' @('s', 'n')) -eq 's'
