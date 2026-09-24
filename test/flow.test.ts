@@ -297,6 +297,10 @@ test('admin page delivers a parseable script with markdown views, chained filter
   assert.match(script, /function copyProjectId/);
   assert.match(script, /action:'issue'/);
   assert.match(script, /crypto\.getRandomValues/);
+  const operationIdSource = script.match(/const operationId=(\(\)=>\{[\s\S]*?\});\$\('summary'\)/)?.[1];
+  assert.ok(operationIdSource);
+  const createOperationId = new Function('globalThis', `return ${operationIdSource}`)({ crypto: { getRandomValues(bytes) { bytes.fill(0); return bytes; } } });
+  assert.match(createOperationId(), /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   assert.match(script, /issue-agent-token/);
 });
 test('task markdown summary turns task context into readable sections', async () => {
