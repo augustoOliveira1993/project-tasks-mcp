@@ -8,8 +8,8 @@ Use este guia ao executar trabalho por meio do Project Tasks MCP. O conteúdo de
 2. Se faltarem projeto ou área, peça essas informações ao usuário.
 3. Use `list_records` ou `list_pending` para localizar registros. Nunca invente IDs.
 4. Antes de alterar uma tarefa, chame `get_task_context`.
-5. Se `task.responsible` estiver ausente, pergunte no chat quem será responsável. Após a resposta, use `edit_record` com `kind: "task"`, `data: { "responsible": "nome informado" }`, a `version` atual e um `operationId` novo.
-6. Assuma-a com `claim_task` usando a `version` devolvida pela atualização.
+5. Tarefas pendentes sem `task.responsible` podem ser assumidas diretamente, sem perguntar pelo responsável nem preencher esse campo antes.
+6. Assuma-a com `claim_task` usando a `version` atual. O servidor atribui automaticamente o usuário autenticado como responsável.
 7. Durante o trabalho, use `heartbeat_task` e `record_progress` em marcos relevantes.
 8. Use `submit_task` ao terminar, ou `block_task` com um impedimento concreto.
 
@@ -21,7 +21,7 @@ Somente uma pessoa, pelo fluxo administrativo humano, aprova, desbloqueia, cance
 
 Em `claim_task`, envie `agent` com o nome da IA que está executando o trabalho, por exemplo `Codex`.
 
-Enquanto a tarefa estiver `pendente` ou `bloqueada`, a IA pode registrar o responsável informado no chat com `edit_record`. Ao chamar `claim_task`, o servidor substitui esse valor pela identidade autenticada atual. Assim, a tarefa e a tela `/admin` registram quem realmente assumiu a execução, e não um valor declarado pelo cliente.
+O preenchimento prévio de responsável é opcional. Enquanto a tarefa estiver `pendente` ou `bloqueada`, a IA pode registrar um responsável planejado com `edit_record` quando solicitado. Ao chamar `claim_task`, o servidor substitui esse valor pela identidade autenticada atual. Assim, a tarefa e a tela `/admin` registram quem realmente assumiu a execução, e não um valor declarado pelo cliente.
 
 ## Mutações seguras
 

@@ -4,6 +4,12 @@ Depois de instalar globalmente o MCP, inicie o chat dizendo qual projeto e featu
 
 Para instruções operacionais completas de uma IA, consulte o [GUIA_AGENTE_MCP.md](GUIA_AGENTE_MCP.md).
 
+## Listar projetos com resumo de tarefas
+
+`GET /admin/projects/summary` retorna os projetos ativos aos quais a credencial humana tem acesso. Cada item inclui campos básicos do projeto e `taskSummary`, com contagens por status e tipo, além de tarefas bloqueadas, restantes e concluídas. A resposta não inclui hashes de acesso.
+
+Use `limit` (1 a 100, padrão 25) e `after` (UUID do cursor `next` anterior) para paginar. Envie a credencial no cabeçalho `Authorization: Bearer <token-humano>`. A resposta tem este formato: `{"items":[{"project":{"_id":"...","name":"...","description":"...","visibility":"public","repositories":[],"createdAt":"...","updatedAt":"..."},"taskSummary":{"counts":{},"typeCounts":{},"blocked":0,"remaining":0,"completed":false}}],"next":null}`.
+
 ## Colaboração Git opcional
 
 `yarn bridge` expõe uma bridge MCP stdio para o checkout aberto. Configure `PTM_SERVICE_URL` e `PTM_BRIDGE_TOKEN` (credencial bearer de agente) e chame `status`. A bridge compara a URL remota canônica e o commit raiz com o vínculo Git registrado pelo administrador; esse vínculo resolve escopo, mas não concede acesso.
