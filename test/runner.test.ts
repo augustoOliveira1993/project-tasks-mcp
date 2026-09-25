@@ -45,13 +45,15 @@ class SimulatedAdapter implements AgentAdapter {
     try {
       const response = await client.callTool({ name: 'submit_task', arguments: { result: { summary: 'Simulated task completed', changedFiles: [], checksRun: ['simulation'], checksOmitted: ['real model'], evidence: ['bridge exercised'] } } });
       assert.ok(!response.isError, JSON.stringify(response));
+      const approval = await client.callTool({ name: 'set_task_status', arguments: { status: 'concluida', reason: 'Reviewed the submitted diff and verified every acceptance criterion against the recorded evidence.' } });
+      assert.ok(!approval.isError, JSON.stringify(approval));
       return { text: 'Submitted', usage: { inputTokens: 10, outputTokens: 5, costUsd: null } };
     } finally { await client.close(); }
   }
   async interrupt() {} async close() {}
 }
 
-for (const real of [false, true]) test(`${real ? 'real providers' : 'simulation'}: runner drives Codex/Claude jobs through the bridge and human dependency approval`, { skip: real && !process.env.PTM_REAL_CLIENTS, timeout: real ? 240000 : 90000 }, async () => {
+for (const real of [false, true]) test(`${real ? 'real providers' : 'simulation'}: runner approves verified submissions and releases dependent tasks`, { skip: real && !process.env.PTM_REAL_CLIENTS, timeout: real ? 240000 : 90000 }, async () => {
   const repo = join(temp, real ? 'real-repo' : 'repo');
   await exec('git', ['init', repo], { windowsHide: true });
   await writeFile(join(repo, 'fixture.txt'), 'test\n');
@@ -73,11 +75,8 @@ for (const real of [false, true]) test(`${real ? 'real providers' : 'simulation'
   const runner = new LocalRunner(runnerConfig.parse({ serviceUrl: url, machineId: op(), projects: [project._id], providers: ['codex', 'claude'], repositories: { [repositoryId]: repo }, worktreeRoot: join(temp, 'worktrees'), codexBinary: process.env.CODEX_BIN, claudeBinary: process.env.CLAUDE_BIN }), new RunnerClient(url, token), name => { selected.push(name); return real ? name === 'codex' ? new CodexAdapter() : new ClaudeAdapter() : new SimulatedAdapter(); });
   const running = runner.run();
   try {
-    await until(async () => (await Task.findById(back._id))?.status === 'em_revisao', real ? 120000 : 30000);
-    assert.equal((await Task.findById(front._id))!.status, 'pendente');
-    const done = await Task.findById(back._id);
-    await service.admin(human, { action: 'review', operationId: op(), projectId: project._id, taskId: back._id, version: done!.version, decision: 'approve', reason: 'Verified fixture' });
-    await until(async () => (await Task.findById(front._id))?.status === 'em_revisao', real ? 120000 : 30000);
+    await until(async () => (await Task.findById(back._id))?.status === 'concluida', real ? 120000 : 30000);
+    await until(async () => (await Task.findById(front._id))?.status === 'concluida', real ? 120000 : 30000);
     assert.deepEqual(selected, ['codex', 'claude']);
     const jobs = await AutomationJob.find({ projectId: project._id }).lean();
     assert.notEqual(jobs[0].cwd, jobs[1].cwd);

@@ -28,7 +28,7 @@ At the start of a chat, identify the project and feature requested by the user. 
 4. Block with a concrete reason when necessary.
 5. Submit summary, changed files, focused checks, omitted checks, evidence, branch, commit, and PR where available.
 
-Only the human administrative CLI approves, requests changes, unblocks, or cancels. Dependencies become available only after the prerequisite is approved.
+An AI may automatically approve a task in `em_revisao` after reviewing its final diff and confirming every acceptance criterion with evidence. Use `set_task_status` to move it to `concluida`, with the current version, an explicit reason, and a fresh `operationId`. Never approve on stale context or without evidence. The human administrative CLI still handles requests for changes, unblocking, and cancellation. Dependencies become available after the prerequisite is approved.
 
 ## Concurrency
 

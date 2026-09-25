@@ -113,13 +113,15 @@ export class Automation {
   }
   async guard(actor: Actor, name: string, a: any, s: ClientSession) {
     if (actor.jobId) {
-      const job = await this.owned(actor, { ...a, jobId: actor.jobId, runnerId: actor.runnerId }, s);
-      ensure(['claim_task', 'heartbeat_task', 'record_progress', 'block_task', 'submit_task', 'send_task_message'].includes(name) && job.taskId === a.taskId, 'Operation outside authorized job', 403);
+      const postSubmissionApproval = name === 'set_task_status' && a.status === 'concluida';
+      const job = await this.owned(actor, { ...a, jobId: actor.jobId, runnerId: actor.runnerId }, s, postSubmissionApproval);
+      ensure((['claim_task', 'heartbeat_task', 'record_progress', 'block_task', 'submit_task', 'send_task_message'].includes(name) || postSubmissionApproval) && job.taskId === a.taskId, 'Operation outside authorized job', 403);
       ensure(job.mode === 'work', 'Consultation is read-only', 403);
       const policy = await AutomationPolicy.findById(a.projectId).session(s);
       const task = await Task.findById(a.taskId).session(s);
       ensure(policy?.enabled && job.authorizationValid && task && job.fingerprint === await this.fingerprint(task, s), 'Automation suspended or task scope changed');
       ensure(job.status !== 'waiting_human' || name === 'heartbeat_task', 'Human permission pending');
+      if (postSubmissionApproval) ensure(job.status === 'completed' && task.status === 'em_revisao', 'Only a submitted task can be approved by its runner');
     } else if (a.taskId || a.targetId) {
       const task = await Task.findById(a.taskId ?? a.targetId).session(s);
       if (task?.executionId && task.status === 'em_execucao') {

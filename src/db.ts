@@ -10,7 +10,7 @@ export const Project = mongoose.model('Project', new Schema({ ...base, eventSequ
 export const Feature = mongoose.model('Feature', new Schema({ ...base, projectId: { type: String, index: true }, name: String, objective: String, context: String, acceptance: [String] }, options));
 export const Task = mongoose.model('Task', new Schema({ ...base, projectId: { type: String, index: true }, featureId: String, name: String,
   instructions: String, acceptance: [String], priority: Number, area: String, type: { type: String, default: 'feature' }, repositoryId: String, dependencies: [String],
-  status: { type: String, default: 'pendente' }, executionId: String, responsible: String, leaseUntil: Date }, options));
+  status: { type: String, default: 'pendente' }, executionId: String, responsible: String, leaseUntil: Date, checked: { type: Boolean, default: false }, checkedBy: String, checkedAt: Date }, options));
 Task.schema.index({ projectId: 1, status: 1, _id: 1 });
 export const Execution = mongoose.model('Execution', new Schema({ _id: String, projectId: String, taskId: { type: String, index: true },
   credentialId: String, userId: String, agent: String, managedJobId: String, startedAt: Date, lastActivity: Date, endedAt: Date, status: String,

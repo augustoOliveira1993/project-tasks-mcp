@@ -10,7 +10,7 @@ import { resolve, relative, isAbsolute } from 'node:path';
 export async function createJobBridge(call: (name: string, args: any) => Promise<any>, readOnly: boolean, cwd?: string) {
   const token = randomBytes(32).toString('hex');
   const app = express(); app.use(express.json({ limit: '128kb' }));
-  const names = ['get_task_context', 'get_markdown', 'list_markdowns', 'list_task_messages', 'send_collaboration_message', ...(readOnly ? [] : ['send_task_message', 'record_progress', 'block_task', 'submit_task'])] as const;
+  const names = ['get_task_context', 'get_markdown', 'list_markdowns', 'list_task_messages', 'send_collaboration_message', ...(readOnly ? [] : ['send_task_message', 'record_progress', 'block_task', 'submit_task', 'set_task_status'])] as const;
   const connections = new Set<McpServer>();
   app.post('/mcp', async (req, res) => {
     if (req.headers.authorization !== `Bearer ${token}` || req.headers.origin) { res.sendStatus(403); return; }

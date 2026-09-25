@@ -3,7 +3,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { Project, Feature, Task, Execution, Event, TaskMessage, DeliveryEvent, DeliveryRead, TaskDiff, AutomationJob, MarkdownDocument, MarkdownRevision, Operation, Credential, Bootstrap } from './db.js';
 import { EventHub, readEvents } from './events.js';
 import { Automation } from './automation.js';
-import { tools, adminSchema, approveTasksSchema, changeTaskStatusSchema, projectData, featureData, taskData, states, userId as userIdSchema } from './schema.js';
+import { tools, adminSchema, approveTasksSchema, changeTaskStatusSchema, setTaskCheckedSchema, projectData, featureData, taskData, states, userId as userIdSchema } from './schema.js';
 
 export class DomainError extends Error { constructor(message: string, public status = 409) { super(message); } }
 export type Actor = { id: string; userId: string; scope: string; systemAdmin: boolean; projectToken?: string; sessionId?: string; jobId?: string; runnerId?: string };
@@ -92,8 +92,8 @@ export class Service {
   }
   async event(s: ClientSession, actor: Actor, action: string, projectId: string | undefined, entityId: string, data: any) {
     const eventId = randomUUID(); const at = new Date();
-    const kind = ({ create_task: 'task.created', create_feature: 'feature.created', create_project: 'project.created', task_message: 'task.message.created', save_markdown: 'body.updated', update_markdown: 'body.updated', record_task_diff: 'task.diff.published', submit_task: 'task.submitted', claim_task: 'task.claimed', record_progress: 'task.progressed', block_task: 'task.blocked', approve: 'task.approved' } as Record<string, string>)[action] ?? `project.${action}`;
-    const summary = ({ 'task.created': 'Tarefa criada', 'feature.created': 'Feature criada', 'project.created': 'Projeto criado', 'task.message.created': 'Mensagem adicionada à tarefa', 'body.updated': 'Documento Markdown atualizado', 'task.diff.published': 'Diff de código publicado', 'task.submitted': 'Tarefa enviada para revisão', 'task.claimed': 'Tarefa assumida', 'task.progressed': 'Progresso registrado', 'task.blocked': 'Tarefa bloqueada', 'task.approved': 'Tarefa aprovada' } as Record<string, string>)[kind] ?? action;
+    const kind = ({ create_task: 'task.created', create_feature: 'feature.created', create_project: 'project.created', task_message: 'task.message.created', save_markdown: 'body.updated', update_markdown: 'body.updated', record_task_diff: 'task.diff.published', submit_task: 'task.submitted', claim_task: 'task.claimed', record_progress: 'task.progressed', block_task: 'task.blocked', approve: 'task.approved', set_task_status: 'task.status.changed', manual_status_change: 'task.status.changed', set_task_checked: 'task.check.changed' } as Record<string, string>)[action] ?? `project.${action}`;
+    const summary = ({ 'task.created': 'Tarefa criada', 'feature.created': 'Feature criada', 'project.created': 'Projeto criado', 'task.message.created': 'Mensagem adicionada à tarefa', 'body.updated': 'Documento Markdown atualizado', 'task.diff.published': 'Diff de código publicado', 'task.submitted': 'Tarefa enviada para revisão', 'task.claimed': 'Tarefa assumida', 'task.progressed': 'Progresso registrado', 'task.blocked': 'Tarefa bloqueada', 'task.approved': 'Tarefa aprovada', 'task.status.changed': 'Status da tarefa alterado', 'task.check.changed': 'Conferência da tarefa alterada' } as Record<string, string>)[kind] ?? action;
     const actorData = { userId: actor.userId, credentialId: actor.id, ...(data?.agent ? { agent: data.agent } : {}) };
     const git = data?.repositoryId ? { repositoryId: data.repositoryId, ...(data?.branch ? { branch: data.branch } : {}), ...(data?.commit ? { commit: data.commit } : {}) } : undefined;
     await Event.create([{ _id: eventId, projectId, entityId, action, kind, summary, actor: actorData, git, author: actor.userId, credentialId: actor.id, at, data }], { session: s });
@@ -108,7 +108,7 @@ export class Service {
     }
     await DeliveryEvent.create([{ _id: eventId, projectId, sequence: project.eventSequence, taskIds: [...ids], action, kind, summary, author: actor.userId, credentialId: actor.id, entityId, entityVersion: data?.task?.version ?? data?.version, at }], { session: s });
   }
-  async mutate(actor: Actor, name: string, a: any, run: (s: ClientSession) => Promise<any>) {
+  async mutate(actor: Actor, name: string, a: any, run: (s: ClientSession) => Promise<any>, projectAdmin = name === 'admin', projectWrite = true) {
     const key = `${actor.id}:${a.operationId}`;
     const fingerprint = hash(JSON.stringify({ name, a }));
     return mongoose.connection.transaction(async s => {
@@ -117,10 +117,10 @@ export class Service {
         const active = await Credential.updateOne({ _id: actor.id, revoked: false, scope: actor.scope }, { $inc: { fence: 1 } }, { session: s });
         requireThat(active.matchedCount, 'Credential revoked', 401);
       }
-      if (a.projectId) await this.access(actor, a.projectId, false, name === 'admin', s);
+      if (a.projectId) await this.access(actor, a.projectId, false, projectAdmin, s);
       const old = await Operation.findById(key).session(s);
       if (old) { requireThat(old.fingerprint === fingerprint, 'Operation ID reused with different arguments'); return old.result; }
-      if (a.projectId) await this.access(actor, a.projectId, true, name === 'admin', s);
+      if (a.projectId) await this.access(actor, a.projectId, projectWrite, projectAdmin, s);
       if (a.projectId) await Project.updateOne({ _id: a.projectId }, { $inc: { fence: 1 } }, { session: s });
       const result = plain(await run(s));
       await Operation.create([{ _id: key, fingerprint, result }], { session: s });
@@ -254,6 +254,11 @@ export class Service {
       const t = await Task.findOne({ _id: a.taskId, projectId: a.projectId, archived: false }).session(s);
       requireThat(t && t.version === a.version, 'Task missing or version conflict');
       if (t.featureId) requireThat(await Feature.exists({ _id: t.featureId, archived: false }).session(s), 'Feature archived');
+      if (name === 'set_task_status') {
+        const changed = await this.applyTaskStatus(actor, t, a, s, name, a.operationId);
+        await this.automation.afterTaskMutation(actor, t, name, s);
+        return changed;
+      }
       const now = new Date();
       if (name === 'send_task_message') {
         requireThat(t.status === 'em_execucao' && t.executionId === a.executionId && t.leaseUntil! > now, 'Execution inactive or expired');
@@ -362,7 +367,10 @@ export class Service {
     }    if (name === 'list_records' || name === 'list_pending') {
       const kind = name === 'list_pending' ? 'task' : a.kind;
       const trustedFilter = actor.projectToken ? { $or: [{ visibility: { $ne: 'private' } }, { accessTokenHash: hash(actor.projectToken) }] } : { visibility: { $ne: 'private' } };
-      const filter: any = kind === 'project' ? { ...(actor.scope === 'trusted_local' ? trustedFilter : { [`members.${memberKey(actor.userId)}`]: { $exists: true } }), ...(a.projectId ? { _id: a.projectId } : {}) } : { projectId: a.projectId };
+      const projectAccessFilter = actor.scope === 'trusted_local'
+        ? trustedFilter
+        : actor.systemAdmin ? {} : { [`members.${memberKey(actor.userId)}`]: { $exists: true } };
+      const filter: any = kind === 'project' ? { ...projectAccessFilter, ...(a.projectId ? { _id: a.projectId } : {}) } : { projectId: a.projectId };
       filter.archived = a.archived ?? false;
       if (kind === 'task') {
         for (const key of ['area', 'responsible', 'status']) if (a[key]) filter[key] = a[key];
@@ -473,12 +481,13 @@ export class Service {
       if (documents.length) for (const document of documents) lines.push(`- **${escape(document.name)}** (${document.scope}, revisão ${document.revision})${document.summary ? ` — ${document.summary}` : ''}`); else lines.push('_Nenhum documento vinculado._');
       return { markdown: lines.join('\n').trimEnd() + '\n', generatedAt: new Date().toISOString(), taskId: task._id };
     }
-    return { task: { ...task, type: task.type ?? 'feature' }, project, feature, repository: project!.repositories.find(r => r.id === task.repositoryId), markdowns: { task: taskMarkdowns, feature: featureMarkdowns }, messages: taskMessages, dependencies: dependencies.map(d => ({ ...d, type: d.type ?? 'feature', execution: results.find(e => e._id === d.executionId) })), executions: await Execution.find({ taskId: task._id }).sort({ startedAt: -1 }).limit(25).lean() };
+    return { task: { ...task, type: task.type ?? 'feature', checked: task.checked ?? false, checkedBy: task.checkedBy ?? null, checkedAt: task.checkedAt ?? null }, project, feature, repository: project!.repositories.find(r => r.id === task.repositoryId), markdowns: { task: taskMarkdowns, feature: featureMarkdowns }, messages: taskMessages, dependencies: dependencies.map(d => ({ ...d, type: d.type ?? 'feature', execution: results.find(e => e._id === d.executionId) })), executions: await Execution.find({ taskId: task._id }).sort({ startedAt: -1 }).limit(25).lean() };
   }
   async admin(actor: Actor, input: unknown) {
     requireThat(actor.scope === 'human', 'Human credential required', 403);
     const a = adminSchema.parse(input);
     if (a.action === 'automation_policy' || a.action === 'automation_release' || a.action === 'automation_resolve') return this.automation.admin(actor, a);
+    const projectAdminRequired = new Set<string>(['bind_repository_git', 'issue_project_member', 'member']).has(a.action);
     const result = await this.mutate(actor, 'admin', a, async s => {
       if (a.action === 'bind_repository_git') {
         const project = await Project.findOne({ _id: a.projectId, version: a.version, archived: false }).session(s);
@@ -489,6 +498,22 @@ export class Service {
         project.version! += 1; await project.save({ session: s });
         await this.event(s, actor, 'bind_repository_git', a.projectId, a.projectId, { repositoryId: a.repositoryId, git: repository.git });
         return project;
+      }
+      if (a.action === 'issue_project_member') {
+        const project = await Project.findOne({ _id: a.projectId, version: a.version, archived: false }).session(s);
+        requireThat(project, 'Project version conflict or archived', 409);
+        const key = memberKey(a.userId);
+        const previousRole = project.members?.get(key);
+        const role = previousRole === 'administrador' ? previousRole : 'colaborador';
+        if (previousRole !== role) {
+          project.members!.set(key, role);
+          project.version! += 1;
+          await project.save({ session: s });
+        }
+        const credentialId = randomUUID();
+        await Credential.create([{ _id: credentialId, userId: a.userId, scope: 'human', hash: hash(a.token), systemAdmin: false }], { session: s });
+        await this.event(s, actor, a.action, a.projectId, credentialId, { credentialId, userId: a.userId, role });
+        return { credentialId, version: project.version };
       }
       if (a.action === 'issue' || a.action === 'revoke') {
         requireThat(actor.systemAdmin, 'System administrator required', 403);
@@ -521,7 +546,7 @@ export class Service {
       t.leaseUntil = undefined; t.version! += 1;
       if (['changes', 'unblock', 'cancel'].includes(a.decision)) await AutomationJob.updateMany({ taskId: t._id }, { $set: { authorizationValid: false }, $inc: { version: 1 } }, { session: s });
       await t.save({ session: s }); await this.event(s, actor, a.decision, a.projectId, a.taskId, a); return t;
-    });
+    }, projectAdminRequired);
     return result;
   }
   async approveTasks(actor: Actor, input: unknown) {
@@ -541,7 +566,7 @@ export class Service {
         await this.event(s, actor, 'approve', body.projectId, taskId, { action: 'approve', operationId, projectId: body.projectId, taskId, reason: body.reason, task: plain(task) });
       }
       return { operationId, tasks: body.taskIds.map(taskId => plain(byId.get(taskId)!)) };
-    });
+    }, false);
   }
   async changeTaskStatus(actor: Actor, input: unknown) {
     requireThat(actor.scope === 'human', 'Human credential required', 403);
@@ -550,20 +575,36 @@ export class Service {
     return this.mutate(actor, 'admin', { action: 'change_task_status', operationId, ...body }, async s => {
       const task = await Task.findOne({ _id: body.taskId, projectId: body.projectId, archived: false }).session(s);
       requireThat(task, 'Task not found', 404);
-      const allowed: Record<string, string[]> = {
-        pendente: ['em_revisao', 'concluida', 'cancelada'],
-        bloqueada: ['pendente', 'em_revisao', 'concluida', 'cancelada'],
-        em_revisao: ['pendente', 'concluida', 'cancelada'],
-        concluida: ['pendente']
-      };
-      requireThat(allowed[task.status!]?.includes(body.status), 'Invalid administrative status transition');
-      task.status = body.status; task.leaseUntil = undefined; task.version! += 1;
-      if (task.executionId && ['concluida', 'cancelada'].includes(body.status)) await Execution.updateOne({ _id: task.executionId }, { status: body.status === 'concluida' ? 'approve' : 'cancel', endedAt: new Date() }, { session: s });
-      await AutomationJob.updateMany({ taskId: task._id }, { $set: { authorizationValid: false }, $inc: { version: 1 } }, { session: s });
+      return this.applyTaskStatus(actor, task, body, s, 'manual_status_change', operationId);
+    }, false);
+  }
+  private async applyTaskStatus(actor: Actor, task: any, body: any, s: ClientSession, eventAction: string, operationId: string) {
+    const allowed: Record<string, string[]> = {
+      pendente: ['em_revisao', 'concluida', 'cancelada'],
+      bloqueada: ['pendente', 'em_revisao', 'concluida', 'cancelada'],
+      em_revisao: ['pendente', 'concluida', 'cancelada'],
+      concluida: ['pendente']
+    };
+    requireThat(allowed[task.status!]?.includes(body.status), 'Invalid administrative status transition');
+    task.status = body.status; task.leaseUntil = undefined; task.version! += 1;
+    if (task.executionId && ['concluida', 'cancelada'].includes(body.status)) await Execution.updateOne({ _id: task.executionId }, { status: body.status === 'concluida' ? 'approve' : 'cancel', endedAt: new Date() }, { session: s });
+    await AutomationJob.updateMany({ taskId: task._id }, { $set: { authorizationValid: false }, $inc: { version: 1 } }, { session: s });
+    await task.save({ session: s });
+    await this.event(s, actor, eventAction, body.projectId, body.taskId, { action: eventAction === 'manual_status_change' ? 'change_task_status' : eventAction, operationId, ...body, task: plain(task) });
+    return { operationId, task: plain(task) };
+  }
+  async setTaskChecked(actor: Actor, input: unknown) {
+    requireThat(actor.scope === 'human', 'Human credential required', 403);
+    const body = setTaskCheckedSchema.parse(input);
+    return this.mutate(actor, 'set_task_checked', body, async s => {
+      requireThat(await Project.exists({ _id: body.projectId, archived: false }).session(s), 'Project archived or not found', 404);
+      const task = await Task.findOne({ _id: body.taskId, projectId: body.projectId, archived: false }).session(s);
+      requireThat(task && task.version === body.version, 'Task version conflict or not found');
+      task.checked = body.checked; task.checkedBy = actor.userId; task.checkedAt = new Date(); task.version! += 1;
       await task.save({ session: s });
-      await this.event(s, actor, 'manual_status_change', body.projectId, body.taskId, { action: 'change_task_status', operationId, ...body, task: plain(task) });
-      return { operationId, task: plain(task) };
-    });
+      await this.event(s, actor, 'set_task_checked', body.projectId, body.taskId, { operationId: body.operationId, checked: body.checked, task: plain(task) });
+      return { operationId: body.operationId, task: plain(task) };
+    }, false, false);
   }
   async expire() {
     const expired = await Task.find({ status: 'em_execucao', leaseUntil: { $lte: new Date() } }).select('_id').limit(100).lean();

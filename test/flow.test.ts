@@ -128,6 +128,42 @@ test('human status override moves blocked tasks to review or completion', async 
   assert.equal(reopened.task.status, 'pendente');
   await assert.rejects(service.changeTaskStatus(human, { projectId: p._id, taskId: task._id, status: 'em_execucao', reason: 'Invalid' }), /Invalid option/);
 });
+test('agent status tool reuses administrative transitions, versions and execution effects', async () => {
+  const { p, create } = await fixture(); let task = await claim(p, await create('Agent status transition'));
+  task = await service.call(agent, 'block_task', { ...active(p, task), reason: 'Needs human decision' });
+  const args = { operationId: op(), projectId: p._id, taskId: task._id, version: task.version, status: 'concluida', reason: 'Evidence reviewed by agent' };
+  const completed = await service.call(agent, 'set_task_status', args);
+  assert.equal(completed.task.status, 'concluida');
+  assert.equal((await Execution.findById(task.executionId)).status, 'approve');
+  assert.deepEqual(await service.call(agent, 'set_task_status', args), completed, 'identical retries return the original result');
+  assert.equal(await Event.countDocuments({ entityId: task._id, action: 'set_task_status' }), 1);
+  await assert.rejects(service.call(agent, 'set_task_status', { ...args, operationId: op(), version: completed.task.version - 1, status: 'pendente' }), /version conflict/);
+  await assert.rejects(service.call(agent, 'set_task_status', { ...args, operationId: op(), version: completed.task.version, status: 'cancelada' }), /Invalid administrative status transition/);
+  await assert.rejects(service.call(agent, 'set_task_status', { ...args, operationId: op(), version: completed.task.version, status: 'em_execucao' }), /Invalid option/);
+});
+test('human project readers can mark and unmark task checked without changing status', async () => {
+  const { p, create } = await fixture(); const task = await create('Checkable task');
+  const initialContext = await service.call(agent, 'get_task_context', { projectId: p._id, taskId: task._id });
+  assert.equal(initialContext.task.checked, false); assert.equal(initialContext.task.checkedBy, null); assert.equal(initialContext.task.checkedAt, null);
+  const token = randomBytes(32).toString('hex');
+  await service.admin(human, { action: 'issue', operationId: op(), userId: 'reviewer', scope: 'human', systemAdmin: false, token });
+  let project = await Project.findById(p._id).lean();
+  await service.admin(human, { action: 'member', operationId: op(), projectId: p._id, version: project.version, userId: 'reviewer', role: 'leitor' });
+  const reviewer = await authenticate(token, 'human');
+  const marked = await service.setTaskChecked(reviewer, { operationId: op(), projectId: p._id, taskId: task._id, version: task.version, checked: true });
+  assert.equal(marked.task.checked, true); assert.equal(marked.task.checkedBy, 'reviewer'); assert.ok(marked.task.checkedAt);
+  assert.equal(marked.task.status, 'pendente');
+  const context = await service.query(agent, 'get_task_context', { projectId: p._id, taskId: task._id });
+  assert.equal(context.task.checked, true); assert.equal(context.task.checkedBy, 'reviewer');
+  const unmarked = await service.setTaskChecked(reviewer, { operationId: op(), projectId: p._id, taskId: task._id, version: marked.task.version, checked: false });
+  assert.equal(unmarked.task.checked, false); assert.equal(unmarked.task.checkedBy, 'reviewer'); assert.equal(unmarked.task.status, 'pendente');
+  await assert.rejects(service.setTaskChecked(reviewer, { operationId: op(), projectId: p._id, taskId: task._id, version: marked.task.version, checked: true }), /Task version conflict/);
+  assert.equal(await Event.countDocuments({ entityId: task._id, action: 'set_task_checked' }), 2);
+  const outsiderToken = randomBytes(32).toString('hex');
+  await service.admin(human, { action: 'issue', operationId: op(), userId: 'outsider', scope: 'human', systemAdmin: false, token: outsiderToken });
+  const outsider = await authenticate(outsiderToken, 'human');
+  await assert.rejects(service.setTaskChecked(outsider, { operationId: op(), projectId: p._id, taskId: task._id, version: unmarked.task.version, checked: true }), /access denied/);
+});
 test('project permissions, reader restrictions, human scope and revocation', async () => {
   const { p, create } = await fixture(); let t = await create('Secret');
   await assert.rejects(service.call(other, 'get_task_context', { projectId: p._id, taskId: t._id }), /access denied/);
@@ -185,15 +221,21 @@ test('MCP real HTTP handshake, tool listing, tool call and endpoint boundaries',
   const client = new Client({ name: 'flow-test', version: '1.0' });
   try {
     await client.connect(new StreamableHTTPClientTransport(new URL(`${url}/mcp`), { requestInit: { headers: { authorization: `Bearer ${agentToken}` } } }));
-    const listed = await client.listTools(); assert.ok(listed.tools.some(t => t.name === 'claim_task'));
+    const listed = await client.listTools(); assert.ok(listed.tools.some(t => t.name === 'claim_task')); assert.ok(listed.tools.some(t => t.name === 'set_task_status'));
     assert.match(listed.tools.find(t => t.name === 'claim_task')!.description!, /responsible.*usuário autenticado atual/);
+    assert.match(listed.tools.find(t => t.name === 'set_task_status')!.description!, /transições administrativas válidas/);
     assert.ok(!listed.tools.some(t => /approve|review/.test(t.name)));
     const response = await client.callTool({ name: 'list_records', arguments: { kind: 'project', limit: 1 } });
     assert.ok(!response.isError);
     const { p, create } = await fixture(); let task = await create('HTTP approval');
+    const statusTask = await create('MCP status transition');
+    const statusResult = await client.callTool({ name: 'set_task_status', arguments: { operationId: op(), projectId: p._id, taskId: statusTask._id, version: statusTask.version, status: 'cancelada', reason: 'Not needed' } });
+    assert.ok(!statusResult.isError);
     const claimError = await client.callTool({ name: 'claim_task', arguments: { operationId: op(), projectId: p._id, taskId: task._id, version: task.version + 1, agent: 'Codex' } });
     assert.ok(claimError.isError);
     assert.deepEqual(JSON.parse((claimError.content as any)[0].text), { code: 'VERSION_CONFLICT', reason: 'O registro foi alterado desde a versão enviada.', recoverable: true, nextAction: 'Leia o contexto ou registro novamente, use a version atual e gere outro operationId.', error: 'Task missing or version conflict' });
+    const checked = await fetch(`${url}/admin/tasks/check`, { method: 'POST', headers: { authorization: `Bearer ${humanToken}`, 'content-type': 'application/json' }, body: JSON.stringify({ operationId: op(), projectId: p._id, taskId: task._id, version: task.version, checked: true }) });
+    assert.equal(checked.status, 200); task = (await checked.json()).task; assert.equal(task.checked, true); assert.equal(task.status, 'pendente');
     task = await service.call(agent, 'submit_task', { ...active(p, await claim(p, task)), result });
     const approved = await fetch(`${url}/admin/tasks/approve`, { method: 'POST', headers: { authorization: `Bearer ${humanToken}`, 'content-type': 'application/json' }, body: JSON.stringify({ projectId: p._id, taskIds: [task._id] }) });
     assert.equal(approved.status, 200); assert.match((await approved.json()).operationId, /^[0-9a-f-]{36}$/);

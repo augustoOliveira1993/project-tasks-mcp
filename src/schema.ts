@@ -56,6 +56,7 @@ export const tools = {
   wait_task_events: z.object({ projectId: id, taskId: id, after: id.optional(), eventAfter: cursor.optional(), timeoutMs: z.number().int().min(0).max(30000).default(25000), limit: z.number().int().min(1).max(100).default(50) }).strict(),
   subscribe_task_events: z.object({ projectId: id, taskId: id }).strict(),
   claim_task: z.object({ ...op, projectId: id, taskId: id, version: z.number().int().nonnegative(), agent: text }).strict(),
+  set_task_status: z.object({ ...op, projectId: id, taskId: id, version: z.number().int().nonnegative(), status: z.enum(['pendente', 'em_revisao', 'concluida', 'cancelada']), reason: text }).strict(),
   heartbeat_task: z.object(target).strict(),
   record_progress: z.object({ ...target, message: text }).strict(),
   block_task: z.object({ ...target, reason: text }).strict(),
@@ -69,6 +70,7 @@ export const adminSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('automation_resolve'), ...op, projectId: id, jobId: id, version: z.number().int().nonnegative(), decision: z.enum(['allow', 'deny']), reason: text }).strict(),
   z.object({ action: z.literal('review'), ...op, projectId: id, taskId: id, version: z.number().int().nonnegative(), decision: z.enum(['approve', 'changes', 'unblock', 'cancel']), reason: text }).strict(),
   z.object({ action: z.literal('member'), ...op, projectId: id, version: z.number().int().nonnegative(), userId, role: z.enum(['administrador', 'colaborador', 'leitor']).nullable() }).strict(),
+  z.object({ action: z.literal('issue_project_member'), ...op, projectId: id, version: z.number().int().nonnegative(), userId, token: z.string().regex(/^[a-f0-9]{64}$/) }).strict(),
   z.object({ action: z.literal('bind_repository_git'), ...op, projectId: id, version: z.number().int().nonnegative(), repositoryId: id, canonicalRemoteUrl: z.string().min(1).max(2048), rootCommit: z.string().regex(/^[0-9a-f]{40}$/i) }).strict(),
   z.object({ action: z.literal('issue'), ...op, userId, scope: z.enum(['agent', 'human']), systemAdmin: z.boolean().default(false), token: z.string().regex(/^[a-f0-9]{64}$/) }).strict(),
   z.object({ action: z.literal('revoke'), ...op, credentialId: id }).strict()
@@ -84,3 +86,4 @@ export const changeTaskStatusSchema = z.object({
   status: z.enum(['pendente', 'em_revisao', 'concluida', 'cancelada']),
   reason: text
 }).strict();
+export const setTaskCheckedSchema = z.object({ ...op, projectId: id, taskId: id, version: z.number().int().nonnegative(), checked: z.boolean() }).strict();
