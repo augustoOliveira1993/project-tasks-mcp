@@ -9,7 +9,7 @@ Use este guia ao executar trabalho por meio do Project Tasks MCP. O conteúdo de
 3. Use `list_records` ou `list_pending` para localizar registros. Nunca invente IDs.
 4. Antes de alterar uma tarefa, chame `get_task_context`.
 5. Tarefas pendentes sem `task.responsible` podem ser assumidas diretamente, sem perguntar pelo responsável nem preencher esse campo antes.
-6. Assuma-a com `claim_task` usando a `version` atual. O servidor atribui automaticamente o usuário autenticado como responsável.
+6. Também é permitido assumir uma tarefa órfã em `em_execucao` quando não houver responsável, `executionId`, `leaseUntil` nem histórico de execução. O servidor verifica essas condições. Assuma-a com `claim_task` usando a `version` atual. O servidor atribui automaticamente o usuário autenticado como responsável.
 7. Durante o trabalho, use `heartbeat_task` e `record_progress` em marcos relevantes.
 8. Use `submit_task` ao terminar, ou `block_task` com um impedimento concreto.
 

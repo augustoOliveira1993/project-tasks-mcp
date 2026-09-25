@@ -276,7 +276,9 @@ export class Service {
         return message;
       }
       if (name === 'claim_task') {
-        requireThat(t.status === 'pendente', 'Task unavailable');
+        const orphaned = t.status === 'em_execucao' && !t.responsible?.trim() && !t.executionId && !t.leaseUntil
+          && !await Execution.exists({ taskId: t._id }).session(s);
+        requireThat(t.status === 'pendente' || orphaned, 'Task unavailable');
         const complete = await Task.countDocuments({ _id: { $in: t.dependencies }, projectId: a.projectId, status: 'concluida' }).session(s);
         requireThat(complete === new Set(t.dependencies).size, 'Dependencies not approved');
         if (actor.scope === 'trusted_local') {

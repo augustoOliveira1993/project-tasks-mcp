@@ -205,6 +205,44 @@ test('trusted local identities discover and work on shared projects', async () =
   const claimed = await claim(p, task, collaborator);
   assert.equal(claimed.responsible, 'frontend@ferroeste.com.br');
 });
+test('orphaned running tasks can be claimed once by a collaborator', async () => {
+  const { p, create } = await fixture();
+  const collaborator = trustedLocal('collaborator@ferroeste.com.br');
+  const task = await create('Imported orphan');
+  await Task.updateOne({ _id: task._id }, { status: 'em_execucao' });
+  await assert.rejects(claim(p, { ...task, version: task.version + 1 }, collaborator), /version conflict/);
+  const attempts = await Promise.allSettled([claim(p, task, collaborator), claim(p, task, collaborator)]);
+  assert.equal(attempts.filter(attempt => attempt.status === 'fulfilled').length, 1);
+  const claimed = await Task.findById(task._id);
+  assert.equal(claimed!.responsible, collaborator.userId);
+  assert.equal(claimed!.status, 'em_execucao');
+  assert.ok(claimed!.leaseUntil! > new Date());
+  assert.equal(await Execution.countDocuments({ taskId: task._id }), 1);
+  const execution = await Execution.findById(claimed!.executionId);
+  assert.equal(execution!.userId, collaborator.userId);
+  assert.equal(execution!.status, 'em_execucao');
+  await assert.rejects(claim(p, claimed, collaborator), /Task unavailable/);
+});
+
+test('orphan recovery preserves ownership, execution history and dependencies', async () => {
+  const { p, create } = await fixture();
+  for (const fields of [{ responsible: 'Existing owner' }, { executionId: op() }, { leaseUntil: new Date(Date.now() - 1000) }]) {
+    const task = await create('Protected running task');
+    await Task.updateOne({ _id: task._id }, { status: 'em_execucao', ...fields });
+    await assert.rejects(claim(p, task), /Task unavailable/);
+    assert.equal(await Execution.countDocuments({ taskId: task._id }), 0);
+  }
+  const prior = await claim(p, await create('Execution history'));
+  await Task.updateOne({ _id: prior._id }, { $unset: { responsible: 1, executionId: 1, leaseUntil: 1 } });
+  await assert.rejects(claim(p, prior), /Task unavailable/);
+  assert.equal(await Execution.countDocuments({ taskId: prior._id }), 1);
+  const dependency = await create('Pending dependency');
+  const dependent = await create('Orphan with dependency', [dependency._id]);
+  await Task.updateOne({ _id: dependent._id }, { status: 'em_execucao' });
+  await assert.rejects(claim(p, dependent), /Dependencies not approved/);
+  assert.equal(await Execution.countDocuments({ taskId: dependent._id }), 0);
+});
+
 test('private projects require a trusted-local project token', async () => {
   const repositoryId = op(); const accessToken = 'shared-private-token';
   const project = await service.call(agent, 'create_project', { operationId: op(), data: { name: 'Private', description: 'Private', instructions: 'Private', visibility: 'private', accessToken, repositories: [{ id: repositoryId, name: 'repo', url: 'https://example.com/private.git', instructions: 'Private' }] } });
