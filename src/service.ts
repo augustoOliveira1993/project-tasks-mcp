@@ -92,8 +92,8 @@ export class Service {
   }
   async event(s: ClientSession, actor: Actor, action: string, projectId: string | undefined, entityId: string, data: any) {
     const eventId = randomUUID(); const at = new Date();
-    const kind = ({ create_task: 'task.created', create_feature: 'feature.created', create_project: 'project.created', task_message: 'task.message.created', save_markdown: 'body.updated', update_markdown: 'body.updated', record_task_diff: 'task.diff.published', submit_task: 'task.submitted', claim_task: 'task.claimed', record_progress: 'task.progressed', block_task: 'task.blocked', approve: 'task.approved', set_task_status: 'task.status.changed', manual_status_change: 'task.status.changed', set_task_checked: 'task.check.changed' } as Record<string, string>)[action] ?? `project.${action}`;
-    const summary = ({ 'task.created': 'Tarefa criada', 'feature.created': 'Feature criada', 'project.created': 'Projeto criado', 'task.message.created': 'Mensagem adicionada à tarefa', 'body.updated': 'Documento Markdown atualizado', 'task.diff.published': 'Diff de código publicado', 'task.submitted': 'Tarefa enviada para revisão', 'task.claimed': 'Tarefa assumida', 'task.progressed': 'Progresso registrado', 'task.blocked': 'Tarefa bloqueada', 'task.approved': 'Tarefa aprovada', 'task.status.changed': 'Status da tarefa alterado', 'task.check.changed': 'Conferência da tarefa alterada' } as Record<string, string>)[kind] ?? action;
+    const kind = ({ create_task: 'task.created', create_feature: 'feature.created', create_project: 'project.created', task_message: 'task.message.created', save_markdown: 'body.updated', update_markdown: 'body.updated', record_task_diff: 'task.diff.published', submit_task: 'task.submitted', claim_task: 'task.claimed', record_progress: 'task.progressed', set_acceptance_criterion: 'task.acceptance.progressed', block_task: 'task.blocked', approve: 'task.approved', set_task_status: 'task.status.changed', manual_status_change: 'task.status.changed', set_task_checked: 'task.check.changed' } as Record<string, string>)[action] ?? `project.${action}`;
+    const summary = ({ 'task.created': 'Tarefa criada', 'feature.created': 'Feature criada', 'project.created': 'Projeto criado', 'task.message.created': 'Mensagem adicionada à tarefa', 'body.updated': 'Documento Markdown atualizado', 'task.diff.published': 'Diff de código publicado', 'task.submitted': 'Tarefa enviada para revisão', 'task.claimed': 'Tarefa assumida', 'task.progressed': 'Progresso registrado', 'task.acceptance.progressed': 'Critério de aceite atualizado', 'task.blocked': 'Tarefa bloqueada', 'task.approved': 'Tarefa aprovada', 'task.status.changed': 'Status da tarefa alterado', 'task.check.changed': 'Conferência da tarefa alterada' } as Record<string, string>)[kind] ?? action;
     const actorData = { userId: actor.userId, credentialId: actor.id, ...(data?.agent ? { agent: data.agent } : {}) };
     const git = data?.repositoryId ? { repositoryId: data.repositoryId, ...(data?.branch ? { branch: data.branch } : {}), ...(data?.commit ? { commit: data.commit } : {}) } : undefined;
     await Event.create([{ _id: eventId, projectId, entityId, action, kind, summary, actor: actorData, git, author: actor.userId, credentialId: actor.id, at, data }], { session: s });
@@ -158,7 +158,7 @@ export class Service {
         if (kind === 'task') await this.graph(a.projectId, entityId, a.data, s);
         if (kind === 'project') requireThat(new Set(a.data.repositories.map((r: any) => r.id)).size === a.data.repositories.length, 'Duplicate repository');
         const { accessToken, ...data } = a.data;
-        const [created] = await models[kind].create([{ _id: entityId, ...data, ...(kind === 'project' ? { accessTokenHash: accessToken ? hash(accessToken) : undefined, members: { [memberKey(actor.userId)]: 'administrador' } } : { projectId: a.projectId }) }], { session: s });
+        const [created] = await models[kind].create([{ _id: entityId, ...data, ...(kind === 'task' ? { acceptanceProgress: data.acceptance.map(() => false) } : {}), ...(kind === 'project' ? { accessTokenHash: accessToken ? hash(accessToken) : undefined, members: { [memberKey(actor.userId)]: 'administrador' } } : { projectId: a.projectId }) }], { session: s });
         await this.event(s, actor, name, a.projectId ?? entityId, entityId, created);
         return created;
       }
@@ -230,6 +230,7 @@ export class Service {
           doc.archived = true;
         } else {
           const data = ({ project: projectData, feature: featureData, task: taskData }[a.kind as 'project' | 'feature' | 'task']).partial().parse(a.data);
+          if (a.kind === 'task' && 'acceptance' in data && data.acceptance) (data as any).acceptanceProgress = data.acceptance.map(() => false);
           if (a.kind === 'project') {
             const projectData = data as any;
             if (projectData.accessToken) { projectData.accessTokenHash = hash(projectData.accessToken); delete projectData.accessToken; }
@@ -260,6 +261,24 @@ export class Service {
         return changed;
       }
       const now = new Date();
+      if (name === 'set_acceptance_criterion') {
+        requireThat(t.status === 'em_execucao' && t.executionId === a.executionId && t.leaseUntil! > now, 'Execution inactive or expired');
+        const acceptance = t.acceptance ?? [];
+        requireThat(a.criterionIndex < acceptance.length, 'Acceptance criterion index out of range', 400);
+        const execution = await Execution.findOne({ _id: a.executionId, taskId: t._id, credentialId: actor.id }).session(s);
+        requireThat(execution, 'Execution belongs to another credential', 403);
+        const progress = Array.from({ length: acceptance.length }, (_value, index) => t.acceptanceProgress?.[index] === true);
+        progress[a.criterionIndex] = a.complete;
+        t.acceptanceProgress = progress;
+        execution.lastActivity = now;
+        t.leaseUntil = new Date(now.getTime() + this.leaseMs);
+        await execution.save({ session: s });
+        t.version! += 1;
+        await t.save({ session: s });
+        await this.automation.afterTaskMutation(actor, t, name, s);
+        await this.event(s, actor, name, a.projectId, a.taskId, { ...a, task: plain(t), repositoryId: t.repositoryId });
+        return t;
+      }
       if (name === 'send_task_message') {
         requireThat(t.status === 'em_execucao' && t.executionId === a.executionId && t.leaseUntil! > now, 'Execution inactive or expired');
         const execution = await Execution.findOne({ _id: a.executionId, taskId: t._id, credentialId: actor.id }).session(s);
@@ -469,8 +488,11 @@ export class Service {
       if (feature) lines.push(`- **Nome:** ${escape(feature.name!)}`, `- **Objetivo:** ${feature.objective || '_Não informado._'}`, `- **Contexto:** ${feature.context || '_Não informado._'}`); else lines.push('_Tarefa independente, sem feature vinculada._');
       lines.push('', '## Repositório', '');
       if (repository) lines.push(`- **Nome:** ${escape(repository.name)}`, `- **URL:** ${repository.url}`, `- **Instruções:** ${repository.instructions || '_Não informadas._'}`); else lines.push('_Repositório não encontrado no projeto._');
-      lines.push('', '## Instruções', '', task.instructions || '_Não informado._', '', '## Critérios de aceite', '');
-      if (task.acceptance?.length) for (const item of task.acceptance) lines.push(`- ${item}`); else lines.push('_Nenhum critério informado._');
+      lines.push('', '## Instruções', '', task.instructions || '_Não informado._', '');
+      const acceptanceTotal = task.acceptance?.length ?? 0;
+      const acceptanceCompleted = task.acceptance?.reduce((count, _item, index) => count + (task.acceptanceProgress?.[index] === true ? 1 : 0), 0) ?? 0;
+      lines.push('', `## Critérios de aceite <!-- acceptance-progress:${acceptanceCompleted}:${acceptanceTotal} -->`, '');
+      if (task.acceptance?.length) for (const [index, item] of task.acceptance.entries()) lines.push(`- [${task.acceptanceProgress?.[index] === true ? 'x' : ' '}] ${item}`); else lines.push('_Nenhum critério informado._');
       lines.push('', `## Dependências (${dependencies.length})`, '');
       if (dependencies.length) for (const dependency of dependencies) lines.push(`- **${escape(dependency.name!)}** — \`${dependency.status}\`${dependency.execution ? `; execução: \`${dependency.execution.status}\`` : ''}`); else lines.push('_Sem dependências._');
       const executions = await Execution.find({ taskId: task._id }).sort({ startedAt: -1 }).limit(25).lean();

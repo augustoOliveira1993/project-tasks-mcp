@@ -56,6 +56,7 @@ export const tools = {
   wait_task_events: z.object({ projectId: id, taskId: id, after: id.optional(), eventAfter: cursor.optional(), timeoutMs: z.number().int().min(0).max(30000).default(25000), limit: z.number().int().min(1).max(100).default(50) }).strict(),
   subscribe_task_events: z.object({ projectId: id, taskId: id }).strict(),
   claim_task: z.object({ ...op, projectId: id, taskId: id, version: z.number().int().nonnegative(), agent: text }).strict(),
+  set_acceptance_criterion: z.object({ ...target, criterionIndex: z.number().int().nonnegative().describe('Índice do critério na lista acceptance, começando em zero.'), complete: z.boolean(), evidence: text }).strict(),
   set_task_status: z.object({ ...op, projectId: id, taskId: id, version: z.number().int().nonnegative(), status: z.enum(['pendente', 'em_revisao', 'concluida', 'cancelada']), reason: text }).strict(),
   heartbeat_task: z.object(target).strict(),
   record_progress: z.object({ ...target, message: text }).strict(),

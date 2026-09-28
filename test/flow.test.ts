@@ -358,9 +358,10 @@ test('project area summary returns current markdown without persistence', async 
   assert.equal(summary.taskCount, 3); assert.equal(front.status, 'pendente'); assert.equal(other.status, 'pendente');
 });
 test('admin page delivers a parseable script with markdown views, chained filters and pagination', () => {
-  const script = adminPage.match(/<script>([\s\S]*)<\/script>/)?.[1];
-  assert.ok(script);
-  assert.doesNotThrow(() => new Function(script));
+  const scripts = [...adminPage.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(([, code]) => code);
+  assert.ok(scripts.length);
+  scripts.forEach(code => assert.doesNotThrow(() => new Function(code)));
+  const script = scripts.join('\n');
   assert.match(script, /activeMarkdown/);
   assert.match(script, /function showRendered/);
   for (const id of ['search', 'area', 'status', 'type', 'priority', 'responsible', 'featureId', 'created-from', 'created-to', 'updated-from', 'updated-to', 'clear-filters', 'page-size', 'page-info', 'previous-page', 'next-page', 'novelties', 'git-binding', 'git-modal', 'git-form', 'issue-agent-form', 'issue-agent-user', 'issue-agent-confirm', 'issue-agent-result', 'issue-agent-token', 'copy-agent-token', 'clear-agent-token']) assert.match(adminPage, new RegExp('id="' + id + '"'));
