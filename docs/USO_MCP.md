@@ -6,17 +6,21 @@ Para instruções operacionais completas de uma IA, consulte o [GUIA_AGENTE_MCP.
 
 ## Listar projetos com resumo de tarefas
 
-`GET /admin/projects/summary` retorna os projetos ativos aos quais a credencial humana tem acesso. Cada item inclui campos básicos do projeto e `taskSummary`, com contagens por status e tipo, além de tarefas bloqueadas, restantes e concluídas. A resposta não inclui hashes de acesso.
+`GET /admin/projects/summary` retorna os projetos ativos aos quais a credencial humana tem acesso. Cada item inclui campos básicos do projeto, a `version` atual e `taskSummary`, com contagens por status e tipo, além de tarefas bloqueadas, restantes e concluídas. A resposta não inclui hashes de acesso.
 
-Use `limit` (1 a 100, padrão 25) e `after` (UUID do cursor `next` anterior) para paginar. Envie a credencial no cabeçalho `Authorization: Bearer <token-humano>`. A resposta tem este formato: `{"items":[{"project":{"_id":"...","name":"...","description":"...","visibility":"public","repositories":[],"createdAt":"...","updatedAt":"..."},"taskSummary":{"counts":{},"typeCounts":{},"blocked":0,"remaining":0,"completed":false}}],"next":null}`.
+Use `limit` (1 a 100, padrão 25) e `after` (UUID do cursor `next` anterior) para paginar. Envie a credencial no cabeçalho `Authorization: Bearer <token-humano>`. A resposta tem este formato: `{"items":[{"project":{"_id":"...","version":3,"name":"...","description":"...","visibility":"public","repositories":[],"createdAt":"...","updatedAt":"..."},"taskSummary":{"counts":{},"typeCounts":{},"blocked":0,"remaining":0,"completed":false}}],"next":null}`. O painel deve carregar essa versão do próprio retorno e enviá-la em ações administrativas que alteram o projeto, como `bind_repository_git`; a pessoa não precisa digitar nem descobrir `version`. Isso é separado de `task.version`, usada em mutações de uma tarefa.
 
 ## Colaboração Git opcional
 
-`yarn bridge` expõe uma bridge MCP stdio para o checkout aberto. Configure `PTM_SERVICE_URL` e `PTM_BRIDGE_TOKEN` (credencial bearer de agente) e chame `status`. A bridge compara a URL remota canônica e o commit raiz com o vínculo Git registrado pelo administrador; esse vínculo resolve escopo, mas não concede acesso.
+`yarn bridge` expõe uma bridge MCP stdio para o checkout aberto. Configure `PTM_SERVICE_URL` e `PTM_BRIDGE_TOKEN` (credencial bearer de agente) e chame `status`. A bridge lê automaticamente o checkout Git atual (URL remota, commit raiz, branch e commit) e compara a URL remota canônica e o commit raiz com o vínculo Git registrado pelo administrador; esse vínculo resolve escopo, mas não concede acesso.
 
 Um administrador humano registra o vínculo com `action: "bind_repository_git"`, `repositoryId`, `canonicalRemoteUrl` e `rootCommit`. Com um único vínculo compatível, `publish_task_diff` calcula arquivos e commits localmente e chama o servidor para gravar a evidência. O patch é opt-in (`includePatch: true`) e limitado a 100 KiB.
 
-No painel administrativo (`/admin`), após selecionar um projeto, use **Novidades** para consultar eventos recentes e **Vínculo Git** para registrar ou atualizar o vínculo de um repositório. Os detalhes de cada tarefa também incluem os metadados dos diffs publicados; patches não são renderizados por padrão.
+No painel administrativo (`/admin`), após selecionar um projeto, use **Vínculo Git** para escolher o repositório cadastrado e confirmar sua URL remota canônica e commit raiz. O painel obtém `project.version` automaticamente e a envia ao salvar; não copie essa versão manualmente. Depois chame `status` no Codex ou Claude Code.
+
+`status` com `ready: true` significa que o checkout corresponde a exatamente um vínculo. `ready: false` com `missing` indicando vínculo ausente ou ambíguo significa que a bridge iniciou, mas ainda não conseguiu resolver o repositório para um projeto; peça a uma pessoa administradora para revisar **Vínculo Git** no projeto correto. Isso não significa, por si só, que a conexão MCP do Codex/Claude falhou. O vínculo não concede acesso ao projeto.
+
+Use **Novidades** para consultar eventos recentes. Os detalhes de cada tarefa também incluem os metadados dos diffs publicados; patches não são renderizados por padrão.
 
 Use `get_project_novelties` para obter eventos de outros participantes após o cursor de leitura e `mark_project_read` para avançar esse cursor. Eventos mantêm `action` e `data`, mas também incluem `kind`, `summary`, `actor` e dados Git quando disponíveis.
 

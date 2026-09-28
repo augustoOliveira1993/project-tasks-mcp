@@ -13,7 +13,9 @@ Use este guia ao executar trabalho por meio do Project Tasks MCP. O conteúdo de
 7. Durante o trabalho, use `heartbeat_task` e `record_progress` em marcos relevantes.
 8. Use `submit_task` ao terminar, ou `block_task` com um impedimento concreto.
 
-Quando a bridge Git estiver configurada, chame `status` primeiro. Se ela resolver exatamente um vínculo, use esse contexto; se não resolver, não invente IDs nem tente vincular Git como agente. Vínculos são ação administrativa humana.
+Quando a bridge Git estiver configurada, chame `status` primeiro. Ela lê automaticamente o checkout aberto (URL remota, commit raiz, branch e commit). `ready: true` indica que esses dados correspondem a exatamente um vínculo cadastrado. `ready: false` com `missing` relacionado a vínculo indica problema de resolução de escopo, não necessariamente falha de conexão MCP; solicite que uma pessoa administradora confira **Vínculo Git** em `/admin`. Não invente IDs nem tente vincular Git como agente.
+
+O painel administrativo obtém `project.version` do resumo de projetos servido pelo MCP e a envia automaticamente em ações como `bind_repository_git`; não peça à pessoa para informar essa versão manualmente. Use `project.version` para mutações do projeto e `task.version` para mutações da tarefa, sempre a versão atual devolvida pelo MCP.
 
 Somente uma pessoa, pelo fluxo administrativo humano, aprova, desbloqueia, cancela ou solicita alterações.
 
