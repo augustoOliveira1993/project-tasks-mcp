@@ -79,7 +79,7 @@ export function createApp(service: Service, origins: string[]) {
     const page = await service.query(actor, 'list_records', { kind: 'project', archived: false, ...query });
     const items = await Promise.all(page.items.map(async (project: any) => ({
       project: {
-        _id: project._id, name: project.name, description: project.description, visibility: project.visibility,
+        _id: project._id, version: project.version, name: project.name, description: project.description, visibility: project.visibility,
         repositories: (project.repositories ?? []).map((repository: any) => ({ id: repository.id, name: repository.name, url: repository.url })),
         createdAt: project.createdAt, updatedAt: project.updatedAt
       },
