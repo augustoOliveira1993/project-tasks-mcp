@@ -17,8 +17,11 @@ if ((Split-Path -Leaf $PSScriptRoot) -eq 'scripts' -and (Test-Path -LiteralPath 
 }
 
 function Read-Choice {
-  param([string]$Prompt, [string[]]$Allowed)
-  do { $value = (Read-Host $Prompt).Trim().ToLowerInvariant() } while ($value -notin $Allowed)
+  param([string]$Prompt, [string[]]$Allowed, [string]$Default)
+  do {
+    $value = (Read-Host $Prompt).Trim().ToLowerInvariant()
+    if (-not $value -and $Default) { $value = $Default.ToLowerInvariant() }
+  } while ($value -notin $Allowed)
   return $value
 }
 
@@ -135,7 +138,7 @@ function Set-CodexMcp {
   New-Item -ItemType Directory -Path $codexDirectory -Force | Out-Null
   $current = if (Test-Path -LiteralPath $configPath) { Get-Content -LiteralPath $configPath -Raw } else { '' }
   $current = Remove-CodexServer -Content $current -Name $ServerName
-  $current = Remove-CodexServer -Content $current -Name $BridgeServerName
+  if ($InstallBridge) { $current = Remove-CodexServer -Content $current -Name $BridgeServerName }
 
   $section = @"
 [mcp_servers.$ServerName]
@@ -150,7 +153,6 @@ startup_timeout_sec = 20
 [mcp_servers.$BridgeServerName]
 command = "powershell.exe"
 args = $argsJson
-cwd = $(ConvertTo-TomlString $McpRoot)
 env = { PTM_SERVICE_URL = $(ConvertTo-TomlString $ServiceBaseUrl) }
 startup_timeout_sec = 20
 "@
@@ -207,7 +209,7 @@ $ServerUrl = "$ServiceBaseUrl/mcp"
 Write-Host "Servidor MCP: $ServerUrl"
 $email = Read-Email
 $choice = Read-Choice 'IA: [c]odex, [l]claude ou [a]mbos' @('c', 'l', 'a')
-$installBridge = (Read-Choice 'Configurar também a bridge Git local? [s/n]' @('s', 'n')) -eq 's'
+$installBridge = (Read-Choice 'Configurar também a bridge Git local? [S/n]' @('s', 'n') 's') -eq 's'
 if ($installBridge -and -not $IsMcpCheckout) { throw 'A bridge Git local exige executar o instalador a partir do checkout do Project Tasks MCP; execute pelo repositório ou responda n para configurar somente o MCP HTTP.' }
 if ($installBridge) { Save-BridgeToken }
 

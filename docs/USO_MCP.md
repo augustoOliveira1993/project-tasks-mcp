@@ -35,7 +35,7 @@ Use UUID novo em cada `operationId`. Use a `version` devolvida pelo MCP na próx
 
 Quando as tarefas pertencem à mesma feature ou têm dependência direta, o agente que possui uma execução ativa pode chamar `subscribe_task_events` e receber notificações MCP na sessão HTTP stateful. Use `send_task_message` com `type` `contrato`, `pergunta`, `resposta`, `bloqueio` ou `progresso`; informe `relatedTaskId` para endereçar a tarefa parceira.
 
-As mensagens são persistidas no MongoDB e aparecem em `get_task_context`. Se a sessão cair, continue pelo cursor retornado em `list_task_messages` ou aguarde com `wait_task_events` informando `after`. Apenas execuções ativas enviam mensagens; expiração bloqueia novos envios. Mensagens não mudam o estado da tarefa e a aprovação continua sendo feita pela CLI humana.
+As mensagens são persistidas no MongoDB e aparecem em `get_task_context`. Se a sessão cair, continue pelo cursor retornado em `list_task_messages` ou aguarde com `wait_task_events` informando `after`. Apenas execuções ativas enviam mensagens; expiração bloqueia novos envios. Mensagens não mudam o estado da tarefa. Agentes podem revisar tarefas em `em_revisao` e aprovar, devolver para `pendente` ou cancelar usando `set_task_status`, respeitando os critérios e as transições válidas.
 
 ## Planejamento Markdown
 

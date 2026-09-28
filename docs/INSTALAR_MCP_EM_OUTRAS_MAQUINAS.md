@@ -46,7 +46,7 @@ Para apontar para outro endereço sem editar este Markdown, passe-o no parâmetr
 .\scripts\install-project-tasks-mcp.ps1 -McpAddress 'mcp.empresa.local:3443'
 ```
 
-A bridge Git é opcional e requer o checkout local do MCP e um token `agent` exclusivo para essa máquina. Para usar somente o MCP remoto HTTP, responda `n` à pergunta da bridge.
+A bridge Git vem habilitada por padrão no instalador Windows e requer o checkout local do MCP e um token `agent` exclusivo para essa máquina. Pressione Enter para configurá-la; responda `n` para usar somente o MCP remoto HTTP.
 
 ## Ubuntu/Linux
 

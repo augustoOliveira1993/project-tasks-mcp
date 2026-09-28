@@ -38,7 +38,7 @@ Use o valor atual de `task.version`. A aprovacao falha se a versao estiver desat
 
 ## Diffs e evidencias
 
-`submit_task` pode referenciar `diffIds` produzidos por `publish_task_diff`. A aprovacao humana continua baseada no estado `em_revisao`, verificacoes e evidencias registradas; o diff nao aprova, faz merge ou implanta codigo.
+`submit_task` pode referenciar `diffIds` produzidos por `publish_task_diff`. A aprovacao humana pela CLI continua baseada no estado `em_revisao`, verificacoes e evidencias registradas; agentes também podem decidir a revisão pelo MCP usando `set_task_status` para aprovar (`concluida`) ou devolver para ajustes (`pendente`). O diff nao aprova, faz merge ou implanta codigo.
 
 ## 3. Enviar a aprovacao
 

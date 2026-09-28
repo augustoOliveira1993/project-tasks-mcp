@@ -7,9 +7,11 @@ if (-not (Test-Path -LiteralPath $tokenPath)) {
 }
 
 try {
+  $gitWorkdir = if ($env:CLAUDE_PROJECT_DIR -and (Test-Path -LiteralPath $env:CLAUDE_PROJECT_DIR -PathType Container)) { $env:CLAUDE_PROJECT_DIR } elseif ($env:PTM_GIT_WORKDIR -and (Test-Path -LiteralPath $env:PTM_GIT_WORKDIR -PathType Container)) { $env:PTM_GIT_WORKDIR } else { (Get-Location).Path }
   $encryptedToken = Get-Content -LiteralPath $tokenPath -Raw
   $secureToken = ConvertTo-SecureString $encryptedToken
   $env:PTM_BRIDGE_TOKEN = [System.Net.NetworkCredential]::new('', $secureToken).Password
+  $env:PTM_GIT_WORKDIR = $gitWorkdir
   $mcpRoot = Split-Path -Parent $PSScriptRoot
   Set-Location -LiteralPath $mcpRoot
   & yarn --silent bridge
@@ -19,5 +21,6 @@ try {
   $exitCode = 1
 } finally {
   Remove-Item Env:PTM_BRIDGE_TOKEN -ErrorAction SilentlyContinue
+  Remove-Item Env:PTM_GIT_WORKDIR -ErrorAction SilentlyContinue
 }
 exit $exitCode

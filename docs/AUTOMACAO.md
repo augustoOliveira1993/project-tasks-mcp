@@ -45,7 +45,7 @@ Use `yarn cli apply arquivo.json` com `ADMIN_TOKEN` humano. Cada mutacao recebe 
 - `automation_resolve`: `projectId`, `jobId`, `version` atual do job, `decision: allow|deny`, `reason`. A decisao vale para a solicitacao de permissao pendente, nao para aprovar a task.
 - `yarn cli automation PROJECT_ID`: politica, fila, sessoes, consumo, erros, pedidos humanos e executores. Ha paginacao via `get_automation_status`/`query`.
 
-Edicao de escopo e solicitacao de ajustes invalidam liberacoes. Uma execucao expirada exige desbloqueio e nova liberacao humanos. Aprovacao e cancelamento das tasks continuam usando `review`. Agentes nao podem chamar operacoes administrativas.
+Edicao de escopo e solicitacao de ajustes invalidam liberacoes. Uma execucao expirada exige desbloqueio e nova liberacao humanos. Agentes podem aprovar, devolver para ajustes ou cancelar tasks pelas ferramentas MCP de status (`set_task_status`); liberacoes e demais operacoes administrativas da automacao continuam no fluxo de administrador humano.
 
 Perguntas dirigidas podem criar consultas somente leitura para tasks ja liberadas, mesmo com dependencia pendente. Consultas nao adquirem lease de escrita nem desbloqueiam a task. Respostas, recibos e progresso nao iniciam novas consultas. Limites iniciais: dez turnos e trinta minutos por cadeia, duas execucoes por maquina e dez por projeto. O limite de turnos do SDK Claude tambem protege o loop interno. Consumo desconhecido fica `null`; os incrementos reportados por turno sao acumulados por job, incluindo tokens de cache quando informados, sem estimar dinheiro. Se a retomada Codex nao informar uma base de uso, o incremento daquele turno fica desconhecido.
 
