@@ -3,12 +3,18 @@ param([string]$McpAddress)
 
 $ErrorActionPreference = 'Stop'
 $DefaultServiceAddress = '192.168.17.26:3443'
+$SkillUrl = if ([string]::IsNullOrWhiteSpace($env:PTM_SKILL_URL)) { 'https://raw.githubusercontent.com/augustoOliveira1993/project-tasks-mcp/main/.codex/skills/project-tasks-mcp/SKILL.md' } else { $env:PTM_SKILL_URL.Trim() }
 $ServiceBaseUrl = $null
 $ServerUrl = $null
 $ServerName = 'project_tasks'
 $BridgeServerName = 'project_tasks_git'
 $McpRoot = Split-Path -Parent $PSScriptRoot
 $BridgeLauncher = Join-Path $PSScriptRoot 'run-project-tasks-bridge.ps1'
+$IsMcpCheckout = $false
+$packagePath = Join-Path $McpRoot 'package.json'
+if ((Split-Path -Leaf $PSScriptRoot) -eq 'scripts' -and (Test-Path -LiteralPath $packagePath -PathType Leaf)) {
+  try { $IsMcpCheckout = (Get-Content -LiteralPath $packagePath -Raw | ConvertFrom-Json).name -eq 'project-tasks-mcp' } catch { }
+}
 
 function Read-Choice {
   param([string]$Prompt, [string[]]$Allowed)
@@ -89,15 +95,28 @@ function Remove-CodexServer {
 function Install-ClientSkill {
   param([string]$ClientRoot, [string]$ClientName)
   $source = Join-Path $McpRoot '.codex\skills\project-tasks-mcp\SKILL.md'
-  if (-not (Test-Path -LiteralPath $source -PathType Leaf)) { throw "Skill source not found: $source" }
+  if ($IsMcpCheckout -and (Test-Path -LiteralPath $source -PathType Leaf)) {
+    $skillSource = $source
+    $skillContent = [System.IO.File]::ReadAllText($source, [System.Text.Encoding]::UTF8)
+  } else {
+    $skillSource = $SkillUrl
+    try {
+      $skillContent = (Invoke-WebRequest -Uri $SkillUrl -UseBasicParsing -TimeoutSec 20).Content
+    } catch {
+      throw "Não foi possível carregar a skill local ($source) nem baixá-la de $SkillUrl. $($_.Exception.Message)"
+    }
+  }
+  $frontMatter = [regex]::Match($skillContent, '(?ms)\A---\r?\n(.*?)\r?\n---(?:\r?\n|\z)')
+  if (-not $frontMatter.Success -or $frontMatter.Groups[1].Value -notmatch '(?m)^name:\s*project-tasks-mcp\s*$') {
+    throw "Conteúdo de skill inválido em $skillSource"
+  }
 
   $skillDirectory = Join-Path $ClientRoot 'skills\project-tasks-mcp'
   $target = Join-Path $skillDirectory 'SKILL.md'
   New-Item -ItemType Directory -Path $skillDirectory -Force | Out-Null
   if (Test-Path -LiteralPath $target -PathType Leaf) {
-    $sourceHash = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash
-    $targetHash = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash
-    if ($sourceHash -eq $targetHash) {
+    $targetContent = [System.IO.File]::ReadAllText($target, [System.Text.Encoding]::UTF8)
+    if ($targetContent -ceq $skillContent) {
       Write-Host "Skill do $ClientName já está atualizada em $target" -ForegroundColor Green
       return
     }
@@ -105,7 +124,7 @@ function Install-ClientSkill {
     Copy-Item -LiteralPath $target -Destination $backup
     Write-Host "Skill anterior preservada em $backup" -ForegroundColor Yellow
   }
-  Copy-Item -LiteralPath $source -Destination $target -Force
+  [System.IO.File]::WriteAllText($target, $skillContent, [System.Text.UTF8Encoding]::new($false))
   Write-Host "Skill do $ClientName instalada em $target" -ForegroundColor Green
 }
 
@@ -189,6 +208,7 @@ Write-Host "Servidor MCP: $ServerUrl"
 $email = Read-Email
 $choice = Read-Choice 'IA: [c]odex, [l]claude ou [a]mbos' @('c', 'l', 'a')
 $installBridge = (Read-Choice 'Configurar também a bridge Git local? [s/n]' @('s', 'n')) -eq 's'
+if ($installBridge -and -not $IsMcpCheckout) { throw 'A bridge Git local exige executar o instalador a partir do checkout do Project Tasks MCP; execute pelo repositório ou responda n para configurar somente o MCP HTTP.' }
 if ($installBridge) { Save-BridgeToken }
 
 if ($choice -in @('c', 'a')) { Set-CodexMcp -Email $email -InstallBridge $installBridge }
