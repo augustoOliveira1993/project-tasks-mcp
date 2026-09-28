@@ -86,6 +86,29 @@ function Remove-CodexServer {
   return [regex]::Replace($Content, $pattern, '').TrimEnd()
 }
 
+function Install-ClientSkill {
+  param([string]$ClientRoot, [string]$ClientName)
+  $source = Join-Path $McpRoot '.codex\skills\project-tasks-mcp\SKILL.md'
+  if (-not (Test-Path -LiteralPath $source -PathType Leaf)) { throw "Skill source not found: $source" }
+
+  $skillDirectory = Join-Path $ClientRoot 'skills\project-tasks-mcp'
+  $target = Join-Path $skillDirectory 'SKILL.md'
+  New-Item -ItemType Directory -Path $skillDirectory -Force | Out-Null
+  if (Test-Path -LiteralPath $target -PathType Leaf) {
+    $sourceHash = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash
+    $targetHash = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash
+    if ($sourceHash -eq $targetHash) {
+      Write-Host "Skill do $ClientName já está atualizada em $target" -ForegroundColor Green
+      return
+    }
+    $backup = "$target.bak-$(Get-Date -Format 'yyyyMMddHHmmssfff')"
+    Copy-Item -LiteralPath $target -Destination $backup
+    Write-Host "Skill anterior preservada em $backup" -ForegroundColor Yellow
+  }
+  Copy-Item -LiteralPath $source -Destination $target -Force
+  Write-Host "Skill do $ClientName instalada em $target" -ForegroundColor Green
+}
+
 function Set-CodexMcp {
   param([string]$Email, [bool]$InstallBridge)
   $codexDirectory = Join-Path $env:USERPROFILE '.codex'
@@ -116,6 +139,7 @@ startup_timeout_sec = 20
   $content = if ($current) { "$current`r`n`r`n$section" } else { $section }
   [System.IO.File]::WriteAllText($configPath, $content.TrimEnd() + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
   Write-Host "Codex configurado globalmente em $configPath" -ForegroundColor Green
+  Install-ClientSkill -ClientRoot (Join-Path $env:USERPROFILE '.codex') -ClientName 'Codex'
 }
 
 function Test-ClaudeMcpServer {
@@ -154,6 +178,7 @@ function Set-ClaudeMcp {
     & $claude.Source mcp get $BridgeServerName
     if ($LASTEXITCODE -ne 0) { throw 'Não foi possível confirmar a configuração da bridge Git do Claude Code.' }
   }
+  Install-ClientSkill -ClientRoot (Join-Path $env:USERPROFILE '.claude') -ClientName 'Claude Code'
   Write-Host 'Claude Code configurado globalmente.' -ForegroundColor Green
 }
 
@@ -170,5 +195,7 @@ if ($choice -in @('c', 'a')) { Set-CodexMcp -Email $email -InstallBridge $instal
 if ($choice -in @('l', 'a')) { Set-ClaudeMcp -Email $email -InstallBridge $installBridge }
 
 Write-Host ''
-Write-Host 'Concluído. Reinicie o Codex ou Claude Code antes de usar o MCP.' -ForegroundColor Green
+Write-Host 'Concluído. A skill global project-tasks-mcp foi instalada para cada cliente selecionado.' -ForegroundColor Green
+Write-Host 'Ativação da skill: Codex usa $project-tasks-mcp; Claude Code usa /project-tasks-mcp.' -ForegroundColor Green
+Write-Host 'O prompt MCP iniciar_trabalho é fornecido pelo servidor; atualize e reinicie o cliente para carregá-lo.' -ForegroundColor Green
 if ($installBridge) { Write-Host 'A bridge Git será identificada pelo vínculo salvo e pelo checkout aberto; use status primeiro.' -ForegroundColor Green }

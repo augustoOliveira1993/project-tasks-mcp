@@ -3,6 +3,7 @@ set -euo pipefail
 
 DEFAULT_URL="http://192.168.17.26:3443/mcp"
 SERVER_NAME="project_tasks"
+SKILL_URL="${PTM_SKILL_URL:-https://raw.githubusercontent.com/augustoOliveira1993/project-tasks-mcp/main/.codex/skills/project-tasks-mcp/SKILL.md}"
 
 read_value() {
   local prompt="$1" default="${2:-}" value
@@ -96,6 +97,72 @@ PY
   claude mcp get "$SERVER_NAME"
 }
 
-if [[ "$clients" == c || "$clients" == a ]]; then configure_codex; fi
-if [[ "$clients" == l || "$clients" == a ]]; then configure_claude; fi
-echo 'Concluído. Reinicie os clientes MCP para carregar a configuração.'
+install_skill() {
+  local client_root="$1" client_name="$2"
+  python3 - "$client_root" "$SKILL_URL" "$client_name" <<'PY'
+import datetime
+import os
+import pathlib
+import shutil
+import stat
+import sys
+import tempfile
+import urllib.error
+import urllib.request
+
+root = pathlib.Path(sys.argv[1])
+url, client = sys.argv[2:]
+target = root / "skills" / "project-tasks-mcp" / "SKILL.md"
+try:
+    request = urllib.request.Request(url, headers={"User-Agent": "project-tasks-mcp-installer"})
+    with urllib.request.urlopen(request, timeout=20) as response:
+        content = response.read()
+    text = content.decode("utf-8")
+    frontmatter = text.split("---", 2)
+    if len(frontmatter) != 3 or "name: project-tasks-mcp" not in frontmatter[1]:
+        raise ValueError("download did not contain the project-tasks-mcp skill")
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.exists():
+        previous = target.read_bytes()
+        if previous == content:
+            print(f"Skill do {client} já está atualizada em {target}")
+            raise SystemExit(0)
+        backup = target.with_name(target.name + ".bak-" + datetime.datetime.now().strftime("%Y%m%d%H%M%S%f"))
+        backup.write_bytes(previous)
+        shutil.copystat(target, backup)
+        print(f"Skill anterior preservada em {backup}")
+        mode = stat.S_IMODE(target.stat().st_mode)
+    else:
+        mode = 0o644
+
+    fd, temp_name = tempfile.mkstemp(prefix=target.name + ".", dir=target.parent)
+    try:
+        with os.fdopen(fd, "wb") as temp:
+            temp.write(content)
+        os.chmod(temp_name, mode)
+        os.replace(temp_name, target)
+    except BaseException:
+        try:
+            os.unlink(temp_name)
+        except FileNotFoundError:
+            pass
+        raise
+    print(f"Skill do {client} instalada em {target}")
+except (OSError, UnicodeError, urllib.error.URLError, ValueError) as exc:
+    print(f"Falha ao instalar a skill do {client}: {exc}", file=sys.stderr)
+    sys.exit(1)
+PY
+}
+
+if [[ "$clients" == c || "$clients" == a ]]; then
+  configure_codex
+  install_skill "$HOME/.codex" "Codex"
+fi
+if [[ "$clients" == l || "$clients" == a ]]; then
+  configure_claude
+  install_skill "$HOME/.claude" "Claude Code"
+fi
+echo 'Concluído. A skill global project-tasks-mcp foi instalada para cada cliente selecionado.'
+echo 'Ativação da skill: Codex usa $project-tasks-mcp; Claude Code usa /project-tasks-mcp.'
+echo 'O prompt MCP iniciar_trabalho é fornecido pelo servidor; atualize e reinicie o cliente para carregá-lo.'

@@ -485,6 +485,10 @@ O script `scripts/install-project-tasks-mcp.ps1` configura Codex, Claude ou ambo
 
 Na versão atual ele usa `trusted_local` e tem o endpoint `http://AVB-NB-00295:3443/mcp` fixo. Use-o somente para esse servidor. Para Ubuntu, outro endereço ou bearer, siga a configuração manual acima. Não crie `.mcp.json` ou `.codex/config.toml` dentro dos repositórios de trabalho.
 
+O instalador também instala a skill global `project-tasks-mcp` nos clientes selecionados. Use `$project-tasks-mcp` no Codex ou `/project-tasks-mcp` no Claude Code. O prompt MCP `iniciar_trabalho` é anunciado pela instância HTTP atualizada; reinicie o cliente depois de atualizar o servidor para carregá-lo.
+
+No Windows, as skills ficam em `%USERPROFILE%\.codex\skills\project-tasks-mcp\SKILL.md` e/ou `%USERPROFILE%\.claude\skills\project-tasks-mcp\SKILL.md`. No Ubuntu, ficam em `~/.codex/skills/project-tasks-mcp/SKILL.md` e/ou `~/.claude/skills/project-tasks-mcp/SKILL.md`.
+
 ## 6. Opcional: máquina executora Codex/Claude
 
 Conectar um MCP ao chat permite uso manual. Para trabalhar sem chat aberto, instale o executor independente. A automação começa desabilitada e cada task exige liberação humana.
