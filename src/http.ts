@@ -3,8 +3,10 @@ import { randomUUID } from 'node:crypto';
 import mongoose from 'mongoose';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { tools } from './schema.js';
-import { authenticate, trustedLocal, DomainError, Service } from './service.js';
+import { authenticate, authenticateAny, trustedLocal, DomainError, Service } from './service.js';
 import { env } from './env.js';
 import { logger } from './logger.js';
 import { z, ZodError } from 'zod';
@@ -67,7 +69,13 @@ export function createApp(service: Service, origins: string[]) {
     catch { res.status(503).json({ status: 'unavailable' }); }
   });
   const token = (authorization?: string) => authorization?.startsWith('Bearer ') ? authorization.slice(7) : '';
-  app.get('/admin', (_req, res) => { res.type('html').send(adminPage); });
+  const adminDist = resolve(process.cwd(), 'frontend', 'dist');
+  app.use('/admin/assets', express.static(resolve(adminDist, 'assets'), { fallthrough: true, immutable: true, maxAge: '1y' }));
+  app.get('/admin', (_req, res) => {
+    const index = resolve(adminDist, 'index.html');
+    if (existsSync(index)) { res.sendFile(index); return; }
+    res.type('html').send(adminPage);
+  });
   app.post('/admin/query', async (req, res) => {
     const actor = await authenticate(token(req.headers.authorization), 'human');
     const body = z.object({ tool: z.string(), arguments: z.record(z.string(), z.unknown()) }).strict().parse(req.body);
@@ -80,12 +88,80 @@ export function createApp(service: Service, origins: string[]) {
     const items = await Promise.all(page.items.map(async (project: any) => ({
       project: {
         _id: project._id, version: project.version, name: project.name, description: project.description, visibility: project.visibility,
-        repositories: (project.repositories ?? []).map((repository: any) => ({ id: repository.id, name: repository.name, url: repository.url })),
+        repositories: (project.repositories ?? []).map((repository: any) => ({
+          id: repository.id, name: repository.name, url: repository.url,
+          ...(repository.git ? { git: { canonicalRemoteUrl: repository.git.canonicalRemoteUrl, rootCommit: repository.git.rootCommit } } : {})
+        })),
         createdAt: project.createdAt, updatedAt: project.updatedAt
       },
       taskSummary: await service.query(actor, 'get_summary', { projectId: project._id })
     })));
     res.json({ items, next: page.next });
+  });
+  app.get('/admin/capabilities', async (req, res) => {
+    const actor = req.headers.authorization?.startsWith('Bearer ')
+      ? await authenticateAny(token(req.headers.authorization))
+      : env.authMode === 'trusted_local'
+        ? trustedLocal(String(req.headers['x-project-tasks-email'] ?? ''), String(req.headers['x-project-tasks-project-token'] ?? '') || undefined)
+        : await authenticateAny('');
+    res.json(await service.adminCapabilities(actor));
+  });
+  app.post('/admin/archive', async (req, res) => {
+    const actor = await authenticate(token(req.headers.authorization), 'human');
+    const body = z.object({
+      operationId: z.string().uuid(),
+      projectId: z.string().uuid(),
+      kind: z.enum(['project', 'feature', 'task']),
+      id: z.string().uuid(),
+      version: z.number().int().nonnegative()
+    }).strict().parse(req.body);
+    res.json(await service.call(actor, 'archive_record', body));
+  });
+  app.delete('/admin/projects/:projectId', async (req, res) => {
+    const actor = await authenticate(token(req.headers.authorization), 'human');
+    const projectId = z.string().uuid().parse(req.params.projectId);
+    const body = z.object({ operationId: z.string().uuid() }).strict().parse(req.body);
+    const startedAt = process.hrtime.bigint();
+    const result = await service.deleteProject(actor, projectId, body.operationId);
+    logger.info('Administrative project permanently deleted', {
+      event: 'admin_project_hard_delete',
+      actor: actor.userId,
+      projectId,
+      removed: result.removed,
+      outcome: 'success',
+      durationMs: Number((Number(process.hrtime.bigint() - startedAt) / 1000000).toFixed(1))
+    });
+    res.json(result);
+  });
+  app.delete('/admin/projects/:projectId/tasks/:taskId', async (req, res) => {
+    const actor = await authenticate(token(req.headers.authorization), 'human');
+    const projectId = z.string().uuid().parse(req.params.projectId);
+    const taskId = z.string().uuid().parse(req.params.taskId);
+    const body = z.object({ operationId: z.string().uuid() }).strict().parse(req.body);
+    const startedAt = process.hrtime.bigint();
+    const result = await service.deleteTask(actor, projectId, taskId, body.operationId);
+    logger.info('Administrative task permanently deleted', {
+      event: 'admin_task_hard_delete',
+      actor: actor.userId,
+      projectId,
+      taskId,
+      removed: result.removed,
+      outcome: 'success',
+      durationMs: Number((Number(process.hrtime.bigint() - startedAt) / 1000000).toFixed(1))
+    });
+    res.json(result);
+  });
+  app.get('/admin/credentials', async (req, res) => {
+    const actor = await authenticate(token(req.headers.authorization), 'human');
+    const query = z.object({
+      projectId: z.string().uuid().optional(),
+      scope: z.enum(['human', 'agent']).optional(),
+      status: z.enum(['active', 'revoked']).optional(),
+      email: z.string().trim().max(320).optional(),
+      after: z.string().uuid().optional(),
+      limit: z.coerce.number().int().min(1).max(100).default(25)
+    }).strict().parse(req.query);
+    res.json(await service.listCredentials(actor, query));
   });
   app.post('/admin', async (req, res) => {
     const actor = await authenticate(token(req.headers.authorization), 'human');

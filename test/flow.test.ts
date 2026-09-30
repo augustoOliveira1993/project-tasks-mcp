@@ -433,3 +433,37 @@ test('Git bindings, task diffs, novelties and concurrent Markdown updates are co
   await service.call(rival, 'mark_project_read', { operationId: op(), projectId: p._id, cursor: novelty.cursor });
   assert.equal((await service.call(rival, 'get_project_novelties', { projectId: p._id, limit: 100 })).count, 0);
 });
+
+test('admin project summary returns persisted Git metadata without internal binding fields', async () => {
+  const { p } = await fixture();
+  const canonicalRemoteUrl = 'https://example.com/admin-summary.git';
+  const rootCommit = 'c'.repeat(40);
+  const bound = await service.admin(human, {
+    action: 'bind_repository_git', operationId: op(), projectId: p._id, version: p.version,
+    repositoryId: p.repositories[0].id, canonicalRemoteUrl, rootCommit
+  });
+  const server = createApp(service, []).listen(0, '127.0.0.1');
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      server.once('listening', resolve);
+      server.once('error', reject);
+    });
+    const address = server.address();
+    assert.ok(address && typeof address !== 'string');
+    const response = await fetch(`http://127.0.0.1:${address.port}/admin/projects/summary?limit=100`, {
+      headers: { authorization: `Bearer ${humanToken}` }
+    });
+    assert.equal(response.status, 200);
+    const page = await response.json() as { items: Array<{ project: any }> };
+    const summary = page.items.find(item => item.project._id === p._id)?.project;
+
+    assert.ok(summary);
+    assert.equal(summary.version, bound.version);
+    assert.deepEqual(summary.repositories[0].git, { canonicalRemoteUrl, rootCommit });
+    assert.equal('boundBy' in summary.repositories[0].git, false);
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+  }
+});

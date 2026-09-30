@@ -6,5 +6,5 @@
     "rootDir": ".",
     "noEmitOnError": true
   },
-  "include": ["src/**/*.ts", "env.config.ts"]
+  "include": ["src/**/*.ts"]
 }

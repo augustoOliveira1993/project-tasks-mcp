@@ -40,7 +40,7 @@ export const MarkdownDocument = mongoose.model('MarkdownDocument', new Schema({ 
 MarkdownDocument.schema.index({ projectId: 1, targetKind: 1, targetId: 1, name: 1 }, { unique: true });
 export const MarkdownRevision = mongoose.model('MarkdownRevision', new Schema({ _id: String, projectId: { type: String, index: true }, documentId: { type: String, index: true }, revision: Number, summary: String, content: String, author: String, size: Number, sha256: String, createdAt: Date }, { versionKey: false }));
 MarkdownRevision.schema.index({ documentId: 1, revision: 1 }, { unique: true });
-export const Operation = mongoose.model('Operation', new Schema({ _id: String, fingerprint: String, result: Schema.Types.Mixed }, { versionKey: false }));
+export const Operation = mongoose.model('Operation', new Schema({ _id: String, projectId: String, fingerprint: String, result: Schema.Types.Mixed }, { versionKey: false }));
 export const Credential = mongoose.model('Credential', new Schema({ _id: String, hash: { type: String, unique: true }, userId: String,
   scope: String, systemAdmin: Boolean, revoked: { type: Boolean, default: false }, fence: { type: Number, default: 0 } }, options));
 export const Bootstrap = mongoose.model('Bootstrap', new Schema({ _id: String }, { versionKey: false }));

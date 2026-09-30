@@ -3,6 +3,8 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { Project, Feature, Task, Execution, Event, TaskMessage, DeliveryEvent, DeliveryRead, TaskDiff, AutomationJob, MarkdownDocument, MarkdownRevision, Operation, Credential, Bootstrap } from './db.js';
 import { EventHub, readEvents } from './events.js';
 import { Automation } from './automation.js';
+import { deleteProjectCascade, ProjectDeletionConflict } from './project-deletion.js';
+import { deleteTaskCascade, TaskDeletionConflict } from './task-deletion.js';
 import { tools, adminSchema, approveTasksSchema, changeTaskStatusSchema, setTaskCheckedSchema, projectData, featureData, taskData, states, userId as userIdSchema } from './schema.js';
 
 export class DomainError extends Error { constructor(message: string, public status = 409) { super(message); } }
@@ -15,6 +17,11 @@ const models: Record<string, Model<any>> = { project: Project, feature: Feature,
 export async function authenticate(token: string, scope: string): Promise<Actor> {
   const c = await Credential.findOne({ hash: hash(token), revoked: false, scope }).lean();
   requireThat(c, 'Invalid credential or scope', 401);
+  return { id: c._id!, userId: c.userId!, scope: c.scope!, systemAdmin: !!c.systemAdmin };
+}
+export async function authenticateAny(token: string): Promise<Actor> {
+  const c = await Credential.findOne({ hash: hash(token), revoked: false }).lean();
+  requireThat(c, 'Invalid credential', 401);
   return { id: c._id!, userId: c.userId!, scope: c.scope!, systemAdmin: !!c.systemAdmin };
 }
 export function trustedLocal(email: string, projectToken?: string): Actor {
@@ -90,6 +97,133 @@ export class Service {
     if (write) requireThat(!p.archived, 'Project archived');
     return p;
   }
+  async listCredentials(actor: Actor, query: { projectId?: string; scope?: 'human' | 'agent'; status?: 'active' | 'revoked'; email?: string; after?: string; limit: number }) {
+    requireThat(actor.scope === 'human', 'Human credential required', 403);
+    const credential = await Credential.findOne({ _id: actor.id, scope: 'human', revoked: false }).select('systemAdmin').lean();
+    requireThat(credential, 'Credential revoked', 401);
+    const systemAdmin = !!credential.systemAdmin;
+    requireThat(systemAdmin || !!query.projectId, 'System administrator or project administrator required', 403);
+    if (query.projectId) {
+      requireThat(query.scope !== 'agent', 'Agent credentials require system administrator access without a project filter', 403);
+      await this.access(actor, query.projectId, false, true);
+      const emailPattern = query.email?.trim() ? new RegExp(query.email.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') : undefined;
+      const credentialFilter: Record<string, unknown> = { 'credential.scope': 'human' };
+      if (query.after) credentialFilter['credential._id'] = { $gt: query.after };
+      if (query.status) credentialFilter['credential.revoked'] = query.status === 'revoked';
+      if (emailPattern) credentialFilter['credential.userId'] = emailPattern;
+      const events = await Event.aggregate([
+        { $match: { projectId: query.projectId, action: 'issue_project_member' } },
+        { $lookup: { from: Credential.collection.name, localField: 'entityId', foreignField: '_id', as: 'credential' } },
+        { $unwind: '$credential' },
+        { $match: credentialFilter },
+        { $sort: { 'credential._id': 1 } },
+        { $limit: query.limit + 1 },
+        { $project: { _id: '$credential._id', userId: '$credential.userId', scope: '$credential.scope', systemAdmin: '$credential.systemAdmin', revoked: '$credential.revoked', createdAt: '$credential.createdAt', projectId: 1, role: '$data.role' } }
+      ]);
+      const more = events.length > query.limit;
+      if (more) events.pop();
+      const project = await Project.findById(query.projectId).select('_id name').lean();
+      const items = events.map(item => ({ credentialId: item._id, email: item.userId, scope: item.scope, systemAdmin: item.systemAdmin === true, state: item.revoked ? 'revoked' : 'active', createdAt: item.createdAt ?? null, projectId: item.projectId, projectName: project?.name ?? null, role: item.role ?? null }));
+      return { items, next: more ? events.at(-1)?._id ?? null : null };
+    }
+
+    const filter: Record<string, unknown> = {};
+    if (query.scope) filter.scope = query.scope;
+    if (query.status) filter.revoked = query.status === 'revoked';
+    if (query.email?.trim()) filter.userId = new RegExp(query.email.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+    if (query.after) filter._id = { $gt: query.after };
+    const credentials = await Credential.find(filter).select('_id userId scope systemAdmin revoked createdAt').sort({ _id: 1 }).limit(query.limit + 1).lean();
+    const more = credentials.length > query.limit;
+    if (more) credentials.pop();
+    const ids = credentials.map(item => item._id);
+    const issuances = ids.length ? await Event.find({ entityId: { $in: ids }, action: 'issue_project_member' }).select('entityId projectId data').lean() : [];
+    const issuanceByCredential = new Map(issuances.map(item => [item.entityId, item]));
+    const projectIds = [...new Set(issuances.map(item => item.projectId).filter((id): id is string => typeof id === 'string' && id.length > 0))];
+    const projects = projectIds.length ? await Project.find({ _id: { $in: projectIds } }).select('_id name').lean() : [];
+    const projectById = new Map(projects.map(item => [item._id, item]));
+    const items = credentials.map(item => {
+      const issuance = issuanceByCredential.get(item._id);
+      const project = typeof issuance?.projectId === 'string' ? projectById.get(issuance.projectId) : undefined;
+      return { credentialId: item._id, email: item.userId, scope: item.scope, systemAdmin: item.systemAdmin === true, state: item.revoked ? 'revoked' : 'active', createdAt: item.createdAt ?? null, ...(issuance && typeof issuance.projectId === 'string' ? { projectId: issuance.projectId, projectName: project?.name ?? null, role: (issuance.data as any)?.role ?? null } : {}) };
+    });
+    return { items, next: more ? credentials.at(-1)?._id ?? null : null };
+  }
+  async deleteProject(actor: Actor, projectId: string, operationId: string) {
+    requireThat(actor.scope === 'human', 'Human credential required', 403);
+    requireThat(actor.systemAdmin === true, 'System administrator required', 403);
+    requireThat(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(operationId), 'Invalid operationId', 400);
+
+    const key = `${actor.id}:${operationId}`;
+    const fingerprint = hash(JSON.stringify({ action: 'hard_delete_project', projectId }));
+    return mongoose.connection.transaction(async s => {
+      const activeAdmin = await Credential.updateOne(
+        { _id: actor.id, scope: 'human', systemAdmin: true, revoked: false },
+        { $inc: { fence: 1 } },
+        { session: s }
+      );
+      requireThat(activeAdmin.matchedCount === 1, 'System administrator credential required', 403);
+
+      const previous = await Operation.findById(key).session(s).lean();
+      if (previous) {
+        requireThat(previous.fingerprint === fingerprint, 'Operation ID reused with different arguments');
+        return previous.result;
+      }
+
+      let result: Awaited<ReturnType<typeof deleteProjectCascade>>;
+      try {
+        result = await deleteProjectCascade(projectId, { id: actor.id, userId: actor.userId }, s);
+      } catch (error) {
+        if (error instanceof ProjectDeletionConflict) throw new DomainError(error.message, error.status);
+        throw error;
+      }
+      requireThat(result, 'Project not found', 404);
+      requireThat(result.removed.projects === 1, 'Project changed during deletion', 409);
+      // This idempotency record intentionally has no projectId: it is the
+      // minimal receipt needed to safely retry the destructive request.
+      await Operation.create([{ _id: key, fingerprint, result }], { session: s });
+      return result;
+    });
+  }
+  async deleteTask(actor: Actor, projectId: string, taskId: string, operationId: string) {
+    requireThat(actor.scope === 'human', 'Human credential required', 403);
+    requireThat(actor.systemAdmin === true, 'System administrator required', 403);
+    requireThat(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(operationId), 'Invalid operationId', 400);
+
+    const key = `${actor.id}:${operationId}`;
+    const fingerprint = hash(JSON.stringify({ action: 'hard_delete_task', projectId, taskId }));
+    return mongoose.connection.transaction(async s => {
+      const activeAdmin = await Credential.updateOne(
+        { _id: actor.id, scope: 'human', systemAdmin: true, revoked: false },
+        { $inc: { fence: 1 } },
+        { session: s }
+      );
+      requireThat(activeAdmin.matchedCount === 1, 'System administrator credential required', 403);
+
+      const previous = await Operation.findById(key).session(s).lean();
+      if (previous) {
+        requireThat(previous.fingerprint === fingerprint, 'Operation ID reused with different arguments');
+        return previous.result;
+      }
+
+      let result;
+      try { result = await deleteTaskCascade(projectId, taskId, { id: actor.id, userId: actor.userId }, s); }
+      catch (error) {
+        if (error instanceof TaskDeletionConflict) throw new DomainError(error.message, error.status);
+        throw error;
+      }
+      requireThat(result, 'Task not found', 404);
+      // Keep the retry receipt outside the task's deletion cascade.
+      await Operation.create([{ _id: key, fingerprint, result }], { session: s });
+      return result;
+    });
+  }
+  async adminCapabilities(actor: Actor) {
+    if (actor.scope === 'trusted_local') return { scope: actor.scope, systemAdmin: false, canHardDelete: false };
+    const credential = await Credential.findOne({ _id: actor.id, scope: actor.scope, revoked: false }).select('scope systemAdmin').lean();
+    requireThat(credential, 'Credential revoked', 401);
+    const systemAdmin = credential.scope === 'human' && credential.systemAdmin === true;
+    return { scope: credential.scope, systemAdmin, canHardDelete: systemAdmin };
+  }
   async event(s: ClientSession, actor: Actor, action: string, projectId: string | undefined, entityId: string, data: any) {
     const eventId = randomUUID(); const at = new Date();
     const kind = ({ create_task: 'task.created', create_feature: 'feature.created', create_project: 'project.created', task_message: 'task.message.created', save_markdown: 'body.updated', update_markdown: 'body.updated', record_task_diff: 'task.diff.published', submit_task: 'task.submitted', claim_task: 'task.claimed', record_progress: 'task.progressed', set_acceptance_criterion: 'task.acceptance.progressed', block_task: 'task.blocked', approve: 'task.approved', set_task_status: 'task.status.changed', manual_status_change: 'task.status.changed', set_task_checked: 'task.check.changed' } as Record<string, string>)[action] ?? `project.${action}`;
@@ -123,7 +257,8 @@ export class Service {
       if (a.projectId) await this.access(actor, a.projectId, projectWrite, projectAdmin, s);
       if (a.projectId) await Project.updateOne({ _id: a.projectId }, { $inc: { fence: 1 } }, { session: s });
       const result = plain(await run(s));
-      await Operation.create([{ _id: key, fingerprint, result }], { session: s });
+      const projectId = a.projectId ?? (name === 'create_project' ? result?._id : undefined);
+      await Operation.create([{ _id: key, ...(projectId ? { projectId } : {}), fingerprint, result }], { session: s });
       return result;
     });
   }
@@ -145,7 +280,7 @@ export class Service {
     visit(taskId);
   }
   async call(actor: Actor, name: string, input: unknown): Promise<any> {
-    requireThat(['agent', 'trusted_local'].includes(actor.scope), 'Agent scope required', 403);
+    requireThat(['agent', 'trusted_local'].includes(actor.scope) || (name === 'archive_record' && actor.scope === 'human'), 'Agent scope required', 403);
     const schema = tools[name as keyof typeof tools];
     requireThat(schema, 'Unknown tool', 404);
     const a: any = schema.parse(input);
@@ -204,9 +339,10 @@ export class Service {
         requireThat(a.patch || a.truncated || a.files.length > 0, 'Diff must include files, patch, or truncation marker', 400);
         const patchSha256 = a.patch ? hash(a.patch) : a.patchSha256;
         if (a.patchSha256) requireThat(a.patchSha256 === patchSha256, 'Patch hash mismatch', 400);
-        const diff = new TaskDiff({ _id: randomUUID(), projectId: a.projectId, taskId: a.taskId, repositoryId: a.repositoryId, baseCommit: a.baseCommit, commit: a.commit, branch: a.branch, files: a.files, patch: a.patch, patchSha256, truncated: a.truncated, author: actor.userId, credentialId: actor.id, agent: a.agent });
+        const diffId = randomUUID();
+        const diff = new TaskDiff({ _id: diffId, projectId: a.projectId, taskId: a.taskId, repositoryId: a.repositoryId, baseCommit: a.baseCommit, commit: a.commit, branch: a.branch, files: a.files, patch: a.patch, patchSha256, truncated: a.truncated, author: actor.userId, credentialId: actor.id, agent: a.agent });
         await diff.save({ session: s });
-        await this.event(s, actor, 'record_task_diff', a.projectId, diff._id, { taskId: a.taskId, repositoryId: a.repositoryId, branch: a.branch, commit: a.commit, agent: a.agent });
+        await this.event(s, actor, 'record_task_diff', a.projectId, diffId, { taskId: a.taskId, repositoryId: a.repositoryId, branch: a.branch, commit: a.commit, agent: a.agent });
         return diff;
       }
       if (name === 'mark_project_read') {
@@ -482,19 +618,19 @@ export class Service {
     const [taskMarkdowns, featureMarkdowns] = await Promise.all([this.markdowns(a.projectId, 'task', task._id!, undefined, 25), task.featureId ? this.markdowns(a.projectId, 'feature', task.featureId, undefined, 25) : Promise.resolve({ items: [], next: null })]);
     if (name === 'get_task_markdown_summary') {
       const escape = (value: string) => value.replace(/[\x0D\x0A]/g, ' ').replace(/#/g, '\\#');
-      const date = (value?: Date) => value ? new Date(value).toISOString() : 'Não informado';
+      const date = (value?: Date | null) => value ? new Date(value).toISOString() : 'Não informado';
       const repository = project!.repositories.find(item => item.id === task.repositoryId);
       const lines = [`# ${escape(task.name!)}`, '', '## Identificação', '', `- **ID:** \`${task._id}\``, `- **Status:** \`${task.status}\``, `- **Área:** ${task.area}`, `- **Tipo:** ${task.type ?? 'feature'}`, `- **Prioridade:** ${task.priority}`, `- **Responsável:** ${task.responsible ?? 'Não atribuído'}`, `- **Criada em:** ${date(task.createdAt)}`, `- **Atualizada em:** ${date(task.updatedAt)}`, '', '## Projeto', '', `- **Nome:** ${escape(project!.name!)}`, `- **Descrição:** ${project!.description || '_Não informada._'}`, '', '## Feature', ''];
       if (feature) lines.push(`- **Nome:** ${escape(feature.name!)}`, `- **Objetivo:** ${feature.objective || '_Não informado._'}`, `- **Contexto:** ${feature.context || '_Não informado._'}`); else lines.push('_Tarefa independente, sem feature vinculada._');
       lines.push('', '## Repositório', '');
-      if (repository) lines.push(`- **Nome:** ${escape(repository.name)}`, `- **URL:** ${repository.url}`, `- **Instruções:** ${repository.instructions || '_Não informadas._'}`); else lines.push('_Repositório não encontrado no projeto._');
+      if (repository) lines.push(`- **Nome:** ${escape(repository.name ?? 'Não informado')}`, `- **URL:** ${repository.url}`, `- **Instruções:** ${repository.instructions || '_Não informadas._'}`); else lines.push('_Repositório não encontrado no projeto._');
       lines.push('', '## Instruções', '', task.instructions || '_Não informado._', '');
       const acceptanceTotal = task.acceptance?.length ?? 0;
       const acceptanceCompleted = task.acceptance?.reduce((count, _item, index) => count + (task.acceptanceProgress?.[index] === true ? 1 : 0), 0) ?? 0;
       lines.push('', `## Critérios de aceite <!-- acceptance-progress:${acceptanceCompleted}:${acceptanceTotal} -->`, '');
       if (task.acceptance?.length) for (const [index, item] of task.acceptance.entries()) lines.push(`- [${task.acceptanceProgress?.[index] === true ? 'x' : ' '}] ${item}`); else lines.push('_Nenhum critério informado._');
       lines.push('', `## Dependências (${dependencies.length})`, '');
-      if (dependencies.length) for (const dependency of dependencies) lines.push(`- **${escape(dependency.name!)}** — \`${dependency.status}\`${dependency.execution ? `; execução: \`${dependency.execution.status}\`` : ''}`); else lines.push('_Sem dependências._');
+      if (dependencies.length) for (const dependency of dependencies) { const execution = results.find(item => item._id === dependency.executionId); lines.push(`- **${escape(dependency.name!)}** — \`${dependency.status}\`${execution ? `; execução: \`${execution.status}\`` : ''}`); } else lines.push('_Sem dependências._');
       const executions = await Execution.find({ taskId: task._id }).sort({ startedAt: -1 }).limit(25).lean();
       lines.push('', `## Execuções (${executions.length})`, '');
       if (executions.length) for (const execution of executions) { lines.push(`- **${execution.status}** — iniciada em ${date(execution.startedAt)}`); if (execution.result?.summary) lines.push(`  - Resultado: ${execution.result.summary}`); if (execution.result?.evidence?.length) lines.push(`  - Evidências: ${execution.result.evidence.join('; ')}`); } else lines.push('_Nenhuma execução registrada._');

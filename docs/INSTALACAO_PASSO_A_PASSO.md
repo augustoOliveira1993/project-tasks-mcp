@@ -23,7 +23,7 @@ Antes de começar, defina:
 
 Exemplos usados: `http://localhost:3443` para a mesma máquina e `https://mcp.empresa.com.br:3443` para a equipe. Substitua o domínio pelo nome real, com DNS e certificado correspondentes. A URL dos clientes termina em `/mcp`; `SERVICE_URL` e a URL do executor não têm esse sufixo. `localhost` em um cliente aponta para o próprio cliente.
 
-Use um checkout contendo `src/main.ts`, `src/cli.ts`, `src/runner/main.ts`, `env.config.ts`, `package.json` e `yarn.lock`. Se `git status --short` mostrar exclusões de `src/`, use outro checkout completo da revisão desejada; não restaure arquivos por cima de trabalho em andamento.
+Use um checkout contendo `src/main.ts`, `src/cli.ts`, `src/runner/main.ts`, `src/env.config.ts`, `package.json` e `yarn.lock`. Se `git status --short` mostrar exclusões de `src/`, use outro checkout completo da revisão desejada; não restaure arquivos por cima de trabalho em andamento.
 
 ## 2. Servidor em uma máquina Windows
 
@@ -75,7 +75,7 @@ Se o MongoDB não estiver no diretório padrão de instalação, acrescente o ca
 MONGOD_PATH=C:/Program Files/MongoDB/Server/8.0/bin/mongod.exe
 ```
 
-Variáveis já definidas no processo têm precedência sobre `.env`; os defaults de `env.config.ts` completam os valores ausentes. Reinicie o processo após mudar a configuração.
+O MCP lê a configuração exclusivamente do `.env`; variáveis do processo não substituem os valores do arquivo e não há defaults para completar variáveis obrigatórias. `MONGODB_URI`, `PORT`, `SERVICE_URL`, `MCP_AUTH_MODE` e `LEASE_MINUTES` precisam estar preenchidas. Sem alguma delas, o processo encerra antes de conectar ao MongoDB ou abrir o listener. Reinicie o processo após mudar o arquivo.
 
 ### 2.4. Iniciar MongoDB e MCP
 
@@ -140,7 +140,7 @@ Configure reinício após falha e remova o limite de duração. Pare os processo
 
 ## 3. Servidor Ubuntu com systemd
 
-Este roteiro usa Node.js no host e MongoDB 8 em um container dedicado, com dados persistentes e acesso somente local. Não usa o Dockerfile atual da aplicação: ele pressupõe lockfile npm e não copia `env.config.ts`, exigindo ajustes antes de servir como alternativa de implantação.
+Este roteiro usa Node.js no host e MongoDB 8 em um container dedicado, com dados persistentes e acesso somente local. Não usa o Dockerfile atual da aplicação. Ao usar Docker, forneça o arquivo `.env` na raiz do diretório de trabalho do container; ele não é incluído na imagem.
 
 ### 3.1. Preparar o host
 

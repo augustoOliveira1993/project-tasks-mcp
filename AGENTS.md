@@ -12,4 +12,11 @@ O MCP é global na IA. Não crie `.mcp.json`, `.codex/config.toml` ou configura�
 - A IA pode revisar e alterar status de tarefas pelo MCP, sem depender da CLI humana: em `em_revisao`, use `set_task_status` para `concluida` quando o diff e as evidências confirmarem todos os critérios; use `pendente` quando forem necessários ajustes, descrevendo as lacunas no motivo; e use `cancelada` quando isso for solicitado ou claramente necessário. Também pode retornar tarefas `bloqueada` para `pendente` quando o MCP permitir a transição. Sempre use a versão atual, motivo explícito e UUID novo em `operationId`; respeite as transições aceitas pela ferramenta. Use `claim_task`, `block_task` e `submit_task` para as transições normais de execução. Operações administrativas fora das ferramentas MCP disponíveis continuam seguindo seus controles próprios.
 - Não envie segredos, conversas completas ou raciocínio interno ao MCP.
 
+## Padrão de Markdown no frontend
+
+- Todo conteúdo Markdown recebido do MCP deve ser renderizado pelo componente compartilhado `frontend/src/components/ui/MarkdownView.tsx` (`react-markdown` + `remark-gfm`); não exiba documentos ou resumos como texto cru em `<pre>` ou parágrafo.
+- Aplique o mesmo renderer a descrições, resumos, documentos Markdown legados e qualquer novo campo Markdown. Preserve títulos, ênfase, listas, checklists, tabelas, citações, links e blocos de código.
+- Reserve `<pre>` para conteúdo que deve permanecer literal, como JSON e código-fonte. Não habilite HTML bruto de Markdown sem uma necessidade explícita e sanitização.
+- Use wrappers de layout para altura e rolagem; não transforme o documento inteiro em fonte monoespaçada.
+
 Endpoint interno: `http://AVB-NB-00295:3443/mcp`. O modo `trusted_local` confia na rede privada; qualquer pessoa capaz de enviar o cabeçalho pode assumir o e-mail informado.

@@ -38,7 +38,7 @@ export async function startLocalMongo(): Promise<ChildProcess | undefined> {
   await mkdir(directory, { recursive: true });
   const child = spawn(binary ?? 'mongod', ['--dbpath', directory, '--replSet', 'rs0', '--bind_ip', '127.0.0.1', '--port', String(port), '--logpath', join(directory, 'mongod.log'), '--logappend'], { windowsHide: true, stdio: 'inherit' });
   let stopped = false;
-  child.on('error', error => { stopped = true; logger.error('Could not start mongod', { event: 'mongo_start_failed', error: error.message, hint: 'Set MONGOD_PATH in env.config.ts or .env.' }); });
+  child.on('error', error => { stopped = true; logger.error('Could not start mongod', { event: 'mongo_start_failed', error: error.message, hint: 'Set MONGOD_PATH in .env.' }); });
   child.on('exit', () => { stopped = true; });
   try {
     let ready = false;

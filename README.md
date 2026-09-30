@@ -19,6 +19,10 @@ Para executar os processos separadamente, use `yarn mongo:local` e `yarn start` 
 
 Verifique o serviço em `http://localhost:3443/health`.
 
+Para trabalhar no painel React, mantenha o MCP local em execução e execute yarn dev:frontend em outro terminal. O Vite abre em http://localhost:5173 e encaminha as chamadas administrativas ao MCP local.
+
+O build de produção gera os assets do frontend e os publica na rota administrativa do servidor.
+
 ## Produção
 
 ```powershell
@@ -27,7 +31,7 @@ yarn build
 yarn start:prod
 ```
 
-`yarn build` gera os arquivos JavaScript em `dist/`; `yarn start:prod` executa essa saída compilada. Ajuste `env.config.ts` ou defina variáveis no ambiente de produção; valores do ambiente e de `.env` têm precedência sobre `env.config.ts`. A inicialização informa os valores obrigatórios ausentes antes de abrir o servidor. Use `LOG_LEVEL` em `env.config.ts`, `.env` ou no ambiente para controlar os logs Winston do terminal.
+`yarn build` gera os arquivos JavaScript em `dist/`; `yarn start:prod` executa essa saída compilada. Configure o arquivo `.env` na raiz do projeto; o servidor não usa valores padrão nem variáveis de ambiente do processo. `MONGODB_URI`, `PORT`, `SERVICE_URL`, `MCP_AUTH_MODE` e `LEASE_MINUTES` são obrigatórias. Se faltar alguma, a inicialização falha antes de conectar ao MongoDB ou abrir a porta do MCP. `LOG_LEVEL`, `ALLOWED_ORIGINS`, TLS e `MONGOD_PATH` são opcionais.
 
 Para criar o primeiro administrador:
 
