@@ -5,7 +5,7 @@ import { EventHub, readEvents } from './events.js';
 import { Automation } from './automation.js';
 import { deleteProjectCascade, ProjectDeletionConflict } from './project-deletion.js';
 import { deleteTaskCascade, TaskDeletionConflict } from './task-deletion.js';
-import { tools, adminSchema, approveTasksSchema, changeTaskStatusSchema, setTaskCheckedSchema, projectData, featureData, taskData, states, userId as userIdSchema } from './schema.js';
+import { tools, adminSchema, approveTasksSchema, changeTaskStatusSchema, setTaskAcceptanceCriterionSchema, setTaskCheckedSchema, projectData, featureData, taskData, states, userId as userIdSchema } from './schema.js';
 
 export class DomainError extends Error { constructor(message: string, public status = 409) { super(message); } }
 export type Actor = { id: string; userId: string; scope: string; systemAdmin: boolean; projectToken?: string; sessionId?: string; jobId?: string; runnerId?: string };
@@ -801,6 +801,23 @@ export class Service {
       await this.event(s, actor, 'set_task_checked', body.projectId, body.taskId, { operationId: body.operationId, checked: body.checked, task: plain(task) });
       return { operationId: body.operationId, task: plain(task) };
     }, false, false);
+  }
+  async setTaskAcceptanceCriterion(actor: Actor, input: unknown) {
+    requireThat(actor.scope === 'human', 'Human credential required', 403);
+    const body = setTaskAcceptanceCriterionSchema.parse(input);
+    return this.mutate(actor, 'set_task_acceptance_criterion', body, async s => {
+      const task: any = await Task.findOne({ _id: body.taskId, projectId: body.projectId, archived: false }).session(s);
+      requireThat(task && task.version === body.version, 'Task version conflict or not found');
+      const acceptance = task.acceptance ?? [];
+      requireThat(body.criterionIndex < acceptance.length, 'Acceptance criterion index out of range', 400);
+      const progress = Array.from({ length: acceptance.length }, (_value, index) => task.acceptanceProgress?.[index] === true);
+      progress[body.criterionIndex] = body.complete;
+      task.acceptanceProgress = progress;
+      task.version! += 1;
+      await task.save({ session: s });
+      await this.event(s, actor, 'set_acceptance_criterion', body.projectId, body.taskId, { ...body, manual: true, task: plain(task) });
+      return { operationId: body.operationId, task: plain(task) };
+    }, false, true);
   }
   async expire() {
     const expired = await Task.find({ status: 'em_execucao', leaseUntil: { $lte: new Date() } }).select('_id').limit(100).lean();

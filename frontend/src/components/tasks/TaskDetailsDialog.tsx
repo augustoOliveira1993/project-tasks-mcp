@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { query } from '../../api';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { ApiRequestError, operationId, query, request } from '../../api';
 import type { Task } from '../../api';
 import { Badge } from '../ui/Badge';
 import { errorMessage, formatDate } from '../../lib/format';
@@ -14,6 +14,10 @@ type TaskMarkdown = { _id: string; name: string; summary: string; revision: numb
 export function TaskDetailsDialog({ token, nonce, projectId, task, checking, onToggleChecked, close }: { token: string; nonce: string; projectId: string; task: Task; checking: boolean; onToggleChecked: (task: Task) => void; close: () => void }) {
   const [markdown, setMarkdown] = useState<{ name: string; content: string } | null>(null);
   const [view, setView] = useState<'details' | 'summary' | 'json'>('details');
+  const [criterionEvidence, setCriterionEvidence] = useState<Record<number, string>>({});
+  const [savingCriterion, setSavingCriterion] = useState<number | null>(null);
+  const [criterionFeedback, setCriterionFeedback] = useState<{ kind: 'success' | 'error'; message: string } | null>(null);
+  const queryClient = useQueryClient();
   const context = useQuery({
     queryKey: ['task-context', nonce, task._id],
     queryFn: () => query<Record<string, any>>(token, 'get_task_context', { projectId, taskId: task._id })
@@ -27,6 +31,42 @@ export function TaskDetailsDialog({ token, nonce, projectId, task, checking, onT
     queryFn: () => query<{ items: TaskMarkdown[] }>(token, 'list_markdowns', { projectId, targetKind: 'task', targetId: task._id, limit: 20 })
   });
   const taskData = context.data?.task ?? task;
+  const acceptance = taskData.acceptance ?? task.acceptance ?? [];
+  const acceptanceProgress = acceptance.map((_item: string, index: number) => taskData.acceptanceProgress?.[index] === true);
+  const completedCriteria = acceptanceProgress.filter(Boolean).length;
+
+  async function updateCriterion(criterionIndex: number, complete: boolean) {
+    const evidence = criterionEvidence[criterionIndex]?.trim();
+    if (!evidence) {
+      setCriterionFeedback({ kind: 'error', message: `Informe uma evidência objetiva para ${complete ? 'marcar' : 'desmarcar'} este critério.` });
+      return;
+    }
+    setSavingCriterion(criterionIndex);
+    setCriterionFeedback(null);
+    try {
+      const result = await request<{ task: Task }>(token, '/admin/tasks/acceptance', { body: {
+        operationId: operationId(), projectId, taskId: task._id, version: taskData.version,
+        criterionIndex, complete, evidence
+      } });
+      queryClient.setQueryData<Record<string, any>>(['task-context', nonce, task._id], current => current ? { ...current, task: result.task } : current);
+      queryClient.setQueryData<Task[]>(['project-tasks', nonce, projectId], current => current?.map(item => item._id === task._id ? { ...item, version: result.task.version, acceptanceProgress: result.task.acceptanceProgress } : item));
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['project-tasks', nonce, projectId] }),
+        queryClient.invalidateQueries({ queryKey: ['task-markdown-summary', nonce, projectId, task._id] })
+      ]);
+      setCriterionFeedback({ kind: 'success', message: 'Critério atualizado; o resumo Markdown foi sincronizado.' });
+    } catch (error) {
+      const conflict = error instanceof ApiRequestError && error.status === 409;
+      setCriterionFeedback({ kind: 'error', message: conflict ? 'A tarefa mudou em outra ação. Recarreguei o contexto; revise o critério antes de tentar novamente.' : errorMessage(error) });
+      await Promise.all([
+        context.refetch(),
+        queryClient.invalidateQueries({ queryKey: ['project-tasks', nonce, projectId] }),
+        queryClient.invalidateQueries({ queryKey: ['task-markdown-summary', nonce, projectId, task._id] })
+      ]);
+    } finally {
+      setSavingCriterion(null);
+    }
+  }
 
   async function openMarkdown(item: TaskMarkdown) {
     const result = await query<{ content: string }>(token, 'get_markdown', { projectId, id: item._id, revision: item.revision, line: 1, limit: 200 });
@@ -52,7 +92,17 @@ export function TaskDetailsDialog({ token, nonce, projectId, task, checking, onT
         {view === 'json' ? <pre className="markdown-content json-content">{JSON.stringify(context.data, null, 2)}</pre> : view === 'summary' ? <div className="detail-summary-layout"><TaskSummaryPanel token={token} nonce={nonce} projectId={projectId} taskId={task._id} /></div> : <div className="detail-columns">
           <div className="detail-main">
             <section className="detail-section task-description-section"><h3>Descrição</h3>{taskData.description || taskData.instructions ? <MarkdownView content={taskData.description || taskData.instructions} /> : <p className="muted-text">Sem descrição cadastrada.</p>}</section>
-            <section className="detail-section"><h3>Critérios de aceite</h3>{(taskData.acceptance ?? task.acceptance ?? []).length ? <ul className="criteria">{(taskData.acceptance ?? task.acceptance ?? []).map((item: string, index: number) => <li key={index}><span className={taskData.acceptanceProgress?.[index] ? 'criterion-check checked' : 'criterion-check'}>{taskData.acceptanceProgress?.[index] ? '✓' : '·'}</span>{item}</li>)}</ul> : <p className="muted-text">Nenhum critério cadastrado.</p>}</section>
+            <section className="detail-section"><div className="criteria-heading"><h3>Critérios de aceite</h3>{acceptance.length > 0 && <span>{completedCriteria}/{acceptance.length} concluídos</span>}</div>
+              {acceptance.length ? <>
+                <div className="criteria-progress" role="progressbar" aria-label="Critérios de aceite concluídos" aria-valuenow={completedCriteria} aria-valuemin={0} aria-valuemax={acceptance.length}><span style={{ width: `${Math.round(completedCriteria * 100 / acceptance.length)}%` }} /></div>
+                {savingCriterion !== null && <p className="notice" role="status">Salvando critério…</p>}
+                {criterionFeedback && <p className={`notice ${criterionFeedback.kind === 'error' ? 'error' : ''}`} role={criterionFeedback.kind === 'error' ? 'alert' : 'status'}>{criterionFeedback.message}</p>}
+                <ul className="criteria">{acceptance.map((item: string, index: number) => <li className="criteria-item" key={index}>
+                  <label className="criteria-item-heading"><input className="criterion-toggle" type="checkbox" checked={acceptanceProgress[index]} disabled={savingCriterion !== null} aria-label={`${acceptanceProgress[index] ? 'Desmarcar' : 'Marcar'} critério ${index + 1}`} onChange={event => void updateCriterion(index, event.currentTarget.checked)} /><span>{item}</span></label>
+                  <label className="criterion-evidence"><span>Evidência objetiva</span><textarea rows={2} value={criterionEvidence[index] ?? ''} disabled={savingCriterion !== null} placeholder="Descreva como este critério foi validado." onChange={event => setCriterionEvidence(current => ({ ...current, [index]: event.target.value }))} /></label>
+                </li>)}</ul>
+              </> : <p className="muted-text">Nenhum critério cadastrado.</p>}
+            </section>
             {markdown && <section className="detail-section"><div className="section-heading"><h3>{markdown.name}</h3><div className="button-row"><button className="text-button" onClick={() => void copyMarkdown()}>Copiar</button><button className="text-button" onClick={() => setMarkdown(null)}>Fechar</button></div></div><div className="markdown-document-view"><MarkdownView content={markdown.content} /></div></section>}
             <section className="detail-section"><h3>Planejamento Markdown</h3>{markdowns.isPending ? <p className="muted-text">Carregando documentos…</p> : markdowns.isError ? <p className="notice error">{errorMessage(markdowns.error)}</p> : markdowns.data?.items?.length ? <div className="resource-list">{markdowns.data.items.map(item => <button className="resource-row" key={item._id} onClick={() => void openMarkdown(item)}><span><strong>{item.name}</strong><small>{item.summary}</small></span><Badge>rev. {item.revision}</Badge></button>)}</div> : <p className="muted-text">Nenhum documento vinculado.</p>}</section>
           </div>

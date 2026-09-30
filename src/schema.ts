@@ -93,3 +93,4 @@ export const changeTaskStatusSchema = z.object({
   reason: text
 }).strict();
 export const setTaskCheckedSchema = z.object({ ...op, projectId: id, taskId: id, version: z.number().int().nonnegative(), checked: z.boolean() }).strict();
+export const setTaskAcceptanceCriterionSchema = z.object({ ...op, projectId: id, taskId: id, version: z.number().int().nonnegative(), criterionIndex: z.number().int().nonnegative(), complete: z.boolean(), evidence: text }).strict();

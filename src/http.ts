@@ -189,6 +189,12 @@ export function createApp(service: Service, origins: string[]) {
     logger.info('Administrative task check changed', { event: 'admin_task_check', actor: actor.userId, projectId: req.body?.projectId, taskId: req.body?.taskId, checked: req.body?.checked, outcome: 'success' });
     res.json(result);
   });
+  app.post('/admin/tasks/acceptance', async (req, res) => {
+    const actor = await authenticate(token(req.headers.authorization), 'human');
+    const result = await service.setTaskAcceptanceCriterion(actor, req.body);
+    logger.info('Administrative task acceptance changed', { event: 'admin_task_acceptance', actor: actor.userId, projectId: req.body?.projectId, taskId: req.body?.taskId, criterionIndex: req.body?.criterionIndex, complete: req.body?.complete, outcome: 'success' });
+    res.json(result);
+  });
   app.post('/runner', async (req, res) => {
     const actor = await authenticate(token(req.headers.authorization), 'agent');
     res.json(await service.automation.runner(actor, req.body));

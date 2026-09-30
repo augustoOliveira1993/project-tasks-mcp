@@ -288,10 +288,19 @@ h1, h2, h3, p { margin-top: 0; }
 .detail-section { margin-bottom: 19px; }
 .detail-section h3 { margin: 0 0 10px; color: #435064; font: 700 11px Manrope, sans-serif; }
 .detail-section > p { color: #737f90; font-size: 10px; line-height: 1.7; white-space: pre-wrap; }
-.criteria { display: grid; gap: 9px; margin: 0; padding: 0; list-style: none; }
-.criteria li { display: flex; align-items: flex-start; gap: 8px; color: #626f80; font-size: 10px; line-height: 1.55; }
-.criterion-check { display: grid; place-items: center; flex: 0 0 17px; width: 17px; height: 17px; border: 1px solid #dce1ea; border-radius: 50%; color: #a0a8b4; font-size: 10px; }
-.criterion-check.checked { border-color: #bde4d1; background: #e9f7f0; color: #148058; }
+.criteria-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.criteria-heading > span { margin-bottom: 10px; color: #737f90; font-size: 10px; font-weight: 700; }
+.criteria-progress { height: 4px; margin: 0 0 12px; overflow: hidden; border-radius: 999px; background: #e8ebf1; }
+.criteria-progress > span { display: block; height: 100%; border-radius: inherit; background: #148058; transition: width .2s ease; }
+.criteria { display: grid; gap: 13px; margin: 0; padding: 0; list-style: none; }
+.criteria li { color: #626f80; font-size: 10px; line-height: 1.55; }
+.criteria-item-heading { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; }
+.criterion-toggle { flex: 0 0 16px; width: 16px; height: 16px; margin: 1px 0 0; accent-color: #148058; }
+.criterion-toggle:disabled { cursor: wait; }
+.criterion-evidence { display: grid; gap: 4px; margin: 6px 0 0 24px; color: #737f90; font-size: 9px; }
+.criterion-evidence textarea { width: 100%; min-height: 44px; padding: 7px 8px; resize: vertical; border: 1px solid #dce1ea; border-radius: 6px; color: #435064; background: #fff; font: inherit; }
+.criterion-evidence textarea:focus { outline: 2px solid #dce4ff; border-color: #8091df; }
+.criteria + .notice, .criteria-progress + .notice { margin: 0 0 10px; }
 .facts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 0; font-size: 9px; }
 .facts dt { color: #98a1af; }
 .facts dd { margin: 0; color: #606c7d; text-align: right; }
