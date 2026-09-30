@@ -36,6 +36,7 @@ export type Task = {
   featureId?: string | null;
   acceptance?: string[];
   acceptanceProgress?: boolean[];
+  acceptanceEvidence?: Array<string | null>;
   checked?: boolean;
   checkedAt?: string;
   checkedBy?: string;

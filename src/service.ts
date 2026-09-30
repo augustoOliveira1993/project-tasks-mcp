@@ -677,7 +677,18 @@ export class Service {
       if (documents.length) for (const document of documents) lines.push(`- **${escape(document.name)}** (${document.scope}, revisão ${document.revision})${document.summary ? ` — ${document.summary}` : ''}`); else lines.push('_Nenhum documento vinculado._');
       return { markdown: lines.join('\n').trimEnd() + '\n', generatedAt: new Date().toISOString(), taskId: task._id };
     }
-    return { task: { ...task, type: task.type ?? 'feature', checked: task.checked ?? false, checkedBy: task.checkedBy ?? null, checkedAt: task.checkedAt ?? null }, project, feature, repository: project!.repositories.find(r => r.id === task.repositoryId), markdowns: { task: taskMarkdowns, feature: featureMarkdowns }, messages: taskMessages, dependencies: dependencies.map(d => ({ ...d, type: d.type ?? 'feature', execution: results.find(e => e._id === d.executionId) })), executions: await Execution.find({ taskId: task._id }).sort({ startedAt: -1 }).limit(25).lean() };
+    const acceptanceEvidence: Array<string | null> = Array.from({ length: task.acceptance?.length ?? 0 }, () => null);
+    const latestAcceptanceEvents = await Event.aggregate([
+      { $match: { projectId: a.projectId, entityId: a.taskId, action: 'set_acceptance_criterion' } },
+      { $sort: { at: -1, _id: -1 } },
+      { $group: { _id: '$data.criterionIndex', complete: { $first: '$data.complete' }, evidence: { $first: '$data.evidence' } } }
+    ]);
+    for (const event of latestAcceptanceEvents) {
+      if (typeof event._id === 'number' && Number.isInteger(event._id) && event._id >= 0 && event._id < acceptanceEvidence.length && task.acceptanceProgress?.[event._id] === true && event.complete === true && typeof event.evidence === 'string') {
+        acceptanceEvidence[event._id] = event.evidence;
+      }
+    }
+    return { task: { ...task, type: task.type ?? 'feature', checked: task.checked ?? false, checkedBy: task.checkedBy ?? null, checkedAt: task.checkedAt ?? null, acceptanceEvidence }, project, feature, repository: project!.repositories.find(r => r.id === task.repositoryId), markdowns: { task: taskMarkdowns, feature: featureMarkdowns }, messages: taskMessages, dependencies: dependencies.map(d => ({ ...d, type: d.type ?? 'feature', execution: results.find(e => e._id === d.executionId) })), executions: await Execution.find({ taskId: task._id }).sort({ startedAt: -1 }).limit(25).lean() };
   }
   async admin(actor: Actor, input: unknown) {
     requireThat(actor.scope === 'human', 'Human credential required', 403);

@@ -294,12 +294,15 @@ h1, h2, h3, p { margin-top: 0; }
 .criteria-progress > span { display: block; height: 100%; border-radius: inherit; background: #148058; transition: width .2s ease; }
 .criteria { display: grid; gap: 13px; margin: 0; padding: 0; list-style: none; }
 .criteria li { color: #626f80; font-size: 10px; line-height: 1.55; }
-.criteria-item-heading { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; }
+.criteria-item-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.criteria-check-label { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; }
 .criterion-toggle { flex: 0 0 16px; width: 16px; height: 16px; margin: 1px 0 0; accent-color: #148058; }
 .criterion-toggle:disabled { cursor: wait; }
+.criterion-complete { flex: 0 0 auto; padding: 2px 7px; border-radius: 999px; color: #14734f; background: #e9f7f0; font-size: 9px; font-weight: 700; }
 .criterion-evidence { display: grid; gap: 4px; margin: 6px 0 0 24px; color: #737f90; font-size: 9px; }
 .criterion-evidence textarea { width: 100%; min-height: 44px; padding: 7px 8px; resize: vertical; border: 1px solid #dce1ea; border-radius: 6px; color: #435064; background: #fff; font: inherit; }
 .criterion-evidence textarea:focus { outline: 2px solid #dce4ff; border-color: #8091df; }
+.criterion-evidence textarea:disabled { color: #737f90; background: #f5f7fa; cursor: not-allowed; }
 .criteria + .notice, .criteria-progress + .notice { margin: 0 0 10px; }
 .facts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 0; font-size: 9px; }
 .facts dt { color: #98a1af; }

@@ -36,7 +36,7 @@ export function TaskDetailsDialog({ token, nonce, projectId, task, checking, onT
   const completedCriteria = acceptanceProgress.filter(Boolean).length;
 
   async function updateCriterion(criterionIndex: number, complete: boolean) {
-    const evidence = criterionEvidence[criterionIndex]?.trim();
+    const evidence = (criterionEvidence[criterionIndex] ?? taskData.acceptanceEvidence?.[criterionIndex] ?? '').trim();
     if (!evidence) {
       setCriterionFeedback({ kind: 'error', message: `Informe uma evidência objetiva para ${complete ? 'marcar' : 'desmarcar'} este critério.` });
       return;
@@ -48,7 +48,10 @@ export function TaskDetailsDialog({ token, nonce, projectId, task, checking, onT
         operationId: operationId(), projectId, taskId: task._id, version: taskData.version,
         criterionIndex, complete, evidence
       } });
-      queryClient.setQueryData<Record<string, any>>(['task-context', nonce, task._id], current => current ? { ...current, task: result.task } : current);
+      const acceptanceEvidence = [...(taskData.acceptanceEvidence ?? Array.from({ length: acceptance.length }, () => null))];
+      acceptanceEvidence[criterionIndex] = complete ? evidence : null;
+      const updatedTask = { ...result.task, acceptanceEvidence };
+      queryClient.setQueryData<Record<string, any>>(['task-context', nonce, task._id], current => current ? { ...current, task: updatedTask } : current);
       queryClient.setQueryData<Task[]>(['project-tasks', nonce, projectId], current => current?.map(item => item._id === task._id ? { ...item, version: result.task.version, acceptanceProgress: result.task.acceptanceProgress } : item));
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['project-tasks', nonce, projectId] }),
@@ -98,8 +101,8 @@ export function TaskDetailsDialog({ token, nonce, projectId, task, checking, onT
                 {savingCriterion !== null && <p className="notice" role="status">Salvando critério…</p>}
                 {criterionFeedback && <p className={`notice ${criterionFeedback.kind === 'error' ? 'error' : ''}`} role={criterionFeedback.kind === 'error' ? 'alert' : 'status'}>{criterionFeedback.message}</p>}
                 <ul className="criteria">{acceptance.map((item: string, index: number) => <li className="criteria-item" key={index}>
-                  <label className="criteria-item-heading"><input className="criterion-toggle" type="checkbox" checked={acceptanceProgress[index]} disabled={savingCriterion !== null} aria-label={`${acceptanceProgress[index] ? 'Desmarcar' : 'Marcar'} critério ${index + 1}`} onChange={event => void updateCriterion(index, event.currentTarget.checked)} /><span>{item}</span></label>
-                  <label className="criterion-evidence"><span>Evidência objetiva</span><textarea rows={2} value={criterionEvidence[index] ?? ''} disabled={savingCriterion !== null} placeholder="Descreva como este critério foi validado." onChange={event => setCriterionEvidence(current => ({ ...current, [index]: event.target.value }))} /></label>
+                  <div className="criteria-item-heading"><label className="criteria-check-label"><input className="criterion-toggle" type="checkbox" checked={acceptanceProgress[index]} disabled={savingCriterion !== null} aria-label={`${acceptanceProgress[index] ? 'Desmarcar' : 'Marcar'} critério ${index + 1}`} onChange={event => void updateCriterion(index, event.currentTarget.checked)} /><span>{item}</span></label>{acceptanceProgress[index] && <span className="criterion-complete">Atendido</span>}</div>
+                  <label className="criterion-evidence"><span>{acceptanceProgress[index] ? 'Observação do critério atendido' : 'Evidência objetiva'}</span><textarea rows={2} value={criterionEvidence[index] ?? taskData.acceptanceEvidence?.[index] ?? ''} disabled={savingCriterion !== null || acceptanceProgress[index]} placeholder={acceptanceProgress[index] ? 'Critério atendido sem observação registrada.' : 'Descreva como este critério foi validado.'} onChange={event => setCriterionEvidence(current => ({ ...current, [index]: event.target.value }))} /></label>
                 </li>)}</ul>
               </> : <p className="muted-text">Nenhum critério cadastrado.</p>}
             </section>
