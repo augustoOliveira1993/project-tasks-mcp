@@ -7,6 +7,8 @@ if (-not (Test-Path -LiteralPath $tokenPath)) {
 }
 
 try {
+  $securityModule = Join-Path $PSHOME 'Modules\Microsoft.PowerShell.Security\Microsoft.PowerShell.Security.psd1'
+  Import-Module -Name $securityModule -ErrorAction Stop
   $gitWorkdir = if ($env:CLAUDE_PROJECT_DIR -and (Test-Path -LiteralPath $env:CLAUDE_PROJECT_DIR -PathType Container)) { $env:CLAUDE_PROJECT_DIR } elseif ($env:PTM_GIT_WORKDIR -and (Test-Path -LiteralPath $env:PTM_GIT_WORKDIR -PathType Container)) { $env:PTM_GIT_WORKDIR } else { (Get-Location).Path }
   $encryptedToken = Get-Content -LiteralPath $tokenPath -Raw
   $secureToken = ConvertTo-SecureString $encryptedToken

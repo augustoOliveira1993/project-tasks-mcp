@@ -196,8 +196,12 @@ function Set-ClaudeMcp {
     }
     & $claude.Source mcp add --transport stdio --scope user $BridgeServerName --env "PTM_SERVICE_URL=$ServiceBaseUrl" -- powershell.exe -NoProfile -ExecutionPolicy Bypass -File $BridgeLauncher
     if ($LASTEXITCODE -ne 0) { throw 'Claude Code recusou a configuração da bridge Git.' }
-    & $claude.Source mcp get $BridgeServerName
-    if ($LASTEXITCODE -ne 0) { throw 'Não foi possível confirmar a configuração da bridge Git do Claude Code.' }
+    $bridgeStatus = & $claude.Source mcp get $BridgeServerName 2>&1
+    $bridgeExitCode = $LASTEXITCODE
+    $bridgeStatus | ForEach-Object { Write-Host $_ }
+    if ($bridgeExitCode -ne 0) { throw 'Não foi possível confirmar a configuração da bridge Git do Claude Code.' }
+    if (($bridgeStatus -join "`n") -match '(?i)Failed to connect|CONNECTION_CLOSED|Connection closed') { throw 'A bridge Git foi configurada, mas o Claude Code não conseguiu conectar. Confira o erro do servidor acima e execute o instalador novamente após corrigi-lo.' }
+    if (($bridgeStatus -join "`n") -notmatch '(?im)^\s*Status:\s*.*\bConnected\b') { throw 'O Claude Code não confirmou a conexão da bridge Git; confira a saída acima antes de usar a bridge.' }
   }
   Install-ClientSkill -ClientRoot (Join-Path $env:USERPROFILE '.claude') -ClientName 'Claude Code'
   Write-Host 'Claude Code configurado globalmente.' -ForegroundColor Green

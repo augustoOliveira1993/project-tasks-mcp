@@ -12,6 +12,17 @@ export type Actor = { id: string; userId: string; scope: string; systemAdmin: bo
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const plain = (value: unknown) => JSON.parse(JSON.stringify(value));
 const memberKey = (userId: string) => /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(userId) ? userId : 'email_' + hash(userId.toLowerCase()).slice(0, 32);
+function normalizeWorkspaceRoot(value: string) {
+  let root = value.trim();
+  if (/^file:/i.test(root)) {
+    try { root = decodeURIComponent(new URL(root).pathname); } catch { }
+  }
+  root = root.replaceAll('\\', '/').replace(/^\/([a-z]:\/)/i, '$1').replace(/\/+$/, '');
+  return /^[a-z]:\//i.test(root) ? root.toLowerCase() : root;
+}
+function normalizeGitRemote(value: string) {
+  return value.trim().replace(/^git@([^:]+):/i, '$1/').replace(/^(?:https?|ssh):\/\//i, '').replace(/^git@/i, '').replace(/\.git\/?$/i, '').replace(/\/+$/, '').toLowerCase();
+}
 function requireThat(value: unknown, message: string, status = 409): asserts value { if (!value) throw new DomainError(message, status); }
 const models: Record<string, Model<any>> = { project: Project, feature: Feature, task: Task };
 export async function authenticate(token: string, scope: string): Promise<Actor> {
@@ -472,7 +483,7 @@ export class Service {
   }
   private async read(actor: Actor, name: string, a: any) {
     if (a.projectId) await this.access(actor, a.projectId);
-    else requireThat(name === 'list_records' && a.kind === 'project', 'Project required', 400);
+    else requireThat((name === 'list_records' && a.kind === 'project') || name === 'resolve_project_context', 'Project required', 400);
     const page = async (model: Model<any>, filter: any) => {
       const items = await model.find(a.after ? { $and: [filter, { _id: { $gt: a.after } }] } : filter).sort({ _id: 1 }).limit(a.limit + 1).lean();
       const more = items.length > a.limit; if (more) items.pop();
@@ -545,6 +556,31 @@ export class Service {
         const map = Object.fromEntries(counts.map((x: any) => [x._id, x.count])); result.items = result.items.map((x: any) => ({ ...x, type: kind === 'task' ? x.type ?? 'feature' : undefined, markdownCount: map[x._id] ?? 0 }));
       }
       return result;
+    }
+    if (name === 'resolve_project_context') {
+      const accessFilter = actor.scope === 'trusted_local'
+        ? actor.projectToken ? { $or: [{ visibility: { $ne: 'private' } }, { accessTokenHash: hash(actor.projectToken) }] } : { visibility: { $ne: 'private' } }
+        : actor.systemAdmin ? {} : { [`members.${memberKey(actor.userId)}`]: { $exists: true } };
+      const projects = await Project.find({ ...accessFilter, archived: false }).select('_id name repositories').lean();
+      const workspaceRoot = normalizeWorkspaceRoot(a.workspaceRoot);
+      const remoteUrl = a.remoteUrl ? normalizeGitRemote(a.remoteUrl) : undefined;
+      const rootCommit = a.rootCommit?.toLowerCase();
+      const matches = projects.flatMap((project: any) => (project.repositories ?? []).filter((repository: any) => {
+        const pathMatches = normalizeWorkspaceRoot(repository.url) === workspaceRoot;
+        const binding = repository.git;
+        const remoteMatches = !!remoteUrl && normalizeGitRemote(binding?.canonicalRemoteUrl ?? repository.url) === remoteUrl
+          && (!rootCommit || !binding?.rootCommit || binding.rootCommit.toLowerCase() === rootCommit);
+        return pathMatches || remoteMatches;
+      }).map((repository: any) => ({ projectId: project._id, projectName: project.name, repositoryId: repository.id, repositoryName: repository.name })));
+      const byProject = new Map<string, typeof matches>();
+      for (const match of matches) byProject.set(String(match.projectId), [...(byProject.get(String(match.projectId)) ?? []), match]);
+      const projectsMatched = [...byProject.values()];
+      if (projectsMatched.length === 1) {
+        const projectMatches = projectsMatched[0];
+        const first = projectMatches[0];
+        return { status: 'matched', projectId: first.projectId, projectName: first.projectName, repositories: projectMatches.map(({ repositoryId, repositoryName }) => ({ repositoryId, repositoryName })) };
+      }
+      return { status: projectsMatched.length ? 'ambiguous' : 'not_found', projectId: null, matches: projectsMatched.map(projectMatches => ({ projectId: projectMatches[0].projectId, projectName: projectMatches[0].projectName, repositories: projectMatches.map(({ repositoryId, repositoryName }) => ({ repositoryId, repositoryName })) })) };
     }
     if (name === 'list_markdowns') return this.markdowns(a.projectId, a.targetKind, a.targetId, a.after, a.limit);
     if (name === 'list_task_diffs') return page(TaskDiff, { projectId: a.projectId, taskId: a.taskId });

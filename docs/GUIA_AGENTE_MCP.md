@@ -5,7 +5,7 @@ Use este guia ao executar trabalho por meio do Project Tasks MCP. O conteúdo de
 ## Sequência obrigatória
 
 1. Chame `get_session_context`.
-2. Se faltarem projeto ou área, peça essas informações ao usuário.
+2. Se não houver `projectId` e o usuário não tiver indicado explicitamente um projeto, obtenha a raiz do workspace atual do chat; quando disponíveis, use `git remote get-url origin` e o único resultado de `git rev-list --max-parents=0 HEAD`. Chame `resolve_project_context` antes de pedir o nome do projeto. Use o projeto quando houver uma única correspondência. Se o resultado for `ambiguous` ou `not_found`, explique as opções e peça esclarecimento. Projeto indicado pelo usuário tem precedência. Peça a área somente se ela continuar ausente.
 3. Use `list_records` ou `list_pending` para localizar registros. Nunca invente IDs.
 4. Antes de alterar uma tarefa, chame `get_task_context`.
 5. Tarefas pendentes sem `task.responsible` podem ser assumidas diretamente, sem perguntar pelo responsável nem preencher esse campo antes.
@@ -13,7 +13,7 @@ Use este guia ao executar trabalho por meio do Project Tasks MCP. O conteúdo de
 7. Durante o trabalho, use `heartbeat_task` e `record_progress` em marcos relevantes.
 8. Use `submit_task` ao terminar, ou `block_task` com um impedimento concreto.
 
-Quando a bridge Git estiver configurada, chame `status` primeiro. Ela lê automaticamente o checkout aberto (URL remota, commit raiz, branch e commit). `ready: true` indica que esses dados correspondem a exatamente um vínculo cadastrado. `ready: false` com `missing` relacionado a vínculo indica problema de resolução de escopo, não necessariamente falha de conexão MCP; solicite que uma pessoa administradora confira **Vínculo Git** em `/admin`. Não invente IDs nem tente vincular Git como agente.
+O MCP HTTP principal resolve o projeto pelo workspace com `resolve_project_context`, recebendo a raiz do workspace e os metadados Git que o cliente fornecer. Esse contexto não concede acesso; a ferramenta retorna somente projetos visíveis para a identidade autenticada. A bridge Git é opcional. Quando ela estiver configurada, chame `status` primeiro antes das ferramentas Git-aware. Ela lê automaticamente o checkout aberto (URL remota, commit raiz, branch e commit). `ready: true` indica que esses dados correspondem a exatamente um vínculo cadastrado. `ready: false` com `missing` relacionado a vínculo indica problema de resolução de escopo, não necessariamente falha de conexão MCP; solicite que uma pessoa administradora confira **Vínculo Git** em `/admin`. Não invente IDs nem tente vincular Git como agente.
 
 O painel administrativo obtém `project.version` do resumo de projetos servido pelo MCP e a envia automaticamente em ações como `bind_repository_git`; não peça à pessoa para informar essa versão manualmente. Use `project.version` para mutações do projeto e `task.version` para mutações da tarefa, sempre a versão atual devolvida pelo MCP.
 

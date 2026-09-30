@@ -24,6 +24,11 @@ const cursor = z.string().min(1).max(2048);
 export const provider = z.enum(['codex', 'claude']);
 export const tools = {
   get_session_context: z.object({}).strict(),
+  resolve_project_context: z.object({
+    workspaceRoot: z.string().min(1).max(4096).refine(value => /^(?:[a-z]:[\\/]|\\\\|\/|file:)/i.test(value), 'Workspace root must be absolute').describe('Absolute root directory of the current chat workspace or checkout.'),
+    remoteUrl: z.string().min(1).max(2048).optional().describe('Git remote URL reported by the current checkout.'),
+    rootCommit: z.string().regex(/^[0-9a-f]{40}$/i).optional().describe('Root commit reported by the current checkout.')
+  }).strict(),
   create_project: z.object({ ...op, data: projectData }).strict(),
   create_feature: z.object({ ...op, projectId: id, data: featureData }).strict(),
   create_task: z.object({ ...op, projectId: id, data: taskData }).strict(),
