@@ -117,6 +117,25 @@ test('planned responsible is configurable before claim and executor identity rep
   const claimed = await claim(p, assigned);
   assert.equal(claimed.responsible, 'owner');
 });
+test('task context exposes blocked execution impediments and preserves its public fields', async () => {
+  const { p, f, create } = await fixture();
+  const running = await claim(p, await create('Blocked context'));
+  const blocked = await service.call(agent, 'block_task', { ...active(p, running), reason: 'Waiting for API contract' });
+
+  const context = await service.call(agent, 'get_task_context', { projectId: p._id, taskId: blocked._id });
+
+  assert.equal(context.contextMeta.version, 1);
+  assert.equal(context.task._id, blocked._id);
+  assert.equal(context.task.projectId, p._id);
+  assert.equal(context.task.status, 'bloqueada');
+  assert.deepEqual(context.task.acceptance, ['Works']);
+  assert.equal(context.project._id, p._id);
+  assert.equal(context.feature._id, f._id);
+  assert.equal(context.executions[0]._id, blocked.executionId);
+  assert.equal(context.executions[0].status, 'bloqueada');
+  assert.deepEqual(context.executions[0].impediments, ['Waiting for API contract']);
+  assert.equal('credentialId' in context.executions[0], false);
+});
 test('human status override moves blocked tasks to review or completion', async () => {
   const { p, create } = await fixture(); let task = await claim(p, await create('Blocked override'));
   task = await service.call(agent, 'block_task', { ...active(p, task), reason: 'Needs human decision' });
