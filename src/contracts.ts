@@ -39,7 +39,7 @@ export type TaskContextDto = {
   markdowns: { task: { items: Array<Record<string, unknown>>; next: string | null }; feature: { items: Array<Record<string, unknown>>; next: string | null } };
   messages: Array<{ _id: string; taskId: string; relatedTaskId?: string; author: string; type: string; message: string; references: string[]; createdAt: Date; conversationId?: string; replyTo?: string; truncated?: boolean }>;
   dependencies: Array<{ _id: string; name: string; status: string; area: string; type: string; execution: { _id: string; status: string; result?: { summary?: string; evidence?: string[] } } | null }>;
-  executions: Array<{ _id: string; status: string; startedAt: Date; endedAt?: Date; result?: { summary?: string; evidence?: string[] } }>;
+  executions: Array<{ _id: string; status: string; startedAt: Date; endedAt?: Date; impediments?: string[]; result?: { summary?: string; evidence?: string[] } }>;
 };
 
 export type ProjectContextDto = {

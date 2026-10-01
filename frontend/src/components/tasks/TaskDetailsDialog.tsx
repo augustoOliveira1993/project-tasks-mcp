@@ -72,6 +72,10 @@ export function TaskDetailsDialog({ token, nonce, projectId, task, checking, onT
     }
   });
   const taskData = context.data?.task ?? task;
+  const contextExecutions: Array<{ _id: string; impediments?: string[] }> = context.data?.executions ?? [];
+  const blockedExecution = contextExecutions.find(execution => execution._id === taskData.executionId)
+    ?? contextExecutions.find(execution => execution.impediments?.length);
+  const blockingReasons = (blockedExecution?.impediments ?? []).filter(reason => reason.trim().length > 0);
   const acceptance = taskData.acceptance ?? task.acceptance ?? [];
   const acceptanceProgress = acceptance.map((_item: string, index: number) => taskData.acceptanceProgress?.[index] === true);
   const completedCriteria = acceptanceProgress.filter(Boolean).length;
@@ -128,6 +132,7 @@ export function TaskDetailsDialog({ token, nonce, projectId, task, checking, onT
       <header className="dialog-header"><div><p className="eyebrow">TAREFA · {task.area ?? 'sem área'}</p><h2 id="details-title">{task.name}</h2><p className="muted-text id-text">{task._id}</p></div><button className="icon-button" onClick={close} aria-label="Fechar detalhes">×</button></header>
       {context.isPending ? <div className="loading">Carregando contexto…</div> : context.isError ? <div className="notice error">{errorMessage(context.error)}</div> : <>
         <div className="detail-meta"><Badge tone={statusTone[taskData.status]}>Status · {statusLabels[taskData.status] ?? taskData.status}</Badge><Badge tone="blue">Área · {taskData.area || 'Não definida'}</Badge>{context.data?.feature?.name && <Badge tone="muted">Feature · {context.data.feature.name}</Badge>}<span>Responsável: {taskData.responsible || 'Não atribuído'}</span><span>Atualizada: {formatDate(taskData.updatedAt)}</span><span>Prioridade: {taskData.priority ?? '—'}</span></div>
+        {taskData.status === 'bloqueada' && <section className="blocked-reason-panel" aria-labelledby="blocked-reason-title"><h3 id="blocked-reason-title">Motivo do bloqueio</h3>{blockingReasons.length ? <ul>{blockingReasons.map((reason, index) => <li key={index}><MarkdownView content={reason} /></li>)}</ul> : <p>Não há um motivo registrado para este bloqueio.</p>}</section>}
         {taskData.status === 'concluida' && <section className="detail-check-panel" aria-label="Conferência da tarefa">
           <div className="detail-check-copy"><Badge tone={taskData.checked ? 'green' : 'amber'}>{taskData.checked ? 'Conferida' : 'Não conferida'}</Badge><span>{taskData.checked ? 'por ' + (taskData.checkedBy || 'Usuário') + ' · ' + formatDate(taskData.checkedAt) : 'Marque após validar a tarefa.'}</span></div>
           <button type="button" className="button secondary small-button" disabled={checking} aria-pressed={Boolean(taskData.checked)} onClick={() => onToggleChecked(taskData as Task)}>{checking ? 'Salvando…' : taskData.checked ? 'Desmarcar' : 'Marcar como conferida'}</button>

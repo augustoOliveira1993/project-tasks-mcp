@@ -89,7 +89,7 @@ export async function getTaskContext(projectId: string, taskId: string, includeA
     task.repositoryId ? Project.findOne({ _id: projectId, 'repositories.id': task.repositoryId }).select({ 'repositories.$': 1 }).lean() : Promise.resolve(null),
     TaskMessage.find({ projectId, $or: [{ taskId }, { relatedTaskId: taskId }] }).select('_id taskId relatedTaskId author type message references createdAt conversationId replyTo').sort({ createdAt: -1, _id: -1 }).limit(11).lean(),
     task.dependencies?.length ? Task.find({ _id: { $in: task.dependencies }, projectId }).select('_id name status area type executionId').lean() : Promise.resolve([]),
-    Execution.find({ projectId, taskId }).select('_id status startedAt endedAt result.summary result.evidence').sort({ startedAt: -1, _id: -1 }).limit(6).lean(),
+    Execution.find({ projectId, taskId }).select('_id status startedAt endedAt impediments result.summary result.evidence').sort({ startedAt: -1, _id: -1 }).limit(6).lean(),
     MarkdownDocument.find({ projectId, targetKind: 'task', targetId: taskId }).select('_id targetKind targetId name summary revision size createdAt').sort({ _id: 1 }).limit(11).lean(),
     task.featureId ? MarkdownDocument.find({ projectId, targetKind: 'feature', targetId: task.featureId }).select('_id targetKind targetId name summary revision size createdAt').sort({ _id: 1 }).limit(11).lean() : Promise.resolve([])
   ]);
@@ -182,13 +182,20 @@ export async function getTaskContext(projectId: string, taskId: string, includeA
         } : null;
       })() : null
     })),
-    executions: executions.slice(0, 5).map((execution, index) => ({
-      _id: execution._id!, status: execution.status!, startedAt: execution.startedAt!, endedAt: execution.endedAt ?? undefined,
-      result: execution.result ? {
-        summary: text(execution.result.summary, 1000, `executions[${index}].result.summary`, truncated),
-        evidence: (Array.isArray(execution.result.evidence) ? execution.result.evidence : []).slice(0, 5).map((item: unknown, evidenceIndex: number) => text(item, 240, `executions[${index}].result.evidence[${evidenceIndex}]`, truncated))
-      } : undefined
-    }))
+    executions: executions.slice(0, 5).map((execution, index) => {
+      const impediments = (Array.isArray(execution.impediments) ? execution.impediments : [])
+        .slice(-5)
+        .map((item: unknown, impedimentIndex: number) => text(item, 1200, `executions[${index}].impediments[${impedimentIndex}]`, truncated))
+        .filter(Boolean);
+      return {
+        _id: execution._id!, status: execution.status!, startedAt: execution.startedAt!, endedAt: execution.endedAt ?? undefined,
+        ...(impediments.length ? { impediments } : {}),
+        result: execution.result ? {
+          summary: text(execution.result.summary, 1000, `executions[${index}].result.summary`, truncated),
+          evidence: (Array.isArray(execution.result.evidence) ? execution.result.evidence : []).slice(0, 5).map((item: unknown, evidenceIndex: number) => text(item, 240, `executions[${index}].result.evidence[${evidenceIndex}]`, truncated))
+        } : undefined
+      };
+    })
   };
 
   const result = fitContext(context, truncated);

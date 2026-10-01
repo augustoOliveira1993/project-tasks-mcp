@@ -418,6 +418,11 @@ h1, h2, h3, p { margin-top: 0; }
 .icon-button:hover { background: #f2f3f8; color: #4654c0; }
 .id-text { font-family: ui-monospace, monospace; font-size: 9px !important; overflow-wrap: anywhere; }
 .detail-meta { display: flex; flex-wrap: wrap; gap: 13px; padding: 13px 23px; border-bottom: 1px solid #edf0f4; color: #788395; font-size: 10px; }
+.blocked-reason-panel { margin: 14px 23px 0; padding: 13px 15px; border: 1px solid #efc9c9; border-radius: 9px; background: #fff8f7; color: #813840; }
+.blocked-reason-panel h3 { margin: 0 0 8px; color: #813840; font-size: 12px; font-weight: 800; }
+.blocked-reason-panel ul { display: grid; gap: 7px; margin: 0; padding-left: 19px; font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
+.blocked-reason-panel p { margin: 0; font-size: 11px; line-height: 1.6; }
+.blocked-reason-panel .markdown-content { color: inherit; font-size: inherit; }
 .detail-check-panel { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 23px; border-bottom: 1px solid #edf0f4; background: #f8f9ff; }
 .detail-check-copy { display: flex; min-width: 0; align-items: center; flex-wrap: wrap; gap: 9px; color: #788395; font-size: 10px; }
 .detail-toolbar { @apply flex justify-end px-6 pt-3; }
@@ -636,6 +641,7 @@ dialog.projects-dialog::backdrop { background: #16203370; backdrop-filter: blur(
   .transfer-task-actions > .button { flex: 1 1 100%; }
   .dialog-header { padding: 17px 16px 13px; }
   .detail-meta { padding: 11px 16px; gap: 8px; }
+  .blocked-reason-panel { margin-right: 16px; margin-left: 16px; }
   .detail-check-panel { align-items: flex-start; flex-direction: column; padding: 10px 16px; }
   .dialog-footer { padding: 10px 16px; }
   .overlay { align-items: start; padding: 12px; }
