@@ -984,7 +984,7 @@ export class Service {
         const messages = recentConversationMessages[index].slice().reverse();
         if (messages.length) {
           lines.push('- **Mensagens recentes:**');
-          for (const message of messages) lines.push(`  - **${escapeInline(message.author)}** (${date(message.createdAt)}): ${escapeInline(message.content)}`);
+          for (const message of messages) lines.push(`  - **${escapeInline(message.author ?? 'Desconhecido')}** (${date(message.createdAt)}): ${escapeInline(message.content ?? '')}`);
         } else lines.push('- _Nenhuma mensagem enviada._');
         lines.push('');
       } else lines.push('_Nenhuma conversa vinculada._');
