@@ -33,6 +33,13 @@ O preenchimento prévio de responsável é opcional. Enquanto a tarefa estiver `
 - Não reutilize `executionId` de execução encerrada, expirada ou de outro agente.
 - Uma dependência só libera a tarefa seguinte após aprovação humana.
 
+## Transferir tarefa entre projetos
+
+1. Use `preview_task_transfer` com o projeto de origem, projeto de destino, `task.version` atual, repositório de destino e feature de destino. Informe `targetFeatureId: null` explicitamente quando a tarefa não deve ficar vinculada a uma feature.
+2. Apresente a origem, destino, tarefa, elegibilidade, bloqueios e contagem dos registros que serão movidos. Só prossiga depois que o usuário confirmar esse plano exato.
+3. Chame `transfer_task` com os mesmos IDs e versão, o `planHash` da prévia, `confirm: true` e um `operationId` UUID novo. Em caso de plano ou versão desatualizados, gere outra prévia.
+4. A operação mantém o ID e os critérios/status da tarefa, transfere histórico associado na mesma transação e registra auditoria nos dois projetos. Dependências, execuções ou automações ativas, referências de colaboração a outras tarefas e vínculos de destino inválidos bloqueiam a operação; não copie e arquive como alternativa automática.
+
 ## Cooperação
 
 Para tarefas relacionadas, assine eventos com `subscribe_task_events` ou `subscribe_project_events`. Use `send_task_message` para contratos, perguntas, respostas, bloqueios e progresso. Mensagens exigem execução ativa e não substituem a aprovação humana.

@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { Task } from '../../api';
+import { useQuery } from '@tanstack/react-query';
+import { query } from '../../api';
+import type { Project, Task } from '../../api';
 import { Badge } from '../../components/ui/Badge';
+import { CreateTaskDialog } from './CreateTaskDialog';
+import { CreateFeatureDialog } from './CreateFeatureDialog';
 import { MetricCard } from '../../components/ui/MetricCard';
 import { errorMessage, formatDate } from '../../lib/format';
 import { statusLabels, statusTone } from './status';
@@ -9,7 +13,10 @@ import { filterTasks, getTaskFilterOptions, taskFilterOptionLabel, type TaskFilt
 import { getSelectedVisibleItems, paginateItems } from './task-pagination';
 
 type TaskWorkspaceProps = {
+  token: string;
+  nonce: string;
   projectId: string;
+  repositories?: Project['repositories'];
   tasks: Task[];
   isPending: boolean;
   isError: boolean;
@@ -26,7 +33,11 @@ type TaskWorkspaceProps = {
   onSetTasksChecked: (taskIds: string[], checked: boolean) => Promise<string[]>;
 };
 
-export function TaskWorkspace({ projectId, tasks, isPending, isError, error, saving, onRefresh, onOpenTask, onChangeStatus, onToggleChecked, canHardDelete, onRequestHardDeleteTask, onArchiveTask, onApproveSelected, onSetTasksChecked }: TaskWorkspaceProps) {
+export function TaskWorkspace({ token, nonce, projectId, repositories = [], tasks, isPending, isError, error, saving, onRefresh, onOpenTask, onChangeStatus, onToggleChecked, canHardDelete, onRequestHardDeleteTask, onArchiveTask, onApproveSelected, onSetTasksChecked }: TaskWorkspaceProps) {
+  const [createTaskOpen, setCreateTaskOpen] = useState(false);
+  const [createFeatureOpen, setCreateFeatureOpen] = useState(false);
+  const [createdTaskNotice, setCreatedTaskNotice] = useState('');
+  const [createdFeatureNotice, setCreatedFeatureNotice] = useState('');
   const [initialQuery] = useState(readTaskQueryState);
   const [search, setSearch] = useState(initialQuery.search);
   const [statusFilter, setStatusFilter] = useState(initialQuery.status);
@@ -48,6 +59,15 @@ export function TaskWorkspace({ projectId, tasks, isPending, isError, error, sav
     search, status: statusFilter, area: areaFilter, type: typeFilter, priority: priorityFilter,
     responsible: responsibleFilter, featureId: featureFilter, createdAfter, createdBefore, updatedAfter, updatedBefore
   };
+  const syncReportQuery = useQuery({
+    queryKey: ['project-sync-report', nonce, projectId, featureFilter],
+    enabled: Boolean(token && nonce && projectId),
+    queryFn: () => query<{
+      summary: { taskCount: number; unreadTaskCount: number; openQuestionCount: number };
+      tasks: Array<{ taskId: string; unread: { count: number }; openQuestions: unknown[]; gitDiff: unknown | null }>;
+    }>(token, 'get_project_sync_report', { projectId, ...(featureFilter ? { featureId: featureFilter } : {}) })
+  });
+  const syncTasks = new Map((syncReportQuery.data?.tasks ?? []).map(item => [item.taskId, item]));
 
   const filtered = useMemo(() => filterTasks(tasks, filters)
     .sort((a, b) => (a.priority ?? 999) - (b.priority ?? 999) || String(b.updatedAt ?? '').localeCompare(String(a.updatedAt ?? ''))), [tasks, search, statusFilter, areaFilter, typeFilter, priorityFilter, responsibleFilter, featureFilter, createdAfter, createdBefore, updatedAfter, updatedBefore]);
@@ -161,8 +181,19 @@ export function TaskWorkspace({ projectId, tasks, isPending, isError, error, sav
       <MetricCard label="Concluídas" value={countStatus('concluida')} hint={tasks.filter(task => task.checked).length + ' conferidas'} />
     </div>
 
+    <section className="sync-summary" aria-label="Resumo de sincronização da tarefa">
+      {syncReportQuery.isPending ? <div className="loading">Carregando resumo de colaboração…</div> : syncReportQuery.isError ? <div className="notice error">{errorMessage(syncReportQuery.error)}</div> : <>
+        <div><span className="sync-summary-value">{syncReportQuery.data?.summary.openQuestionCount ?? 0}</span><span className="sync-summary-label">Perguntas abertas</span></div>
+        <div><span className="sync-summary-value">{syncReportQuery.data?.summary.unreadTaskCount ?? 0}</span><span className="sync-summary-label">Tasks não lidas</span></div>
+        <div><span className="sync-summary-value">{syncReportQuery.data?.tasks.filter(item => item.gitDiff).length ?? 0}</span><span className="sync-summary-label">Tasks com diff Git</span></div>
+        <button type="button" className="text-button" onClick={() => void syncReportQuery.refetch()}>Atualizar sincronização</button>
+      </>}
+    </section>
+
     <section className="panel-card task-panel">
-      <div className="task-panel-heading"><div><h2>Fila de trabalho</h2><p className="muted-text">{filtered.length} tarefa(s) encontradas</p></div><button className="text-button" onClick={onRefresh}>↻ Atualizar lista</button></div>
+      <div className="task-panel-heading"><div><h2>Fila de trabalho</h2><p className="muted-text">{filtered.length} tarefa(s) encontradas</p></div><div className="button-row"><button className="button secondary small-button" onClick={() => { setCreatedFeatureNotice(''); setCreateFeatureOpen(true); }}>+ Nova feature</button><button className="button primary small-button" onClick={() => { setCreatedTaskNotice(''); setCreateTaskOpen(true); }}>+ Nova task</button><button className="text-button" onClick={onRefresh}>↻ Atualizar lista</button></div></div>
+      {createdTaskNotice && <div className="notice success" role="status">{createdTaskNotice}</div>}
+      {createdFeatureNotice && <div className="notice success" role="status">{createdFeatureNotice}</div>}
       <div className="filters-row">
         <label className="search-field"><span>⌕</span><input value={search} onChange={event => updateFilter(setSearch, event.target.value)} placeholder="Buscar por tarefa, ID ou responsável" aria-label="Buscar tarefas" /></label>
         <select aria-label="Filtrar por status" value={statusFilter} onChange={event => updateFilter(setStatusFilter, event.target.value)}><option value="todos">Todos os status</option>{filterOptions.status.map(({ value, count }) => <option key={value} value={value}>{taskFilterOptionLabel(value, count)}</option>)}</select>
@@ -186,7 +217,7 @@ export function TaskWorkspace({ projectId, tasks, isPending, isError, error, sav
         <thead><tr><th><input type="checkbox" aria-label="Selecionar tarefas elegíveis nesta página" disabled={saving || selectableTasks.length === 0} checked={selectableTasks.length > 0 && selectableTasks.every(task => selectedIds.includes(task._id))} onChange={event => setSelectedIds(event.target.checked ? Array.from(new Set([...selectedIds, ...selectableTasks.map(task => task._id)])) : selectedIds.filter(id => !selectableTasks.some(task => task._id === id)))} /></th><th>Tarefa</th><th>Status</th><th>Área</th><th>Responsável</th><th>Atualizada</th><th>Ações</th></tr></thead>
         <tbody>{visibleTasks.map(task => <tr key={task._id}>
           <td><input type="checkbox" aria-label={'Selecionar ' + task.name} disabled={!selectionAllowed(task) || saving} checked={selectedIds.includes(task._id)} onChange={event => toggleSelected(task._id, event.target.checked)} /></td>
-          <td><button className="task-name" onClick={() => onOpenTask(task)}>{task.name}</button><span className="task-id">{task._id.slice(0, 8)} · P{task.priority ?? '—'}</span>{task.checked && <small className="checked-label">✓ Conferida por {task.checkedBy || 'membro'}</small>}</td>
+          <td><button className="task-name" onClick={() => onOpenTask(task)}>{task.name}</button><span className="task-id">{task._id.slice(0, 8)} · P{task.priority ?? '—'}</span><span className="task-sync-flags">{(syncTasks.get(task._id)?.unread.count ?? 0) > 0 && <Badge tone="amber">{syncTasks.get(task._id)?.unread.count} não lida(s)</Badge>}{Boolean(syncTasks.get(task._id)?.openQuestions.length) && <Badge tone="blue">{syncTasks.get(task._id)?.openQuestions.length} pergunta(s)</Badge>}{Boolean(syncTasks.get(task._id)?.gitDiff) && <Badge tone="green">Diff Git</Badge>}</span>{task.checked && <small className="checked-label">✓ Conferida por {task.checkedBy || 'membro'}</small>}</td>
           <td><Badge tone={statusTone[task.status]}>{statusLabels[task.status] ?? task.status}</Badge></td>
           <td><span className="area-label">{task.area ?? '—'}</span></td>
           <td>{task.responsible || <span className="muted-text">Não atribuído</span>}</td>
@@ -197,5 +228,7 @@ export function TaskWorkspace({ projectId, tasks, isPending, isError, error, sav
 
       <footer className="table-footer"><span>Mostrando {pagination.firstItem}–{pagination.lastItem} de {filtered.length}</span><div className="pagination"><label>Por página <select value={pageSize} onChange={event => updatePageSize(Number(event.target.value))}><option>10</option><option>25</option><option>50</option><option>100</option></select></label><button className="small-icon" disabled={currentPage <= 1} onClick={() => updatePage(currentPage - 1)} aria-label="Página anterior">‹</button><span>Página {currentPage} de {pages}</span><button className="small-icon" disabled={currentPage >= pages} onClick={() => updatePage(currentPage + 1)} aria-label="Próxima página">›</button></div></footer>
     </section>
+    {createTaskOpen && <CreateTaskDialog key={projectId} token={token} nonce={nonce} projectId={projectId} repositories={repositories ?? []} tasks={tasks} defaultFeatureId={featureFilter} close={() => setCreateTaskOpen(false)} onCreated={task => { setCreateTaskOpen(false); setCreatedTaskNotice(`Task “${task.name}” criada.`); }} />}
+    {createFeatureOpen && <CreateFeatureDialog key={projectId} token={token} nonce={nonce} projectId={projectId} close={() => setCreateFeatureOpen(false)} onCreated={feature => { setCreateFeatureOpen(false); setCreatedFeatureNotice(`Feature “${feature.name}” criada.`); }} />}
   </>;
 }

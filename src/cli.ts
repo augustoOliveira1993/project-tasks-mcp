@@ -5,6 +5,7 @@ import { connect } from './db.js';
 import { env } from './env.js';
 import { bootstrap, recoverHumanToken, restoreSystemAdminToken } from './service.js';
 import { adminSchema } from './schema.js';
+import { backfillTaskDependencyEdges } from './services/task-dependency-service.js';
 
 async function main() {
   const [command, ...args] = process.argv.slice(2);
@@ -29,6 +30,13 @@ async function main() {
     finally { await mongoose.disconnect(); }
     return;
   }
+  if (command === 'backfill-task-dependencies') {
+    const batchSize = args[0] ? Number(args[0]) : 250;
+    await connect(env.mongodbUri);
+    try { console.log(JSON.stringify(await backfillTaskDependencyEdges(batchSize))); }
+    finally { await mongoose.disconnect(); }
+    return;
+  }
   let body: any;
   let endpoint = '/admin';
   if (command === 'context') {
@@ -42,7 +50,7 @@ async function main() {
   } else if (command === 'issue') {
     body = { action: 'issue', operationId: randomUUID(), userId: args[0], scope: args[1], token: randomBytes(32).toString('hex') };
   } else if (command === 'apply' && args[0]) body = JSON.parse(await readFile(args[0], 'utf8'));
-  else throw new Error('Usage: cli bootstrap <userId> | recover <userId> --confirm | restore-system-admin <userId> --confirm | issue <userId> <agent|human> | apply <operation.json> | context <projectId> <taskId> | query <tool> <arguments.json>');
+  else throw new Error('Usage: cli bootstrap <userId> | recover <userId> --confirm | restore-system-admin <userId> --confirm | backfill-task-dependencies [batchSize] | issue <userId> <agent|human> | apply <operation.json> | context <projectId> <taskId> | query <tool> <arguments.json>');
   if (endpoint === '/admin') adminSchema.parse(body);
   const adminToken = process.env.ADMIN_TOKEN ?? '';
   if (!/^[a-f0-9]{64}$/.test(adminToken)) throw new Error('ADMIN_TOKEN must be the active 64-character hexadecimal human token; a credentialId UUID or agent token will not work.');

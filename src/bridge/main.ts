@@ -7,6 +7,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import { id, tools } from '../schema.js';
+import { listAccessibleProjects, matchGitProjects } from './project-resolution.js';
 
 const exec = promisify(execFile);
 const serviceUrl = process.env.PTM_SERVICE_URL;
@@ -32,8 +33,8 @@ async function call(name: string, args: Record<string, unknown>) {
   return JSON.parse(String((response.content as any[])?.[0]?.text ?? '{}'));
 }
 async function resolve() {
-  const repo = await context(); const projects = await call('list_records', { kind: 'project', limit: 100 });
-  const matches = projects.items.flatMap((project: any) => project.repositories.filter((repository: any) => repository.git?.canonicalRemoteUrl === repo.remoteUrl && repository.git?.rootCommit === repo.rootCommit).map((repository: any) => ({ project, repository })));
+  const repo = await context(); const projects = await listAccessibleProjects(call);
+  const matches = matchGitProjects(projects, repo);
   return { repo, matches };
 }
 async function status() {
@@ -41,14 +42,18 @@ async function status() {
     const { repo, matches } = await resolve();
     const selection = matches.length === 1 ? matches[0] : undefined;
     const novidades = selection ? await call('get_project_novelties', { projectId: selection.project._id, limit: 25 }) : undefined;
-    return { repository: repo, projects: matches.map(({ project, repository }: any) => ({ projectId: project._id, project: project.name, repositoryId: repository.id, area: undefined })), ready: !!selection, missing: selection ? [] : ['Bind this repository with a human administrator or select projectId explicitly.'], ...(novidades ? { novidades } : {}) };
+    const ambiguous = matches.length > 1;
+    const missing = selection ? [] : ambiguous
+      ? [`Git identity matches multiple project/repository bindings. Pass projectId explicitly: ${matches.map(({ project, repository }: any) => `${project.name} (${project._id}) · ${repository.name} (${repository.id})`).join('; ')}`]
+      : ['Bind this repository with a human administrator or select projectId explicitly.'];
+    return { repository: repo, projects: matches.map(({ project, repository }: any) => ({ projectId: project._id, project: project.name, repositoryId: repository.id, area: undefined })), ready: !!selection, ambiguous, missing, ...(novidades ? { novidades } : {}) };
   } catch (error) { return { ready: false, missing: [(error as Error).message] }; }
 }
 const server = new McpServer({ name: 'project-tasks-bridge', version: '0.2.0' }, { instructions: 'Use status first. This local bridge derives repository scope from Git; it never grants access.' });
 server.registerTool('status', { description: 'Read the local Git context, matched Project Tasks projects, and unread collaboration events.', inputSchema: z.object({}).strict(), annotations: { readOnlyHint: true } }, async () => ({ content: [{ type: 'text', text: JSON.stringify(await status()) }] }));
 server.registerTool('publish_task_diff', { description: 'Publish a Git diff for a task in the uniquely matched project. Patch storage is opt-in.', inputSchema: z.object({ taskId: z.string().uuid(), baseCommit: z.string().regex(/^[0-9a-f]{40}$/i).optional(), commit: z.string().regex(/^[0-9a-f]{40}$/i).optional(), includePatch: z.boolean().default(false), agent: z.string().min(1).max(100).optional() }).strict() }, async input => {
   try {
-    const { repo, matches } = await resolve(); if (matches.length !== 1) throw new Error('Git repository does not resolve to exactly one Project Tasks project');
+    const { repo, matches } = await resolve(); if (matches.length !== 1) throw new Error(matches.length ? `Git repository is ambiguous: ${matches.map(({ project, repository }: any) => `${project.name} (${project._id}) · ${repository.name} (${repository.id})`).join('; ')}` : 'Git repository does not resolve to a Project Tasks project');
     const { project, repository } = matches[0]; const commit = input.commit ?? repo.commit;
     const previous = await call('list_task_diffs', { projectId: project._id, taskId: input.taskId, limit: 1 });
     const baseCommit = input.baseCommit ?? previous.items?.[0]?.commit ?? await git(repo.root, 'merge-base', 'HEAD', 'origin/HEAD').catch(() => git(repo.root, 'rev-parse', 'HEAD~1'));
@@ -71,7 +76,7 @@ for (const [name, schema] of Object.entries(tools)) {
       const input: any = { ...args }; let projectId = input.projectId;
       if (needsProject && !projectId) {
         const { matches } = await resolve();
-        if (matches.length !== 1) throw new Error('Git repository does not resolve to exactly one Project Tasks project');
+        if (matches.length !== 1) throw new Error(matches.length ? `Git repository is ambiguous: ${matches.map(({ project, repository }: any) => `${project.name} (${project._id}) · ${repository.name} (${repository.id})`).join('; ')}` : 'Git repository does not resolve to a Project Tasks project');
         projectId = matches[0].project._id; input.projectId = projectId;
       }
       const result = await call(name, input);

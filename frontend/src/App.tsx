@@ -5,14 +5,17 @@ import { allRecords, ApiRequestError, listProjects, operationId, query, request 
 import type { AdminCapabilities, Project, ProjectSummary, Task } from './api';
 import { AdminPanel } from './components/admin/AdminPanel';
 import { ProjectPickerDialog } from './components/projects/ProjectPickerDialog';
+import { ProjectsPage } from './components/projects/ProjectsPage';
 import { ProjectSummaryDialog } from './components/projects/ProjectSummaryDialog';
 import { TaskStatusDialog } from './components/tasks/TaskStatusDialog';
 import { Badge } from './components/ui/Badge';
 import { TaskDetailsDialog } from './components/tasks/TaskDetailsDialog';
 import { HardDeleteDialog, type HardDeleteTarget } from './components/ui/HardDeleteDialog';
 import { TaskWorkspace } from './features/tasks/TaskWorkspace';
+import { ConversationPanel } from './components/conversations/ConversationPanel';
 import { errorMessage, formatDate } from './lib/format';
 import { toolDocs, toolServers } from './tool-catalog';
+import { conversationIdFromSearch, projectIdFromSearch, routeForTab, routeFromPath, routeUrl, tabForRoute, type AppRoute, type AppTab } from './route-state';
 
 const tokenKey = 'project-tasks.human-token';
 
@@ -20,10 +23,12 @@ function App() {
   const queryClient = useQueryClient();
   const [token, setToken] = useState(() => { try { return localStorage.getItem(tokenKey) ?? ''; } catch { return ''; } });
   const [nonce, setNonce] = useState(() => token ? 'saved-session' : '');
-  const [activeProjectId, setActiveProjectId] = useState(() => new URLSearchParams(window.location.search).get('projectId') ?? '');
-  const [activeTab, setActiveTab] = useState<'tasks' | 'activity' | 'admin' | 'help'>('tasks');
+  const [activeProjectId, setActiveProjectId] = useState(() => projectIdFromSearch(window.location.search));
+  const [activeRoute, setActiveRoute] = useState<AppRoute>(() => routeFromPath(window.location.pathname));
+  const activeTab = tabForRoute(activeRoute);
   const [notice, setNotice] = useState<{ message: string; kind: string } | null>(null);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [conversationToOpen, setConversationToOpen] = useState(() => conversationIdFromSearch(window.location.search));
   const [statusTask, setStatusTask] = useState<Task | null>(null);
   const [saving, setSaving] = useState(false);
   const [toolSearch, setToolSearch] = useState('');
@@ -38,6 +43,45 @@ function App() {
     mutationFn: ({ path, body }: { path: string; body: unknown }) => request(token, path, { body })
   });
 
+  function navigateToRoute(route: AppRoute, projectId = activeProjectId, preserveQuery = true) {
+    const nextUrl = routeUrl(route, window.location.search, projectId, preserveQuery);
+    const currentUrl = window.location.pathname + window.location.search;
+    if (nextUrl !== currentUrl) window.history.pushState({ route }, '', nextUrl);
+    setActiveRoute(route);
+    if (projectId !== activeProjectId) setActiveProjectId(projectId);
+  }
+
+  function setActiveTab(tab: AppTab) {
+    if (tab === 'chat') setConversationToOpen(conversationIdFromSearch(window.location.search));
+    navigateToRoute(routeForTab(tab));
+  }
+
+  function selectProject(projectId: string) {
+    const preserveQuery = projectId === activeProjectId;
+    navigateToRoute('tasks', projectId, preserveQuery);
+  }
+
+  function openConversation(conversationId: string) {
+    const params = new URLSearchParams(window.location.search);
+    params.set('conversationId', conversationId);
+    const nextUrl = routeUrl('conversations', params.toString(), activeProjectId);
+    const currentUrl = window.location.pathname + window.location.search;
+    if (nextUrl !== currentUrl) window.history.pushState({ route: 'conversations' }, '', nextUrl);
+    setActiveRoute('conversations');
+    setConversationToOpen(conversationId);
+    setSelectedTask(null);
+  }
+
+  function rememberConversation(conversationId: string) {
+    const params = new URLSearchParams(window.location.search);
+    if (activeProjectId) params.set('projectId', activeProjectId);
+    if (conversationId) params.set('conversationId', conversationId);
+    else params.delete('conversationId');
+    const nextUrl = routeUrl('conversations', params.toString(), activeProjectId);
+    window.history.replaceState({ route: 'conversations' }, '', nextUrl);
+    setConversationToOpen('');
+  }
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (activeProjectId) params.set('projectId', activeProjectId);
@@ -49,9 +93,13 @@ function App() {
   }, [activeProjectId]);
 
   useEffect(() => {
-    const restoreProjectFromUrl = () => setActiveProjectId(new URLSearchParams(window.location.search).get('projectId') ?? '');
-    window.addEventListener('popstate', restoreProjectFromUrl);
-    return () => window.removeEventListener('popstate', restoreProjectFromUrl);
+    const restoreRouteFromUrl = () => {
+      setActiveRoute(routeFromPath(window.location.pathname));
+      setActiveProjectId(projectIdFromSearch(window.location.search));
+      setConversationToOpen(conversationIdFromSearch(window.location.search));
+    };
+    window.addEventListener('popstate', restoreRouteFromUrl);
+    return () => window.removeEventListener('popstate', restoreRouteFromUrl);
   }, []);
 
   function notify(message: string, kind = 'info') {
@@ -103,7 +151,7 @@ function App() {
       const sessionId = operationId();
       setToken(value);
       setNonce(sessionId);
-      const requestedProjectId = new URLSearchParams(window.location.search).get('projectId');
+      const requestedProjectId = projectIdFromSearch(window.location.search);
       setActiveProjectId(data.find(item => item.project._id === requestedProjectId)?.project._id ?? data[0]?.project._id ?? '');
       queryClient.setQueryData(['admin-projects', sessionId], data);
       notify('Acesso autorizado.', 'success');
@@ -280,7 +328,7 @@ function App() {
 
   return <div className="app-shell min-h-screen bg-canvas text-ink">
     <aside className="sidebar">
-      <a className="brand" href="#tasks"><span className="brand-mark">PT</span><span><strong>Project Tasks</strong><small>Workspace</small></span></a>
+      <a className="brand" href={routeUrl('tasks', window.location.search, activeProjectId)} onClick={event => { event.preventDefault(); navigateToRoute('tasks'); }}><span className="brand-mark">PT</span><span><strong>Project Tasks</strong><small>Workspace</small></span></a>
       <div className="sidebar-label">VISÃO DO PROJETO</div>
       <div className="project-picker">
         <span className="project-picker-label">Projeto ativo</span>
@@ -294,24 +342,27 @@ function App() {
         </div>
       </div>
       <nav className="primary-nav" aria-label="Navegação principal">
-        <button className={activeTab === 'tasks' ? 'nav-item active' : 'nav-item'} onClick={() => setActiveTab('tasks')}><span>▦</span> Tarefas <b>{tasks.length}</b></button>
-        <button className={activeTab === 'activity' ? 'nav-item active' : 'nav-item'} onClick={() => setActiveTab('activity')}><span>◷</span> Novidades</button>
+        <button className={activeRoute === 'tasks' ? 'nav-item active' : 'nav-item'} onClick={() => navigateToRoute('tasks')}><span>▦</span> Tarefas <b>{tasks.length}</b></button>
+        <button className={activeRoute === 'conversations' ? 'nav-item active' : 'nav-item'} onClick={() => navigateToRoute('conversations')}><span>✉</span> Conversas</button>
+        <button className={activeRoute === 'activity' ? 'nav-item active' : 'nav-item'} onClick={() => navigateToRoute('activity')}><span>◷</span> Novidades</button>
         <div className="sidebar-label nav-section-label">WORKSPACE</div>
-        <button className="nav-item" onClick={() => { setAllProjectsSearch(''); setProjectPage(1); (document.getElementById('projects-dialog') as HTMLDialogElement | null)?.showModal(); }}><span>▣</span> Projetos <b>{projects.length}</b></button>
-        <button className={activeTab === 'admin' ? 'nav-item active' : 'nav-item'} onClick={() => setActiveTab('admin')}><span>⚙</span> Administração</button>
-        <button className={activeTab === 'help' ? 'nav-item active' : 'nav-item'} onClick={() => setActiveTab('help')}><span>ⓘ</span> Ajuda</button>
+        <button className={activeRoute === 'projects' ? 'nav-item active' : 'nav-item'} onClick={() => navigateToRoute('projects')}><span>▣</span> Projetos <b>{projects.length}</b></button>
+        <button className={activeRoute === 'settings' ? 'nav-item active' : 'nav-item'} onClick={() => navigateToRoute('settings')}><span>⚙</span> Administração</button>
+        <button className={activeRoute === 'help' ? 'nav-item active' : 'nav-item'} onClick={() => navigateToRoute('help')}><span>ⓘ</span> Ajuda</button>
       </nav>
       <div className="sidebar-spacer" />
       <div className="sidebar-footer"><span className="online-dot" /> Conectado ao MCP <button className="small-icon" onClick={signOut} title="Sair">↪</button></div>
     </aside>
     <main className="main-area min-h-screen">
-      <header className="topbar"><div className="breadcrumbs"><span>Workspace</span><span>/</span><strong>{project?.name ?? 'Carregando projeto'}</strong></div><div className="topbar-actions"><span className="connection-pill"><span className="online-dot" /> Serviço ativo</span><button className="avatar-button" onClick={signOut} title="Sair">AU</button></div></header>
+      <header className="topbar"><div className="breadcrumbs"><span>Workspace</span><span>/</span><strong>{activeRoute === 'projects' ? 'Projetos' : project?.name ?? 'Carregando projeto'}</strong></div><div className="topbar-actions"><span className="connection-pill"><span className="online-dot" /> Serviço ativo</span><button className="avatar-button" onClick={signOut} title="Sair">AU</button></div></header>
       <div className="content-wrap">
         {projectsQuery.isError && <div className="notice error">{errorMessage(projectsQuery.error)}</div>}
-        {!projects.length && !projectsQuery.isPending && <div className="empty-state"><h2>Nenhum projeto disponível</h2><p>Esta credencial ainda não possui projetos acessíveis.</p><button className="button secondary" onClick={signOut}>Trocar credencial</button></div>}
-        {project && <>
-          <div className="page-heading"><div><p className="eyebrow">{activeTab === 'tasks' ? 'ACOMPANHAMENTO' : activeTab === 'activity' ? 'ATIVIDADE' : activeTab === 'admin' ? 'CONFIGURAÇÃO' : 'DOCUMENTAÇÃO'}</p><h1>{activeTab === 'tasks' ? 'Tarefas do projeto' : activeTab === 'activity' ? 'Novidades do projeto' : activeTab === 'admin' ? 'Administração' : 'Ajuda do Project Tasks'}</h1><p className="muted-text">{activeTab === 'tasks' ? 'Acompanhe execução, revisão e conclusão do trabalho.' : activeTab === 'activity' ? 'Acompanhe as mudanças compartilhadas neste projeto.' : activeTab === 'admin' ? 'Credenciais e configurações restritas do workspace.' : 'Referência rápida para os servidores e ferramentas MCP.'}</p></div>{activeTab === 'tasks' && <div className="button-row"><button className="button secondary" onClick={() => setSummaryOpen(true)}>Resumo</button><button className="button secondary" onClick={() => { void projectsQuery.refetch(); void tasksQuery.refetch(); }}>↻ Atualizar</button></div>}</div>
-          {activeTab === 'tasks' && <TaskWorkspace projectId={activeProjectId} tasks={tasks} isPending={tasksQuery.isPending} isError={tasksQuery.isError} error={tasksQuery.error} saving={saving} canHardDelete={canHardDelete} onRefresh={() => { void tasksQuery.refetch(); }} onOpenTask={setSelectedTask} onChangeStatus={setStatusTask} onToggleChecked={toggleChecked} onRequestHardDeleteTask={requestTaskHardDelete} onArchiveTask={archiveTask} onApproveSelected={approveSelected} onSetTasksChecked={setTasksChecked} />}
+        {activeRoute === 'projects' && <ProjectsPage projects={currentProjectPage} isPending={projectsQuery.isPending} activeProjectId={activeProjectId} search={allProjectsSearch} currentPage={projectPage} pages={projectPages} total={filteredProjects.length} onSearchChange={value => { setAllProjectsSearch(value); setProjectPage(1); }} onPageChange={setProjectPage} onSelect={selectProject} />}
+        {activeRoute !== 'projects' && !projects.length && !projectsQuery.isPending && <div className="empty-state"><h2>Nenhum projeto disponível</h2><p>Esta credencial ainda não possui projetos acessíveis.</p><button className="button secondary" onClick={() => navigateToRoute('projects')}>Abrir projetos</button></div>}
+        {activeRoute !== 'projects' && project && <>
+          <div className="page-heading"><div><p className="eyebrow">{activeTab === 'tasks' ? 'ACOMPANHAMENTO' : activeTab === 'chat' ? 'COLABORAÇÃO' : activeTab === 'activity' ? 'ATIVIDADE' : activeTab === 'admin' ? 'CONFIGURAÇÃO' : 'DOCUMENTAÇÃO'}</p><h1>{activeTab === 'tasks' ? 'Tarefas do projeto' : activeTab === 'chat' ? 'Conversas com IA' : activeTab === 'activity' ? 'Novidades do projeto' : activeTab === 'admin' ? 'Administração' : 'Ajuda do Project Tasks'}</h1><p className="muted-text">{activeTab === 'tasks' ? 'Acompanhe execução, revisão e conclusão do trabalho.' : activeTab === 'chat' ? 'Esclareça pedidos com a IA e autorize a execução quando a proposta estiver pronta.' : activeTab === 'activity' ? 'Acompanhe as mudanças compartilhadas neste projeto.' : activeTab === 'admin' ? 'Credenciais e configurações restritas do workspace.' : 'Referência rápida para os servidores e ferramentas MCP.'}</p></div>{activeTab === 'tasks' && <div className="button-row"><button className="button secondary" onClick={() => setSummaryOpen(true)}>Resumo</button><button className="button secondary" onClick={() => { void projectsQuery.refetch(); void tasksQuery.refetch(); }}>↻ Atualizar</button></div>}</div>
+          {activeTab === 'tasks' && <TaskWorkspace key={activeProjectId} token={token} nonce={nonce} projectId={activeProjectId} repositories={project?.repositories ?? []} tasks={tasks} isPending={tasksQuery.isPending} isError={tasksQuery.isError} error={tasksQuery.error} saving={saving} canHardDelete={canHardDelete} onRefresh={() => { void tasksQuery.refetch(); }} onOpenTask={setSelectedTask} onChangeStatus={setStatusTask} onToggleChecked={toggleChecked} onRequestHardDeleteTask={requestTaskHardDelete} onArchiveTask={archiveTask} onApproveSelected={approveSelected} onSetTasksChecked={setTasksChecked} />}
+          {activeTab === 'chat' && <ConversationPanel token={token} nonce={nonce} projectId={activeProjectId} tasks={tasks} requestedConversationId={conversationToOpen || undefined} onConversationSelected={rememberConversation} onOpenAdmin={() => setActiveTab('admin')} />}
           {activeTab === 'activity' && <section className="panel-card"><div className="section-heading"><div><h2>Eventos recentes</h2><p className="muted-text">Atualizações de tarefas e colaboração</p></div><button className="button secondary" onClick={() => void noveltiesQuery.refetch()}>↻ Atualizar</button></div>{noveltiesQuery.isPending ? <div className="loading">Carregando eventos…</div> : noveltiesQuery.isError ? <div className="notice error">{errorMessage(noveltiesQuery.error)}</div> : noveltiesQuery.data?.items?.length ? <div className="timeline">{noveltiesQuery.data.items.map((item, index) => <article className="timeline-item" key={item._id ?? index}><span className="timeline-dot" /><div><strong>{item.summary || item.kind || item.action || 'Atualização do projeto'}</strong><small>{item.author || 'Membro do projeto'} · {formatDate(item.at)}</small></div><Badge>{item.kind || item.action || 'evento'}</Badge></article>)}</div> : <div className="empty-state compact"><h3>Sem novidades recentes</h3><p>Eventos de colaboração aparecerão aqui.</p></div>}</section>}
           {activeTab === 'admin' && <AdminPanel token={token} project={project} projects={projects.map(item => item.project)} onChanged={() => { void projectsQuery.refetch(); }} notify={notify} canHardDelete={canHardDelete} actionPending={saving} onRequestHardDeleteProject={requestProjectHardDelete} onArchiveProject={() => { void archiveProject(); }} />}
           {activeTab === 'help' && <section className="panel-card help-panel"><div className="section-heading"><div><h2>Ferramentas MCP</h2><p className="muted-text">Recursos expostos pelo servidor e pela bridge local</p></div><Badge tone="green">{tools.length} de {toolDocs.length}</Badge></div><label className="search-field help-search"><span>⌕</span><input value={toolSearch} onChange={event => setToolSearch(event.target.value)} placeholder="Buscar ferramenta ou finalidade" /></label>{tools.length ? <div className="tool-list">{tools.map(([group, name, description, mode]) => <article className="tool-row" key={name}><div className="tool-icon">⌘</div><div className="tool-details"><div className="tool-title"><strong>{name}</strong><Badge tone={mode === 'Leitura' ? 'green' : 'amber'}>{mode}</Badge></div><small className="tool-category">{group}</small><p>{description}</p><div className="tool-servers">{toolServers(name).map(server => <Badge key={server} tone="blue">{server}</Badge>)}</div></div></article>)}</div> : <div className="empty-state compact"><h3>Nenhuma ferramenta encontrada</h3><p>Experimente buscar por nome, categoria ou finalidade.</p></div>}</section>}
@@ -319,9 +370,9 @@ function App() {
       </div>
       <footer className="app-footer"><span>Project Tasks MCP</span><span>{project?.name ?? ''}</span></footer>
     </main>
-    {selectedTask && project && <TaskDetailsDialog token={token} nonce={nonce} projectId={project._id} task={selectedTask} checking={adminMutation.isPending || saving} onToggleChecked={toggleChecked} close={() => setSelectedTask(null)} />}
+    {selectedTask && project && <TaskDetailsDialog token={token} nonce={nonce} projectId={project._id} task={selectedTask} checking={adminMutation.isPending || saving} onToggleChecked={toggleChecked} onOpenConversation={openConversation} close={() => setSelectedTask(null)} />}
     {statusTask && <TaskStatusDialog task={statusTask} saving={saving} onClose={() => setStatusTask(null)} onSubmit={updateStatus} />}
-    <ProjectPickerDialog projects={currentProjectPage} activeProjectId={activeProjectId} search={allProjectsSearch} currentPage={projectPage} pages={projectPages} total={filteredProjects.length} onSearchChange={value => { setAllProjectsSearch(value); setProjectPage(1); }} onPageChange={setProjectPage} onSelect={id => { setActiveProjectId(id); setActiveTab('tasks'); (document.getElementById('projects-dialog') as HTMLDialogElement | null)?.close(); }} />
+    <ProjectPickerDialog projects={currentProjectPage} activeProjectId={activeProjectId} search={allProjectsSearch} currentPage={projectPage} pages={projectPages} total={filteredProjects.length} onSearchChange={value => { setAllProjectsSearch(value); setProjectPage(1); }} onPageChange={setProjectPage} onSelect={id => { selectProject(id); (document.getElementById('projects-dialog') as HTMLDialogElement | null)?.close(); }} />
     {summaryOpen && <ProjectSummaryDialog name={project?.name} taskCount={projectSummaryQuery.data?.taskCount ?? tasks.length} markdown={projectSummaryQuery.data?.markdown} error={projectSummaryQuery.error} isPending={projectSummaryQuery.isPending} isError={projectSummaryQuery.isError} onClose={() => setSummaryOpen(false)} />}
     <HardDeleteDialog target={hardDeleteTarget} busy={hardDeleteBusy} error={hardDeleteError} onClose={() => { setHardDeleteTarget(null); setHardDeleteError(''); }} onConfirm={() => void confirmHardDelete()} />
     {notice && <div className={'toast toast-' + notice.kind} role="status">{notice.message}<button onClick={() => setNotice(null)} aria-label="Dispensar">×</button></div>}

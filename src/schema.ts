@@ -4,6 +4,7 @@ export const userId = z.string().min(1).max(320).refine(value => /^[a-zA-Z0-9][a
 const text = z.string().min(1).max(20000);
 const markdown = z.string().max(100 * 1024).refine(value => Buffer.byteLength(value, 'utf8') <= 100 * 1024, 'Markdown exceeds 100 KiB');
 const markdownSummary = z.string().max(500);
+const conversationMessage = z.string().min(1).max(20000).refine(value => Buffer.byteLength(value, 'utf8') <= 20 * 1024, 'Conversation message exceeds 20 KiB');
 export const states = ['pendente', 'em_execucao', 'bloqueada', 'em_revisao', 'concluida', 'cancelada'] as const;
 export const kind = z.enum(['project', 'feature', 'task']);
 export const taskType = z.enum(['feature', 'fix', 'chore', 'docs', 'refactor', 'test', 'perf', 'build', 'ci', 'revert']);
@@ -17,7 +18,15 @@ export const taskData = z.object({
 }).strict();
 const op = { operationId: id };
 const target = { projectId: id, taskId: id, executionId: id, version: z.number().int().nonnegative(), ...op };
-const messageType = z.enum(['pergunta', 'resposta', 'bloqueio', 'contrato', 'progresso']);
+const taskTransferTarget = {
+  projectId: id.describe('ID do projeto atual/origem.'),
+  targetProjectId: id.describe('ID explícito do projeto de destino.'),
+  taskId: id,
+  version: z.number().int().nonnegative().describe('Versão atual retornada por get_task_context.'),
+  targetRepositoryId: id.describe('Repositório de destino registrado no projeto de destino.'),
+  targetFeatureId: id.nullable().describe('Feature de destino ou null para deixar a tarefa sem feature.')
+};
+const messageType = z.enum(['mudanca', 'pergunta', 'resposta', 'decisao', 'bloqueio', 'contrato', 'progresso']);
 const messageThread = { conversationId: id.optional(), replyTo: id.optional(), correlationId: id.optional() };
 const eventFilter = { projectId: id, taskIds: z.array(id).max(100).default([]), actions: z.array(z.string().min(1).max(100)).max(50).default([]) };
 const cursor = z.string().min(1).max(2048);
@@ -32,24 +41,42 @@ export const tools = {
   create_project: z.object({ ...op, data: projectData }).strict(),
   create_feature: z.object({ ...op, projectId: id, data: featureData }).strict(),
   create_task: z.object({ ...op, projectId: id, data: taskData }).strict(),
+  create_conversation: z.object({ ...op, projectId: id, taskId: id.optional(), title: z.string().trim().min(1).max(255).optional() }).strict(),
+  open_task_conversation: z.object({ ...op, projectId: id, taskId: id }).strict(),
+  link_conversation_task: z.object({ ...op, projectId: id, conversationId: id, taskId: id, version: z.number().int().nonnegative() }).strict(),
+  delete_conversation: z.object({ ...op, projectId: id, conversationId: id, version: z.number().int().nonnegative() }).strict(),
+  list_conversations: z.object({ projectId: id, after: cursor.optional(), limit: z.number().int().min(1).max(100).default(25) }).strict(),
+  get_conversation: z.object({ projectId: id, conversationId: id, after: cursor.optional(), limit: z.number().int().min(1).max(100).default(50) }).strict(),
+  send_conversation_message: z.object({ ...op, projectId: id, conversationId: id, content: conversationMessage }).strict(),
+  create_action_proposal: z.object({
+    ...op, projectId: id, conversationId: id, taskId: id,
+    expectedTaskVersion: z.number().int().nonnegative(), title: z.string().trim().min(1).max(255),
+    summary: z.string().min(1).max(4000), instructions: z.string().max(20000).optional(),
+    acceptance: z.array(text).min(1).max(100).optional(), provider: provider.optional()
+  }).strict().refine(data => data.instructions !== undefined || data.acceptance !== undefined, 'Proposal must change instructions or acceptance criteria')
+    .refine(data => Buffer.byteLength(JSON.stringify(data), 'utf8') <= 48 * 1024, 'Action proposal exceeds 48 KiB'),
+  preview_task_transfer: z.object(taskTransferTarget).strict(),
+  transfer_task: z.object({ ...taskTransferTarget, ...op, planHash: z.string().regex(/^[a-f0-9]{64}$/i), confirm: z.literal(true).describe('Confirma explicitamente o plano retornado por preview_task_transfer.') }).strict(),
   edit_record: z.object({ ...op, projectId: id, kind, id, version: z.number().int().nonnegative(), data: z.record(z.string(), z.unknown()) }).strict(),
   archive_record: z.object({ ...op, projectId: id, kind, id, version: z.number().int().nonnegative() }).strict(),
-  list_records: z.object({ projectId: id.optional(), kind, featureId: id.optional(), withoutFeature: z.boolean().default(false), type: taskType.optional(), area: z.enum(['backend', 'frontend', 'outro']).optional(), responsible: text.optional(), status: z.enum(states).optional(), archived: z.boolean().default(false), after: id.optional(), limit: z.number().int().min(1).max(100).default(25) }).strict(),
-  list_pending: z.object({ projectId: id, featureId: id.optional(), withoutFeature: z.boolean().default(false), type: taskType.optional(), area: z.enum(['backend', 'frontend', 'outro']).optional(), responsible: text.optional(), after: id.optional(), limit: z.number().int().min(1).max(100).default(25) }).strict(),
+  list_records: z.object({ projectId: id.optional(), kind, featureId: id.optional(), withoutFeature: z.boolean().default(false), type: taskType.optional(), area: z.enum(['backend', 'frontend', 'outro']).optional(), responsible: text.optional(), status: z.enum(states).optional(), search: z.string().trim().min(1).max(160).optional(), archived: z.boolean().default(false), after: cursor.optional(), limit: z.number().int().min(1).max(100).default(25) }).strict(),
+  list_pending: z.object({ projectId: id, featureId: id.optional(), withoutFeature: z.boolean().default(false), type: taskType.optional(), area: z.enum(['backend', 'frontend', 'outro']).optional(), responsible: text.optional(), after: cursor.optional(), limit: z.number().int().min(1).max(100).default(25) }).strict(),
   get_record: z.object({ projectId: id, kind, id }).strict(),
-  list_executions: z.object({ projectId: id, taskId: id, after: id.optional(), limit: z.number().int().min(1).max(100).default(25) }).strict(),
-  get_task_context: z.object({ projectId: id, taskId: id }).strict(),
+  list_executions: z.object({ projectId: id, taskId: id, after: cursor.optional(), limit: z.number().int().min(1).max(100).default(25) }).strict(),
+  get_task_context: z.object({ projectId: id, taskId: id }).strict().describe('Retorna contexto tipado e limitado da tarefa. Consulte get_record e as ferramentas de paginação para carregar detalhes truncados sob demanda.'),
   get_task_markdown_summary: z.object({ projectId: id, taskId: id }).strict(),
-  get_history: z.object({ projectId: id, entityId: id.optional(), after: id.optional(), limit: z.number().int().min(1).max(100).default(25) }).strict(),
+  get_history: z.object({ projectId: id, entityId: id.optional(), after: cursor.optional(), limit: z.number().int().min(1).max(100).default(25) }).strict(),
   get_summary: z.object({ projectId: id, featureId: id.optional() }).strict(),
   get_project_area_summary: z.object({ projectId: id, featureId: id.optional() }).strict(),
   get_project_novelties: z.object({ projectId: id, after: z.number().int().nonnegative().optional(), limit: z.number().int().min(1).max(100).default(25) }).strict(),
   mark_project_read: z.object({ ...op, projectId: id, cursor: z.number().int().nonnegative() }).strict(),
+  mark_task_read: z.object({ ...op, projectId: id, taskId: id, cursor: z.number().int().nonnegative() }).strict(),
+  get_project_sync_report: z.object({ projectId: id, featureId: id.optional() }).strict(),
   save_markdown: z.object({ ...op, projectId: id, targetKind: z.enum(['feature', 'task']), targetId: id, id: id.optional(), version: z.number().int().nonnegative().optional(), name: z.string().min(1).max(255).regex(/\.md$/i, 'Name must end in .md'), summary: markdownSummary, content: markdown }).strict(),
   list_markdowns: z.object({ projectId: id, targetKind: z.enum(['feature', 'task']), targetId: id, after: id.optional(), limit: z.number().int().min(1).max(100).default(25) }).strict(),
   get_markdown: z.object({ projectId: id, id, revision: z.number().int().positive().optional(), line: z.number().int().positive().default(1), limit: z.number().int().min(1).max(200).default(200) }).strict(),
   list_markdown_revisions: z.object({ projectId: id, id, after: z.number().int().positive().optional(), limit: z.number().int().min(1).max(100).default(25) }).strict(),
-  list_task_diffs: z.object({ projectId: id, taskId: id, after: id.optional(), limit: z.number().int().min(1).max(100).default(25) }).strict(),
+  list_task_diffs: z.object({ projectId: id, taskId: id, after: cursor.optional(), limit: z.number().int().min(1).max(100).default(25) }).strict(),
   get_task_diff: z.object({ projectId: id, taskId: id, id }).strict(),
   send_task_message: z.object({ ...target, ...messageThread, relatedTaskId: id.optional(), type: messageType, message: text, references: z.array(text).max(100).default([]) }).strict(),
   send_collaboration_message: z.object({ ...op, projectId: id, taskId: id, relatedTaskId: id.optional(), ...messageThread, type: messageType, message: text, references: z.array(text).max(100).default([]) }).strict(),
@@ -94,3 +121,4 @@ export const changeTaskStatusSchema = z.object({
 }).strict();
 export const setTaskCheckedSchema = z.object({ ...op, projectId: id, taskId: id, version: z.number().int().nonnegative(), checked: z.boolean() }).strict();
 export const setTaskAcceptanceCriterionSchema = z.object({ ...op, projectId: id, taskId: id, version: z.number().int().nonnegative(), criterionIndex: z.number().int().nonnegative(), complete: z.boolean(), evidence: text }).strict();
+export const approveActionProposalSchema = z.object({ ...op, projectId: id, proposalId: id, version: z.number().int().nonnegative() }).strict();

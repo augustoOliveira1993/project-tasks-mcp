@@ -6,7 +6,7 @@ import mongoose from 'mongoose';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { connect, Project, Task, Event, Execution, Credential } from '../src/db.js';
+import { connect, Project, Task, Event, Execution, Credential, TaskMessage, MarkdownDocument, MarkdownRevision, Conversation, ConversationMessage, ActionProposal } from '../src/db.js';
 import { DomainError, Service, authenticate, bootstrap, recoverHumanToken, trustedLocal, type Actor } from '../src/service.js';
 import { createApp, mcpError } from '../src/http.js';
 
@@ -262,7 +262,8 @@ test('MCP real HTTP handshake, tool listing, tool call and endpoint boundaries',
     const listed = await client.listTools(); assert.ok(listed.tools.some(t => t.name === 'claim_task')); assert.ok(listed.tools.some(t => t.name === 'set_task_status'));
     assert.match(listed.tools.find(t => t.name === 'claim_task')!.description!, /responsible.*usuário autenticado atual/);
     assert.match(listed.tools.find(t => t.name === 'set_task_status')!.description!, /transições administrativas válidas/);
-    assert.ok(!listed.tools.some(t => /approve|review/.test(t.name)));
+    assert.match(listed.tools.find(t => t.name === 'open_task_conversation')!.description!, /Use send_task_message.*does not wake another agent session automatically/i);
+    assert.ok(!listed.tools.some(t => /^(?:approve|review)_/.test(t.name)));
     const response = await client.callTool({ name: 'list_records', arguments: { kind: 'project', limit: 1 } });
     assert.ok(!response.isError);
     const { p, create } = await fixture(); let task = await create('HTTP approval');
@@ -393,6 +394,79 @@ test('task markdown summary turns task context into readable sections', async ()
   assert.match(summary.markdown, /## Dependências \(0\)/);
   assert.match(summary.markdown, /## Execuções \(0\)/);
 });
+test('task conversation open reuses, is idempotent, project-scoped, and appears as a bounded summary', async () => {
+  const source = await fixture(); const destination = await fixture();
+  const task = await source.create('Conversation summary task');
+  const foreignTask = await destination.create('Foreign conversation task');
+  const openInput = { operationId: op(), projectId: source.p._id, taskId: task._id };
+  const opened = await service.call(human, 'open_task_conversation', openInput);
+  assert.equal(opened.created, true);
+  assert.equal(opened.conversation.taskId, task._id);
+  assert.deepEqual(await service.call(human, 'open_task_conversation', openInput), opened, 'same operation retries return the same receipt');
+  const reused = await service.call(agent, 'open_task_conversation', { ...openInput, operationId: op() });
+  assert.equal(reused.created, false);
+  assert.equal(reused.conversation._id, opened.conversation._id);
+  assert.equal(await Conversation.countDocuments({ projectId: source.p._id, taskId: task._id, status: 'open' }), 1);
+  await assert.rejects(service.call(other, 'open_task_conversation', { ...openInput, operationId: op() }), /access denied/i);
+  await assert.rejects(service.call(human, 'open_task_conversation', { ...openInput, operationId: op(), taskId: foreignTask._id }), /Task not found/i);
+  const archived = await source.create('Archived conversation task');
+  await Task.updateOne({ _id: archived._id }, { $set: { archived: true } });
+  await assert.rejects(service.call(human, 'open_task_conversation', { ...openInput, operationId: op(), taskId: archived._id }), /Task not found/i);
+
+  const longMessage = 'recent-4 ' + 'detail '.repeat(100);
+  for (let index = 1; index <= 4; index++) await service.call(human, 'send_conversation_message', {
+    operationId: op(), projectId: source.p._id, conversationId: opened.conversation._id,
+    content: index === 4 ? longMessage : `recent-${index} ` + 'detail '.repeat(100)
+  });
+  const summary = await service.call(agent, 'get_task_markdown_summary', { projectId: source.p._id, taskId: task._id });
+  assert.match(summary.markdown, /## Conversas vinculadas \(1\)/);
+  assert.match(summary.markdown, /Task: Conversation summary task/);
+  assert.deepEqual(summary.linkedConversations.map((conversation: any) => conversation.conversationId), [opened.conversation._id]);
+  assert.equal(summary.linkedConversations[0].messageCount, 3);
+  assert.doesNotMatch(summary.markdown, /recent-1/);
+  assert.match(summary.markdown, /recent\\-2/);
+  assert.match(summary.markdown, /recent\\-4/);
+  assert.equal(summary.markdown.includes(longMessage), false, 'summary snippets are clipped');
+  const transcript = await service.query(human, 'get_conversation', { projectId: source.p._id, conversationId: opened.conversation._id, limit: 20 });
+  assert.equal(transcript.messages.length, 4, 'full conversation history remains available');
+});
+test('human feature creation and task conversation HTTP routes retain project access', async () => {
+  const { p, create } = await fixture(); const task = await create('HTTP conversation task');
+  const server = createApp(service, []).listen(0, '127.0.0.1');
+  try {
+    await new Promise<void>((resolve, reject) => { server.once('listening', resolve); server.once('error', reject); });
+    const address = server.address(); assert.ok(address && typeof address !== 'string');
+    const root = `http://127.0.0.1:${address.port}`;
+    const headers = { authorization: `Bearer ${humanToken}`, 'content-type': 'application/json' };
+    const featureResponse = await fetch(`${root}/admin/features`, { method: 'POST', headers, body: JSON.stringify({
+      operationId: op(), projectId: p._id, data: { name: 'Created in UI', objective: 'Make creation accessible', context: 'Project workspace', acceptance: ['A user can create this feature'] }
+    }) });
+    assert.equal(featureResponse.status, 201);
+    const feature = await featureResponse.json() as any;
+    assert.equal(feature.name, 'Created in UI');
+    assert.ok((await service.query(human, 'list_records', { kind: 'feature', projectId: p._id })).items.some((item: any) => item._id === feature._id));
+    assert.equal(await Event.countDocuments({ entityId: feature._id, kind: 'feature.created' }), 1);
+    const conversationInput = { operationId: op(), projectId: p._id };
+    const openedResponse = await fetch(`${root}/admin/tasks/${task._id}/conversation`, { method: 'POST', headers, body: JSON.stringify(conversationInput) });
+    assert.equal(openedResponse.status, 200);
+    const opened = await openedResponse.json() as any;
+    assert.equal(opened.created, true);
+    assert.equal(opened.conversation.taskId, task._id);
+    const reusedResponse = await fetch(`${root}/admin/tasks/${task._id}/conversation`, { method: 'POST', headers, body: JSON.stringify({ ...conversationInput, operationId: op() }) });
+    assert.equal(reusedResponse.status, 200);
+    assert.equal((await reusedResponse.json() as any).created, false);
+    const unauthorizedToken = randomBytes(32).toString('hex');
+    await service.admin(human, { action: 'issue', operationId: op(), userId: 'non-member', scope: 'human', token: unauthorizedToken });
+    const unauthorizedResponse = await fetch(`${root}/admin/features`, { method: 'POST', headers: { ...headers, authorization: `Bearer ${unauthorizedToken}` }, body: JSON.stringify({
+      operationId: op(), projectId: p._id, data: { name: 'No access', objective: 'No access', context: 'No access', acceptance: ['No access'] }
+    }) });
+    assert.equal(unauthorizedResponse.status, 403);
+    assert.equal(await Event.countDocuments({ 'data.name': 'No access' }), 0);
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+  }
+});
 test('pagination, direct records, immutable archival retries and human queries', async () => {
   const { p, f, create } = await fixture();
   const tasks = await Promise.all([create('One'), create('Two'), create('Three')]);
@@ -466,4 +540,216 @@ test('admin project summary returns persisted Git metadata without internal bind
     server.closeAllConnections();
     await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
   }
+});
+
+test('shared conversation proposal requires human approval and an enabled automation route', async () => {
+  const { p, create } = await fixture();
+  const task = await create('Conversation proposal');
+  const conversation = await service.call(human, 'create_conversation', { operationId: op(), projectId: p._id, title: 'Plan task' });
+  const messageInput = { operationId: op(), projectId: p._id, conversationId: conversation._id, content: 'Please clarify and prepare this task.' };
+  const message = await service.call(human, 'send_conversation_message', messageInput);
+  assert.equal((await service.call(human, 'send_conversation_message', messageInput))._id, message._id, 'identical message retries are idempotent');
+  await assert.rejects(service.call(other, 'get_conversation', { projectId: p._id, conversationId: conversation._id, limit: 50 }), /access denied/i);
+  const proposal = await service.call(agent, 'create_action_proposal', {
+    operationId: op(), projectId: p._id, conversationId: conversation._id, taskId: task._id,
+    expectedTaskVersion: task.version, title: 'Implement task', summary: 'Clarified scope and acceptance.',
+    instructions: 'Implement the clarified scope.', acceptance: ['Implementation is verified']
+  });
+  assert.equal((await Task.findById(task._id))!.instructions, 'Implement', 'planning does not edit the task before approval');
+  await assert.rejects(service.call(agent, 'create_action_proposal', {
+    operationId: op(), projectId: p._id, conversationId: conversation._id, taskId: task._id,
+    expectedTaskVersion: task.version + 1, title: 'Stale proposal', summary: 'Must be rejected', instructions: 'Stale change'
+  }), /version conflict/i);
+  const approval = { operationId: op(), projectId: p._id, proposalId: proposal._id, version: proposal.version };
+  await assert.rejects(service.approveActionProposal(agent, approval), /Human credential required/);
+  await assert.rejects(service.approveActionProposal(human, approval), /automation/i);
+  await service.admin(human, {
+    action: 'automation_policy', operationId: op(), projectId: p._id, version: 0, enabled: true,
+    maxConcurrent: 5, routes: [{ repositoryId: p.repositories[0].id, area: 'backend', provider: 'codex' }]
+  });
+
+  const approved = await service.approveActionProposal(human, approval);
+  assert.equal(approved.proposal.status, 'approved');
+  assert.equal(approved.task._id, task._id);
+  assert.equal(approved.job.status, 'queued');
+  assert.equal((await Task.findById(task._id))!.instructions, 'Implement the clarified scope.');
+  assert.deepEqual((await Task.findById(task._id))!.acceptance, ['Implementation is verified']);
+  const linked = await service.query(human, 'get_conversation', { projectId: p._id, conversationId: conversation._id, limit: 50 });
+  assert.equal(linked.conversation.taskId, task._id, 'the conversation links to the task only after approval');
+  assert.equal(linked.jobs[0].status, 'queued', 'the shared conversation exposes its execution state');
+  const retry = await service.approveActionProposal(human, approval);
+  assert.equal(retry.job._id, approved.job._id);
+});
+
+test('conversation can be created for an active task in its project', async () => {
+  const source = await fixture();
+  const destination = await fixture();
+  const task = await source.create('Conversation task');
+  const taskFromOtherProject = await destination.create('Task from another project');
+
+  const linked = await service.call(human, 'create_conversation', { operationId: op(), projectId: source.p._id, taskId: task._id });
+  assert.equal(linked.taskId, task._id);
+  const detail = await service.query(human, 'get_conversation', { projectId: source.p._id, conversationId: linked._id, limit: 50 });
+  assert.equal(detail.conversation.taskId, task._id);
+  assert.equal(detail.task._id, task._id);
+
+  await assert.rejects(service.call(human, 'create_conversation', { operationId: op(), projectId: source.p._id, taskId: taskFromOtherProject._id }), /Task not found/);
+  const archived = await source.create('Archived conversation task');
+  await Task.updateOne({ _id: archived._id }, { $set: { archived: true } });
+  await assert.rejects(service.call(human, 'create_conversation', { operationId: op(), projectId: source.p._id, taskId: archived._id }), /Task not found/);
+});
+
+test('conversation task search, linking, authorization, and soft deletion stay project-scoped', async () => {
+  const source = await fixture();
+  const destination = await fixture();
+  const linkable = await source.create('Link[Alpha] target', [], 'frontend');
+  await source.create('Other Link[Alpha] target');
+  const foreignTask = await destination.create('Link[Alpha] foreign');
+
+  const matches = await service.query(human, 'list_records', {
+    kind: 'task', projectId: source.p._id, archived: false, search: 'link[', limit: 20
+  });
+  assert.deepEqual(matches.items.map((item: any) => item._id), [linkable._id], 'search is case-insensitive, escaped, and prefix-scoped');
+
+  const conversation = await service.call(human, 'create_conversation', { operationId: op(), projectId: source.p._id });
+  const linkInput = { operationId: op(), projectId: source.p._id, conversationId: conversation._id, taskId: linkable._id, version: conversation.version };
+  const linked = await service.call(human, 'link_conversation_task', linkInput);
+  assert.equal(linked.taskId, linkable._id);
+  assert.equal(linked.version, conversation.version + 1);
+  const linkedDetail = await service.query(human, 'get_conversation', { projectId: source.p._id, conversationId: conversation._id, limit: 20 });
+  assert.equal(linkedDetail.task.area, 'frontend');
+  assert.equal(linkedDetail.task.featureId, source.f._id);
+  await assert.rejects(service.call(human, 'link_conversation_task', { ...linkInput, operationId: op() }), /version conflict/i);
+  await assert.rejects(service.call(human, 'link_conversation_task', { ...linkInput, operationId: op(), version: linked.version, taskId: foreignTask._id }), /Task not found/i);
+  await assert.rejects(service.call(other, 'link_conversation_task', { ...linkInput, operationId: op(), version: linked.version }), /access denied/i);
+
+  const proposalTask = await source.create('Pending proposal task');
+  const conflictingTask = await source.create('Conflicting link task');
+  const proposalConversation = await service.call(human, 'create_conversation', { operationId: op(), projectId: source.p._id });
+  await service.call(agent, 'create_action_proposal', {
+    operationId: op(), projectId: source.p._id, conversationId: proposalConversation._id, taskId: proposalTask._id,
+    expectedTaskVersion: proposalTask.version, title: 'Prepare task', summary: 'Clarified task', instructions: 'Implement the clarified task'
+  });
+  const pendingDetail = await service.query(human, 'get_conversation', { projectId: source.p._id, conversationId: proposalConversation._id, limit: 20 });
+  await assert.rejects(service.call(human, 'link_conversation_task', {
+    operationId: op(), projectId: source.p._id, conversationId: proposalConversation._id,
+    taskId: conflictingTask._id, version: pendingDetail.conversation.version
+  }), /pending proposal for another task/i);
+  const proposalLink = await service.call(human, 'link_conversation_task', {
+    operationId: op(), projectId: source.p._id, conversationId: proposalConversation._id,
+    taskId: proposalTask._id, version: pendingDetail.conversation.version
+  });
+  assert.equal(proposalLink.taskId, proposalTask._id, 'linking to the pending proposal task is allowed');
+
+  const message = await service.call(human, 'send_conversation_message', {
+    operationId: op(), projectId: source.p._id, conversationId: conversation._id, content: 'Keep this history'
+  });
+  const beforeDelete = await service.query(human, 'get_conversation', { projectId: source.p._id, conversationId: conversation._id, limit: 20 });
+  const deleteInput = { operationId: op(), projectId: source.p._id, conversationId: conversation._id, version: beforeDelete.conversation.version };
+  const deleted = await service.call(human, 'delete_conversation', deleteInput);
+  assert.deepEqual(await service.call(human, 'delete_conversation', deleteInput), deleted, 'same-operation retries are idempotent');
+  assert.equal((await service.query(human, 'list_conversations', { projectId: source.p._id, limit: 20 })).items.some((item: any) => item._id === conversation._id), false);
+  await assert.rejects(service.query(human, 'get_conversation', { projectId: source.p._id, conversationId: conversation._id, limit: 20 }), /Conversation not found/i);
+  assert.ok(await Task.exists({ _id: linkable._id, projectId: source.p._id }), 'deleting a conversation leaves its task intact');
+  assert.ok(await ConversationMessage.exists({ _id: message._id, conversationId: conversation._id }), 'deleting a conversation preserves its messages');
+});
+
+test('task transfer previews without writes and moves task history atomically on confirmation', async () => {
+  const source = await fixture(); const destination = await fixture();
+  let task = await source.create('Transfer with history');
+  const conversation = await service.call(agent, 'create_conversation', { operationId: op(), projectId: source.p._id, title: 'Transfer chat history' });
+  const conversationMessage = await service.call(agent, 'send_conversation_message', { operationId: op(), projectId: source.p._id, conversationId: conversation._id, content: 'Shared conversation history' });
+  const proposal = await service.call(agent, 'create_action_proposal', { operationId: op(), projectId: source.p._id, conversationId: conversation._id, taskId: task._id, expectedTaskVersion: task.version, title: 'Prepare task', summary: 'Drafted task instructions', instructions: 'Updated instructions' });
+  const markdown = await service.call(agent, 'save_markdown', { operationId: op(), projectId: source.p._id, targetKind: 'task', targetId: task._id, name: 'plan.md', summary: 'Plan', content: '# Transfer plan' });
+  task = await claim(source.p, task);
+  task = await service.call(agent, 'set_acceptance_criterion', { ...active(source.p, task), criterionIndex: 0, complete: true, evidence: 'Focused implementation verified' });
+  const message = await service.call(agent, 'send_task_message', { ...active(source.p, task), type: 'progresso', message: 'History to preserve', references: ['src/service.ts'] });
+  task = await service.call(agent, 'record_progress', { ...active(source.p, task), message: 'Implementation completed' });
+  task = await service.call(agent, 'submit_task', { ...active(source.p, task), result });
+
+  const target = { projectId: source.p._id, targetProjectId: destination.p._id, taskId: task._id, version: task.version, targetRepositoryId: destination.p.repositories[0].id, targetFeatureId: destination.f._id };
+  const preview = await service.call(agent, 'preview_task_transfer', target);
+  assert.equal(preview.eligible, true);
+  assert.equal(preview.moveCounts.messages, 1);
+  assert.equal(preview.moveCounts.documents, 1);
+  assert.equal(preview.moveCounts.executions, 1);
+  assert.equal(preview.moveCounts.conversations, 1);
+  assert.equal(preview.moveCounts.conversationMessages, 1);
+  assert.equal(preview.moveCounts.actionProposals, 1);
+  assert.ok(preview.moveCounts.historyEvents > 0);
+  assert.equal((await Task.findById(task._id))!.projectId, source.p._id, 'preview must not mutate the task');
+  assert.equal((await MarkdownDocument.findById(markdown._id))!.projectId, source.p._id, 'preview must not move Markdown');
+
+  const transfer = { ...target, operationId: op(), planHash: preview.planHash, confirm: true as const };
+  const moved = await service.call(agent, 'transfer_task', transfer);
+  assert.equal(moved.task._id, task._id);
+  assert.equal(moved.task.projectId, destination.p._id);
+  assert.equal(moved.task.repositoryId, destination.p.repositories[0].id);
+  assert.equal(moved.task.featureId, destination.f._id);
+  assert.equal(moved.task.status, 'em_revisao');
+  assert.deepEqual(moved.task.acceptanceProgress, [true]);
+  assert.equal(await Task.countDocuments({ _id: task._id }), 1, 'transfer must preserve identity without copying');
+  assert.equal(await Task.exists({ _id: task._id, projectId: source.p._id }), null);
+  assert.equal((await Execution.findById(task.executionId))!.projectId, destination.p._id);
+  assert.equal((await TaskMessage.findById(message._id))!.projectId, destination.p._id);
+  assert.equal((await Conversation.findById(conversation._id))!.projectId, destination.p._id);
+  assert.equal((await ConversationMessage.findById(conversationMessage._id))!.projectId, destination.p._id);
+  assert.equal((await ActionProposal.findById(proposal._id))!.projectId, destination.p._id);
+  const resumed = await service.call(agent, 'get_conversation', { projectId: destination.p._id, conversationId: conversation._id, limit: 50 });
+  assert.equal(resumed.conversation.taskId, null, 'an unapproved proposal does not persist the task link');
+  assert.equal(resumed.proposals[0].taskId, task._id, 'the pending proposal and its task survive transfer');
+  assert.equal(resumed.messages[0].content, 'Shared conversation history');
+  assert.equal((await MarkdownDocument.findById(markdown._id))!.projectId, destination.p._id);
+  assert.equal((await MarkdownRevision.findOne({ documentId: markdown._id }))!.projectId, destination.p._id);
+  assert.equal(await Event.countDocuments({ projectId: source.p._id, entityId: task._id, action: 'transfer_task' }), 1);
+  assert.equal(await Event.countDocuments({ projectId: destination.p._id, entityId: task._id, action: 'transfer_task' }), 1);
+  const retried = await service.call(agent, 'transfer_task', transfer);
+  assert.equal(retried.task._id, task._id, 'identical operation retries return the committed transfer');
+});
+
+test('task transfer rejects inaccessible projects, stale versions, invalid bindings and dependencies', async () => {
+  const source = await fixture(); const destination = await fixture();
+  const task = await source.create('Access check');
+  const args = { projectId: source.p._id, targetProjectId: destination.p._id, taskId: task._id, version: task.version, targetRepositoryId: destination.p.repositories[0].id, targetFeatureId: destination.f._id };
+  const privateTarget = await service.call(other, 'create_project', { operationId: op(), data: { name: 'Other owner project', description: 'Other', instructions: 'Private to other actor', repositories: [{ id: op(), name: 'backend', url: 'https://example.com/other.git', instructions: '' }] } });
+  await assert.rejects(service.call(agent, 'preview_task_transfer', { ...args, targetProjectId: privateTarget._id, targetRepositoryId: privateTarget.repositories[0].id, targetFeatureId: null }), /Project access denied/);
+
+  await service.call(agent, 'edit_record', { operationId: op(), projectId: source.p._id, kind: 'task', id: task._id, version: task.version, data: { name: 'Access check updated' } });
+  await assert.rejects(service.call(agent, 'preview_task_transfer', args), /Task version conflict/);
+
+  const invalid = await source.create('Invalid target binding');
+  const invalidPreview = await service.call(agent, 'preview_task_transfer', { ...args, taskId: invalid._id, version: invalid.version, targetRepositoryId: op(), targetFeatureId: source.f._id });
+  assert.equal(invalidPreview.eligible, false);
+  assert.match(invalidPreview.blockers.join(' '), /Destination repository is not registered/);
+  assert.match(invalidPreview.blockers.join(' '), /Destination feature is missing/);
+
+  const dependency = await source.create('Dependency');
+  const dependent = await source.create('Has dependency', [dependency._id]);
+  const dependencyPreview = await service.call(agent, 'preview_task_transfer', { ...args, taskId: dependent._id, version: dependent.version });
+  assert.equal(dependencyPreview.eligible, false);
+  assert.match(dependencyPreview.blockers.join(' '), /Task has dependencies/);
+});
+
+test('task transfer rolls back moved records when an audit write fails', async () => {
+  const source = await fixture(); const destination = await fixture();
+  const task = await source.create('Atomic transfer');
+  const markdown = await service.call(agent, 'save_markdown', { operationId: op(), projectId: source.p._id, targetKind: 'task', targetId: task._id, name: 'atomic.md', summary: 'Atomic', content: 'Must remain at source after rollback' });
+  const target = { projectId: source.p._id, targetProjectId: destination.p._id, taskId: task._id, version: task.version, targetRepositoryId: destination.p.repositories[0].id, targetFeatureId: destination.f._id };
+  const preview = await service.call(agent, 'preview_task_transfer', target);
+  const transfer = { ...target, operationId: op(), planHash: preview.planHash, confirm: true as const };
+  const originalEvent = service.event;
+  (service as any).event = async function (session: unknown, actor: Actor, action: string, projectId: string, entityId: string, data: unknown) {
+    if (action === 'transfer_task' && projectId === destination.p._id) throw new Error('injected audit failure');
+    return originalEvent.call(this, session as any, actor, action, projectId, entityId, data);
+  };
+  try {
+    await assert.rejects(service.call(agent, 'transfer_task', transfer), /injected audit failure/);
+  } finally {
+    (service as any).event = originalEvent;
+  }
+  assert.equal((await Task.findById(task._id))!.projectId, source.p._id);
+  assert.equal((await MarkdownDocument.findById(markdown._id))!.projectId, source.p._id);
+  assert.equal((await MarkdownRevision.findOne({ documentId: markdown._id }))!.projectId, source.p._id);
+  assert.equal(await Event.countDocuments({ projectId: source.p._id, entityId: task._id, action: 'transfer_task' }), 0);
+  assert.equal(await Event.countDocuments({ projectId: destination.p._id, entityId: task._id, action: 'transfer_task' }), 0);
 });

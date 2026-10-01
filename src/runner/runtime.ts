@@ -24,7 +24,8 @@ export function limitedTaskContext(state: any) {
     scope: { taskId: task._id, area: task.area, repositoryId: task.repositoryId },
     task: {
       id: task._id, name: task.name, area: task.area, type: task.type, priority: task.priority,
-      instructions: task.instructions, acceptance: task.acceptance, acceptanceProgress: task.acceptanceProgress
+      instructions: task.instructions, acceptance: task.acceptance,
+      ...(task.acceptanceProgress !== undefined ? { acceptanceProgress: task.acceptanceProgress } : {})
     },
     repository: repository && { id: repository.id, name: repository.name, url: repository.url, instructions: repository.instructions }
   };

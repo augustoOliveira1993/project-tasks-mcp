@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiRequestError, operationId, query, request } from '../../api';
 import type { Task } from '../../api';
 import { Badge } from '../ui/Badge';
@@ -7,11 +7,12 @@ import { errorMessage, formatDate } from '../../lib/format';
 import { statusLabels, statusTone } from '../../features/tasks/status';
 import { MarkdownView } from '../ui/MarkdownView';
 import { TaskSummaryPanel } from './TaskSummaryPanel';
+import { openTaskConversation } from '../../features/tasks/task-conversation';
 
 type TaskDiff = { _id: string; commit?: string; branch?: string; files?: string[]; at?: string; createdAt?: string };
 type TaskMarkdown = { _id: string; name: string; summary: string; revision: number };
 
-export function TaskDetailsDialog({ token, nonce, projectId, task, checking, onToggleChecked, close }: { token: string; nonce: string; projectId: string; task: Task; checking: boolean; onToggleChecked: (task: Task) => void; close: () => void }) {
+export function TaskDetailsDialog({ token, nonce, projectId, task, checking, onToggleChecked, onOpenConversation, close }: { token: string; nonce: string; projectId: string; task: Task; checking: boolean; onToggleChecked: (task: Task) => void; onOpenConversation: (conversationId: string) => void; close: () => void }) {
   const [markdown, setMarkdown] = useState<{ name: string; content: string } | null>(null);
   const [view, setView] = useState<'details' | 'summary' | 'json'>('details');
   const [criterionEvidence, setCriterionEvidence] = useState<Record<number, string>>({});
@@ -29,6 +30,16 @@ export function TaskDetailsDialog({ token, nonce, projectId, task, checking, onT
   const markdowns = useQuery({
     queryKey: ['task-markdowns', nonce, task._id],
     queryFn: () => query<{ items: TaskMarkdown[] }>(token, 'list_markdowns', { projectId, targetKind: 'task', targetId: task._id, limit: 20 })
+  });
+  const openConversation = useMutation({
+    mutationFn: () => openTaskConversation(token, projectId, task._id),
+    onSuccess: async result => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['conversations', nonce, projectId] }),
+        queryClient.invalidateQueries({ queryKey: ['task-markdown-summary', nonce, projectId, task._id] })
+      ]);
+      onOpenConversation(result.conversation._id);
+    }
   });
   const taskData = context.data?.task ?? task;
   const acceptance = taskData.acceptance ?? task.acceptance ?? [];
@@ -86,13 +97,14 @@ export function TaskDetailsDialog({ token, nonce, projectId, task, checking, onT
     <section className="dialog detail-dialog" role="dialog" aria-modal="true" aria-labelledby="details-title">
       <header className="dialog-header"><div><p className="eyebrow">TAREFA · {task.area ?? 'sem área'}</p><h2 id="details-title">{task.name}</h2><p className="muted-text id-text">{task._id}</p></div><button className="icon-button" onClick={close} aria-label="Fechar detalhes">×</button></header>
       {context.isPending ? <div className="loading">Carregando contexto…</div> : context.isError ? <div className="notice error">{errorMessage(context.error)}</div> : <>
-        <div className="detail-meta"><Badge tone={statusTone[taskData.status]}>{statusLabels[taskData.status] ?? taskData.status}</Badge><span>Responsável: {taskData.responsible || 'Não atribuído'}</span><span>Atualizada: {formatDate(taskData.updatedAt)}</span><span>Prioridade: {taskData.priority ?? '—'}</span></div>
+        <div className="detail-meta"><Badge tone={statusTone[taskData.status]}>Status · {statusLabels[taskData.status] ?? taskData.status}</Badge><Badge tone="blue">Área · {taskData.area || 'Não definida'}</Badge>{context.data?.feature?.name && <Badge tone="muted">Feature · {context.data.feature.name}</Badge>}<span>Responsável: {taskData.responsible || 'Não atribuído'}</span><span>Atualizada: {formatDate(taskData.updatedAt)}</span><span>Prioridade: {taskData.priority ?? '—'}</span></div>
         {taskData.status === 'concluida' && <section className="detail-check-panel" aria-label="Conferência da tarefa">
           <div className="detail-check-copy"><Badge tone={taskData.checked ? 'green' : 'amber'}>{taskData.checked ? 'Conferida' : 'Não conferida'}</Badge><span>{taskData.checked ? 'por ' + (taskData.checkedBy || 'Usuário') + ' · ' + formatDate(taskData.checkedAt) : 'Marque após validar a tarefa.'}</span></div>
           <button type="button" className="button secondary small-button" disabled={checking} aria-pressed={Boolean(taskData.checked)} onClick={() => onToggleChecked(taskData as Task)}>{checking ? 'Salvando…' : taskData.checked ? 'Desmarcar' : 'Marcar como conferida'}</button>
         </section>}
-        <div className="detail-toolbar"><div className="button-row"><button className="text-button" aria-pressed={view === 'summary'} onClick={() => setView(current => current === 'summary' ? 'details' : 'summary')}>{view === 'summary' ? 'Voltar aos detalhes' : 'Resumo completo'}</button><button className="text-button" onClick={() => setView(current => current === 'json' ? 'details' : 'json')}>{view === 'json' ? 'Ver detalhes' : 'Ver JSON'}</button></div></div>
-        {view === 'json' ? <pre className="markdown-content json-content">{JSON.stringify(context.data, null, 2)}</pre> : view === 'summary' ? <div className="detail-summary-layout"><TaskSummaryPanel token={token} nonce={nonce} projectId={projectId} taskId={task._id} /></div> : <div className="detail-columns">
+        <div className="detail-toolbar"><div className="button-row"><button type="button" className="button secondary small-button" disabled={openConversation.isPending} onClick={() => openConversation.mutate()}>{openConversation.isPending ? 'Abrindo…' : 'Abrir conversa'}</button><button className="text-button" aria-pressed={view === 'summary'} onClick={() => setView(current => current === 'summary' ? 'details' : 'summary')}>{view === 'summary' ? 'Voltar aos detalhes' : 'Resumo completo'}</button><button className="text-button" onClick={() => setView(current => current === 'json' ? 'details' : 'json')}>{view === 'json' ? 'Ver detalhes' : 'Ver JSON'}</button></div></div>
+        {openConversation.isError && <div className="notice error" role="alert">{errorMessage(openConversation.error)}</div>}
+        {view === 'json' ? <pre className="markdown-content json-content">{JSON.stringify(context.data, null, 2)}</pre> : view === 'summary' ? <div className="detail-summary-layout"><TaskSummaryPanel token={token} nonce={nonce} projectId={projectId} taskId={task._id} onOpenConversation={onOpenConversation} /></div> : <div className="detail-columns">
           <div className="detail-main">
             <section className="detail-section task-description-section"><h3>Descrição</h3>{taskData.description || taskData.instructions ? <MarkdownView content={taskData.description || taskData.instructions} /> : <p className="muted-text">Sem descrição cadastrada.</p>}</section>
             <section className="detail-section"><div className="criteria-heading"><h3>Critérios de aceite</h3>{acceptance.length > 0 && <span>{completedCriteria}/{acceptance.length} concluídos</span>}</div>
