@@ -4,7 +4,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 import mongoose from 'mongoose';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
-import { connect, Event, Project, Task } from '../src/db.js';
+import { connect, Event, Project, Task, TaskRead } from '../src/db.js';
 import { authenticate, bootstrap, Service, type Actor } from '../src/service.js';
 import { createApp } from '../src/http.js';
 
@@ -90,6 +90,22 @@ function postTask(token: string, body: unknown) {
   });
 }
 
+function postTaskRead(token: string, body: unknown) {
+  return fetch(`${baseUrl}/admin/tasks/read`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+}
+
+function getSyncReport(token: string) {
+  return fetch(`${baseUrl}/admin/query`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ tool: 'get_project_sync_report', arguments: { projectId } })
+  });
+}
+
 test('authorized human creates tasks with idempotency while query remains read-only', async () => {
   const body = taskBody();
   const first = await postTask(humanToken, body);
@@ -151,4 +167,61 @@ test('task creation rejects outsiders, readers, invalid project links and invali
   archivedTask.data.featureId = null;
   assert.equal((await postTask(humanToken, archivedTask)).status, 409);
   assert.equal(await Task.countDocuments({ projectId }), taskCountBefore);
+});
+
+test('human task read route is scoped to the token user and validates cursor, task, and idempotency', async () => {
+  const unauthorized = await fetch(`${baseUrl}/admin/tasks/read`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+  assert.equal(unauthorized.status, 401);
+  assert.equal((await postTaskRead(outsiderToken, { operationId: op(), projectId, taskId: op(), cursor: 0 })).status, 403);
+
+  // Establish each user's baseline before a different member creates activity.
+  assert.equal((await postTask(humanToken, taskBody(op(), 'Read baseline task'))).status, 201);
+  assert.equal((await getSyncReport(humanToken)).status, 200);
+  assert.equal((await getSyncReport(readerToken)).status, 200);
+  const authorToken = randomBytes(32).toString('hex');
+  await service.admin(human, { action: 'issue', operationId: op(), userId: 'task-ui-author', scope: 'agent', token: authorToken });
+  const project = await Project.findById(projectId).lean();
+  await service.admin(human, { action: 'member', operationId: op(), projectId, version: project!.version, userId: 'task-ui-author', role: 'colaborador' });
+  const author = await authenticate(authorToken, 'agent');
+  const createdTask = await service.call(author, 'create_task', taskBody(op(), 'Unread activity task'));
+  assert.equal((await postTaskRead(authorToken, { operationId: op(), projectId, taskId: createdTask._id, cursor: 0 })).status, 401);
+
+  const ownerReport = await (await getSyncReport(humanToken)).json() as { tasks: Array<{ taskId: string; unread: { count: number; cursor: number | null } }> };
+  const unread = ownerReport.tasks.find(item => item.taskId === createdTask._id)?.unread;
+  assert.ok(unread && unread.count > 0 && unread.cursor !== null);
+  const cursor = unread.cursor;
+  const body = { operationId: op(), projectId, taskId: createdTask._id, cursor };
+  const marked = await postTaskRead(humanToken, body);
+  assert.equal(marked.status, 200);
+  assert.equal((await marked.json() as { cursor: number }).cursor, cursor);
+  assert.equal((await postTaskRead(humanToken, body)).status, 200);
+  const lowerCursor = await postTaskRead(humanToken, { ...body, operationId: op(), cursor: 0 });
+  assert.equal(lowerCursor.status, 200);
+  assert.equal((await lowerCursor.json() as { cursor: number }).cursor, cursor);
+  assert.equal(await TaskRead.countDocuments({ projectId, userId: human.userId, taskId: createdTask._id }), 1);
+
+  const readerReport = await (await getSyncReport(readerToken)).json() as { tasks: Array<{ taskId: string; unread: { count: number } }> };
+  assert.ok((readerReport.tasks.find(item => item.taskId === createdTask._id)?.unread.count ?? 0) > 0);
+
+  const future = await postTaskRead(readerToken, { ...body, operationId: op(), cursor: cursor + 1_000_000 });
+  assert.equal(future.status, 400);
+  const userIdInjection = await postTaskRead(humanToken, { ...body, operationId: op(), userId: 'task-ui-reader' });
+  assert.equal(userIdInjection.status, 400);
+  const queryMutation = await fetch(`${baseUrl}/admin/query`, {
+    method: 'POST', headers: { authorization: `Bearer ${humanToken}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ tool: 'mark_task_read', arguments: body })
+  });
+  assert.equal(queryMutation.status, 400);
+
+  const outsideRepositoryId = op();
+  const outsideProject = await service.call(author, 'create_project', { operationId: op(), data: {
+    name: 'Other project', description: 'Task read scope test', instructions: 'Test project',
+    repositories: [{ id: outsideRepositoryId, name: 'repo', url: 'https://example.com/other.git', instructions: 'Test repository' }]
+  } });
+  const outsideTask = await service.call(author, 'create_task', { operationId: op(), projectId: outsideProject._id, data: {
+    name: 'Other project task', instructions: 'Scope test', acceptance: ['Exists'], priority: 2, area: 'backend',
+    repositoryId: outsideRepositoryId, featureId: null, dependencies: []
+  } });
+  const mismatch = await postTaskRead(humanToken, { ...body, operationId: op(), taskId: outsideTask._id });
+  assert.equal(mismatch.status, 404);
 });

@@ -375,7 +375,7 @@ export class Service {
     }
     await DeliveryEvent.create([{ _id: eventId, projectId, sequence: project.eventSequence, taskIds: [...ids], action, kind, summary, author: actor.userId, credentialId: actor.id, entityId, entityVersion: data?.task?.version ?? data?.version, at }], { session: s });
   }
-  async mutate(actor: Actor, name: string, a: any, run: (s: ClientSession) => Promise<any>, projectAdmin = name === 'admin', projectWrite = true) {
+  async mutate(actor: Actor, name: string, a: any, run: (s: ClientSession) => Promise<any>, projectAdmin = name === 'admin', projectWrite = name !== 'mark_project_read' && name !== 'mark_task_read') {
     const key = `${actor.id}:${a.operationId}`;
     const fingerprint = hash(JSON.stringify({ name, a }));
     const startedAt = Date.now();
@@ -494,7 +494,7 @@ export class Service {
   }
   async call(actor: Actor, name: string, input: unknown): Promise<any> {
     const conversationTools = new Set(['create_conversation', 'open_task_conversation', 'link_conversation_task', 'delete_conversation', 'send_conversation_message', 'send_collaboration_message']);
-    requireThat(['agent', 'trusted_local'].includes(actor.scope) || (actor.scope === 'human' && (name === 'archive_record' || name === 'create_task' || name === 'create_feature' || conversationTools.has(name))), 'Agent scope required', 403);
+    requireThat(['agent', 'trusted_local'].includes(actor.scope) || (actor.scope === 'human' && (name === 'archive_record' || name === 'create_task' || name === 'create_feature' || name === 'mark_task_read' || conversationTools.has(name))), 'Agent scope required', 403);
     const schema = tools[name as keyof typeof tools];
     requireThat(schema, 'Unknown tool', 404);
     const a: any = schema.parse(input);

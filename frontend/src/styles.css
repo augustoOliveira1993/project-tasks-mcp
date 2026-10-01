@@ -602,6 +602,11 @@ dialog.projects-dialog::backdrop { background: #16203370; backdrop-filter: blur(
 .conversation-message { min-width: 0; max-width: 94%; padding: 12px 14px; border: 1px solid #e7eaf1; border-radius: 10px; background: #fafbfe; }
 .conversation-message.human { justify-self: end; border-color: #dce2ff; background: #f4f5ff; }
 .conversation-message-meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 16px; margin-bottom: 7px; color: #647087; font-size: 9px; }
+.conversation-agent-identity { display: inline-flex; min-width: 0; max-width: 100%; align-items: center; flex-wrap: wrap; gap: 5px; overflow-wrap: anywhere; }
+.conversation-agent-icon { width: 15px; height: 15px; flex: 0 0 15px; }
+.conversation-agent-icon.codex { color: #16836f; }
+.conversation-agent-icon.claude { color: #cf6848; }
+.conversation-agent-icon.generic { color: #647087; }
 .conversation-message .task-summary-content { min-width: 0; color: #475367; overflow-wrap: anywhere; }
 .conversation-message .task-summary-code { max-width: 100%; }
 .conversation-composer { display: grid; gap: 7px; padding-top: 12px; border-top: 1px solid #eceef3; }

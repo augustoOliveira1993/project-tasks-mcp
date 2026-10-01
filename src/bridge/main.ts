@@ -49,8 +49,33 @@ async function status() {
     return { repository: repo, projects: matches.map(({ project, repository }: any) => ({ projectId: project._id, project: project.name, repositoryId: repository.id, area: undefined })), ready: !!selection, ambiguous, missing, ...(novidades ? { novidades } : {}) };
   } catch (error) { return { ready: false, missing: [(error as Error).message] }; }
 }
-const server = new McpServer({ name: 'project-tasks-bridge', version: '0.2.0' }, { instructions: 'Use status first. This local bridge derives repository scope from Git; it never grants access.' });
-server.registerTool('status', { description: 'Read the local Git context, matched Project Tasks projects, and unread collaboration events.', inputSchema: z.object({}).strict(), annotations: { readOnlyHint: true } }, async () => ({ content: [{ type: 'text', text: JSON.stringify(await status()) }] }));
+const BRIDGE_TOOL_GUIDANCE: Record<string, string> = {
+  list_records: 'Use for all record types and statuses; list_pending is only for executable pending tasks.',
+  list_pending: 'Lists only pending tasks. Use list_records for tasks in other states or for projects/features.',
+  get_task_context: 'Read before task mutations. Context may be limited; use paginated tools for omitted details.',
+  claim_task: 'Claim only an executable task after checking current status and dependencies.',
+  send_task_message: 'Requires an active task execution. A question with relatedTaskId may queue consultation only under server automation checks.',
+  send_collaboration_message: 'Use for related-task collaboration. A cross-task question with relatedTaskId may queue consultation only with no active job and a completed, still-authorized automation whose task scope is unchanged; this is not a generic agent wake-up.',
+  send_conversation_message: 'Writes to the shared conversation; the server records the authenticated author and MCP client name announced at initialize. Send only message content; do not spoof or prefix authorship. It does not start or wake another Codex/Claude session.',
+  create_action_proposal: 'Creates a proposal that waits for human approval and an enabled automation route.',
+  set_acceptance_criterion: 'Record concise objective evidence per zero-based criterion as soon as it is proven.',
+  set_task_status: 'Use only for valid evidence-based review transitions. It does not unblock tasks or create an execution.',
+  update_markdown: 'Update an existing document with the revision previously read in baseRevision.',
+  get_automation_status: 'Read-only job status; policy, provider, permission, and release actions remain administrative.',
+  preview_task_transfer: 'Read-only preflight. Present the exact plan and wait for human confirmation before transfer_task.',
+  transfer_task: 'Run only after the human confirms the exact preview; reuse its planHash and current version.'
+};
+function describeBridgeTool(name: string) {
+  const base = name + ' through the local Git-aware bridge. Call status first when relying on Git scope; explicit projectId may be supplied. The bridge uses the same server permissions and does not grant access.';
+  return BRIDGE_TOOL_GUIDANCE[name] ? base + ' ' + BRIDGE_TOOL_GUIDANCE[name] : base;
+}
+const server = new McpServer({ name: 'project-tasks-bridge', version: '0.2.0' }, { instructions: [
+  'This optional local bridge reads Git context from the open checkout; it is not the main HTTP MCP server and it does not grant project access.',
+  'Call status first when relying on Git-derived scope. ready:true means exactly one registered project/repository binding matched. If ambiguous, pass an explicit projectId to forwarded tools when you know the intended project; publish_task_diff requires a unique match. If no binding exists, ask a human administrator to configure it.',
+  'Use publish_task_diff to derive changed files and commits from Git. Other tools forward to the main MCP with the same schemas, authorization, version, operationId, and human gates. Use the main MCP directly if this optional bridge is absent.',
+  'Messages in the shared conversation do not wake another agent session. Their displayed identity comes from the authenticated user and MCP client name announced at initialize; send only the content and do not spoof another author. Use only tools announced by this connection and follow the Project Tasks agent guide.'
+].join(' ') });
+server.registerTool('status', { description: 'Read local Git context and project matches. ready:true means one binding matched; ready:false explains missing or ambiguous scope, not necessarily a disconnected MCP session.', inputSchema: z.object({}).strict(), annotations: { readOnlyHint: true } }, async () => ({ content: [{ type: 'text', text: JSON.stringify(await status()) }] }));
 server.registerTool('publish_task_diff', { description: 'Publish a Git diff for a task in the uniquely matched project. Patch storage is opt-in.', inputSchema: z.object({ taskId: z.string().uuid(), baseCommit: z.string().regex(/^[0-9a-f]{40}$/i).optional(), commit: z.string().regex(/^[0-9a-f]{40}$/i).optional(), includePatch: z.boolean().default(false), agent: z.string().min(1).max(100).optional() }).strict() }, async input => {
   try {
     const { repo, matches } = await resolve(); if (matches.length !== 1) throw new Error(matches.length ? `Git repository is ambiguous: ${matches.map(({ project, repository }: any) => `${project.name} (${project._id}) · ${repository.name} (${repository.id})`).join('; ')}` : 'Git repository does not resolve to a Project Tasks project');
@@ -71,7 +96,7 @@ for (const [name, schema] of Object.entries(tools)) {
   const shape: Record<string, z.ZodType> = { ...(schema as any).shape };
   const needsProject = 'projectId' in shape;
   if (needsProject) shape.projectId = id.optional();
-  server.registerTool(name, { description: `${name} through the local Git-aware bridge. Call status first; projectId is optional only when Git resolves one project.`, inputSchema: z.object(shape).strict(), annotations: { readOnlyHint: !('operationId' in (schema as any).shape) } }, async args => {
+  server.registerTool(name, { description: describeBridgeTool(name), inputSchema: z.object(shape).strict(), annotations: { readOnlyHint: !('operationId' in (schema as any).shape) } }, async args => {
     try {
       const input: any = { ...args }; let projectId = input.projectId;
       if (needsProject && !projectId) {

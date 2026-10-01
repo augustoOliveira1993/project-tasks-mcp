@@ -25,6 +25,20 @@ The trusted local endpoint is `http://AVB-NB-00295:3443/mcp`. The client sends `
 
 At the start of a chat, preserve any explicit project selection in the session or user request. Otherwise, use the active chat workspace to identify the project before asking the user for its name. If `get_session_context` has no `projectId`, pass the workspace root and available Git remote/root commit to `resolve_project_context`. The main MCP server has no implicit access to the client checkout; the skill collects these metadata from the current work and passes them explicitly. A unique `matched` result sets the session project. For `ambiguous` or `not_found`, explain the matches and ask the user which project to use. Then locate the feature and task with `list_records`; do not create duplicates.
 
+## Escolha da ferramenta certa
+
+Ao usar este repositório, consulte docs/GUIA_AGENTE_MCP.md para o mapa completo das ferramentas HTTP MCP e das superfícies opcionais. Use as ferramentas anunciadas pela sessão atual como fonte de disponibilidade; o guia não garante que uma conexão exponha todas elas.
+
+- Use list_records para localizar qualquer tipo/status de registro; list_pending é somente para tasks pendentes executáveis. Use resumos para panorama, get_task_context antes de mutar, e paginação/histórico/diffs/Markdown para obter detalhes omitidos.
+- Para panoramas use get_summary, get_project_area_summary e get_project_sync_report; para execução/histórico use get_task_context, get_task_markdown_summary, list_executions e get_history. get_project_novelties, assinaturas e waits acompanham mudanças por cursor dentro da conexão.
+- Distinga a conversa compartilhada da colaboração de execução: send_conversation_message grava no chat e não desperta uma sessão Codex/Claude. send_task_message exige execução ativa. send_collaboration_message é para colaboração entre tasks; uma pergunta enviada por send_task_message ou send_collaboration_message com relatedTaskId pode iniciar consulta somente se não houver job ativo e uma automação anterior concluída ainda autorizada e com escopo inalterado atender às validações do servidor.
+- Para conversas, use create_conversation/open_task_conversation, leia com get_conversation e responda com send_conversation_message. O servidor grava o autor autenticado e o nome do cliente anunciado em initialize.clientInfo.name, que a interface usa para identificar Codex/Claude e exibir o ícone. Envie só o conteúdo; não falsifique nem prefixe a autoria. create_action_proposal aguarda aprovação humana; link/delete só quando o usuário pediu. Mensagens do chat não acordam outro agente.
+- get_automation_status apenas consulta jobs; políticas, providers, permissões e liberações são administrativas.
+- Use list_markdowns/get_markdown/list_markdown_revisions para ler documentos, save_markdown para salvar e update_markdown com a baseRevision lida para atualizar. Para Git use list_task_diffs/get_task_diff; prefira a bridge status/publish_task_diff para extrair evidência do checkout.
+- Para transferências, obtenha preview_task_transfer, mostre o plano e aguarde confirmação humana antes de transfer_task.
+- Use a bridge Git opcional somente com o checkout local correspondente: status primeiro e publish_task_diff para derivar evidência Git. ready:false pode indicar vínculo/ambiguidade de escopo; a bridge não concede acesso. O runner MCP é limitado à task/área autorizadas e pode expor somente um subconjunto de ferramentas.
+- Se a ferramenta esperada não estiver conectada, ou um erro não for recuperável, relate a limitação em vez de inventar chamadas ou repetir mutações.
+
 ## Plan work
 
 1. Create a project only when it does not exist. Register each repository with a unique UUID.
