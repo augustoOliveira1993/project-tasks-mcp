@@ -1,21 +1,23 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { allRecords, ApiRequestError, listProjects, operationId, query, request } from './api';
 import type { AdminCapabilities, Project, ProjectSummary, Task } from './api';
-import { AdminPanel } from './components/admin/AdminPanel';
 import { ProjectPickerDialog } from './components/projects/ProjectPickerDialog';
-import { ProjectsPage } from './components/projects/ProjectsPage';
-import { ProjectSummaryDialog } from './components/projects/ProjectSummaryDialog';
-import { TaskStatusDialog } from './components/tasks/TaskStatusDialog';
 import { Badge } from './components/ui/Badge';
-import { TaskDetailsDialog } from './components/tasks/TaskDetailsDialog';
-import { HardDeleteDialog, type HardDeleteTarget } from './components/ui/HardDeleteDialog';
-import { TaskWorkspace } from './features/tasks/TaskWorkspace';
-import { ConversationPanel } from './components/conversations/ConversationPanel';
+import type { HardDeleteTarget } from './components/ui/HardDeleteDialog';
 import { errorMessage, formatDate } from './lib/format';
-import { toolDocs, toolServers } from './tool-catalog';
 import { conversationIdFromSearch, projectIdFromSearch, routeForTab, routeFromPath, routeUrl, tabForRoute, type AppRoute, type AppTab } from './route-state';
+
+const AdminPanel = lazy(() => import('./components/admin/AdminPanel').then(module => ({ default: module.AdminPanel })));
+const ProjectsPage = lazy(() => import('./components/projects/ProjectsPage').then(module => ({ default: module.ProjectsPage })));
+const ProjectSummaryDialog = lazy(() => import('./components/projects/ProjectSummaryDialog').then(module => ({ default: module.ProjectSummaryDialog })));
+const TaskStatusDialog = lazy(() => import('./components/tasks/TaskStatusDialog').then(module => ({ default: module.TaskStatusDialog })));
+const TaskDetailsDialog = lazy(() => import('./components/tasks/TaskDetailsDialog').then(module => ({ default: module.TaskDetailsDialog })));
+const HardDeleteDialog = lazy(() => import('./components/ui/HardDeleteDialog').then(module => ({ default: module.HardDeleteDialog })));
+const TaskWorkspace = lazy(() => import('./features/tasks/TaskWorkspace').then(module => ({ default: module.TaskWorkspace })));
+const ConversationPanel = lazy(() => import('./components/conversations/ConversationPanel').then(module => ({ default: module.ConversationPanel })));
+const HelpToolsPanel = lazy(() => import('./components/help/HelpToolsPanel').then(module => ({ default: module.HelpToolsPanel })));
 
 const tokenKey = 'project-tasks.human-token';
 
@@ -322,7 +324,6 @@ function App() {
   });
   const projectPages = Math.max(1, Math.ceil(filteredProjects.length / 8));
   const currentProjectPage = filteredProjects.slice((projectPage - 1) * 8, projectPage * 8);
-  const tools = toolDocs.filter(([group, name, description, mode]) => (group + ' ' + name + ' ' + description + ' ' + mode + ' ' + toolServers(name).join(' ') + ' project_tasks project_tasks_git').toLocaleLowerCase('pt-BR').includes(toolSearch.toLocaleLowerCase('pt-BR')));
 
   if (!token || !nonce) return <main className="auth-page"><div className="auth-brand"><span className="brand-mark">PT</span><span>Project Tasks</span></div><section className="auth-card"><p className="eyebrow">PAINEL DE OPERAÇÃO</p><h1>Acesse seu workspace</h1><p className="muted-text">Entre com seu token humano para consultar projetos e tarefas.</p><form className="stack-form" onSubmit={signIn}><label>Token humano<input name="token" type="password" autoComplete="current-password" required autoFocus placeholder="Cole o token de administrador" /></label><button className="button primary full-button" disabled={saving}>{saving ? 'Validando…' : 'Entrar'}</button></form><p className="auth-footnote">As ações respeitam as permissões configuradas no servidor.</p></section>{notice && <div className={'toast toast-' + notice.kind}>{notice.message}</div>}</main>;
 
@@ -357,6 +358,7 @@ function App() {
       <header className="topbar"><div className="breadcrumbs"><span>Workspace</span><span>/</span><strong>{activeRoute === 'projects' ? 'Projetos' : project?.name ?? 'Carregando projeto'}</strong></div><div className="topbar-actions"><span className="connection-pill"><span className="online-dot" /> Serviço ativo</span><button className="avatar-button" onClick={signOut} title="Sair">AU</button></div></header>
       <div className="content-wrap">
         {projectsQuery.isError && <div className="notice error">{errorMessage(projectsQuery.error)}</div>}
+        <Suspense fallback={<div className="loading">Carregando tela…</div>}>
         {activeRoute === 'projects' && <ProjectsPage projects={currentProjectPage} isPending={projectsQuery.isPending} activeProjectId={activeProjectId} search={allProjectsSearch} currentPage={projectPage} pages={projectPages} total={filteredProjects.length} onSearchChange={value => { setAllProjectsSearch(value); setProjectPage(1); }} onPageChange={setProjectPage} onSelect={selectProject} />}
         {activeRoute !== 'projects' && !projects.length && !projectsQuery.isPending && <div className="empty-state"><h2>Nenhum projeto disponível</h2><p>Esta credencial ainda não possui projetos acessíveis.</p><button className="button secondary" onClick={() => navigateToRoute('projects')}>Abrir projetos</button></div>}
         {activeRoute !== 'projects' && project && <>
@@ -365,16 +367,19 @@ function App() {
           {activeTab === 'chat' && <ConversationPanel token={token} nonce={nonce} projectId={activeProjectId} tasks={tasks} requestedConversationId={conversationToOpen || undefined} onConversationSelected={rememberConversation} onOpenAdmin={() => setActiveTab('admin')} />}
           {activeTab === 'activity' && <section className="panel-card"><div className="section-heading"><div><h2>Eventos recentes</h2><p className="muted-text">Atualizações de tarefas e colaboração</p></div><button className="button secondary" onClick={() => void noveltiesQuery.refetch()}>↻ Atualizar</button></div>{noveltiesQuery.isPending ? <div className="loading">Carregando eventos…</div> : noveltiesQuery.isError ? <div className="notice error">{errorMessage(noveltiesQuery.error)}</div> : noveltiesQuery.data?.items?.length ? <div className="timeline">{noveltiesQuery.data.items.map((item, index) => <article className="timeline-item" key={item._id ?? index}><span className="timeline-dot" /><div><strong>{item.summary || item.kind || item.action || 'Atualização do projeto'}</strong><small>{item.author || 'Membro do projeto'} · {formatDate(item.at)}</small></div><Badge>{item.kind || item.action || 'evento'}</Badge></article>)}</div> : <div className="empty-state compact"><h3>Sem novidades recentes</h3><p>Eventos de colaboração aparecerão aqui.</p></div>}</section>}
           {activeTab === 'admin' && <AdminPanel token={token} project={project} projects={projects.map(item => item.project)} onChanged={() => { void projectsQuery.refetch(); }} notify={notify} canHardDelete={canHardDelete} actionPending={saving} onRequestHardDeleteProject={requestProjectHardDelete} onArchiveProject={() => { void archiveProject(); }} />}
-          {activeTab === 'help' && <section className="panel-card help-panel"><div className="section-heading"><div><h2>Ferramentas MCP</h2><p className="muted-text">Recursos expostos pelo servidor e pela bridge local</p></div><Badge tone="green">{tools.length} de {toolDocs.length}</Badge></div><label className="search-field help-search"><span>⌕</span><input value={toolSearch} onChange={event => setToolSearch(event.target.value)} placeholder="Buscar ferramenta ou finalidade" /></label>{tools.length ? <div className="tool-list">{tools.map(([group, name, description, mode]) => <article className="tool-row" key={name}><div className="tool-icon">⌘</div><div className="tool-details"><div className="tool-title"><strong>{name}</strong><Badge tone={mode === 'Leitura' ? 'green' : 'amber'}>{mode}</Badge></div><small className="tool-category">{group}</small><p>{description}</p><div className="tool-servers">{toolServers(name).map(server => <Badge key={server} tone="blue">{server}</Badge>)}</div></div></article>)}</div> : <div className="empty-state compact"><h3>Nenhuma ferramenta encontrada</h3><p>Experimente buscar por nome, categoria ou finalidade.</p></div>}</section>}
+          {activeTab === 'help' && <HelpToolsPanel search={toolSearch} onSearchChange={setToolSearch} />}
         </>}
+        </Suspense>
       </div>
       <footer className="app-footer"><span>Project Tasks MCP</span><span>{project?.name ?? ''}</span></footer>
     </main>
+    <Suspense fallback={null}>
     {selectedTask && project && <TaskDetailsDialog token={token} nonce={nonce} projectId={project._id} task={selectedTask} checking={adminMutation.isPending || saving} onToggleChecked={toggleChecked} onOpenConversation={openConversation} close={() => setSelectedTask(null)} />}
     {statusTask && <TaskStatusDialog task={statusTask} saving={saving} onClose={() => setStatusTask(null)} onSubmit={updateStatus} />}
     <ProjectPickerDialog projects={currentProjectPage} activeProjectId={activeProjectId} search={allProjectsSearch} currentPage={projectPage} pages={projectPages} total={filteredProjects.length} onSearchChange={value => { setAllProjectsSearch(value); setProjectPage(1); }} onPageChange={setProjectPage} onSelect={id => { selectProject(id); (document.getElementById('projects-dialog') as HTMLDialogElement | null)?.close(); }} />
     {summaryOpen && <ProjectSummaryDialog name={project?.name} taskCount={projectSummaryQuery.data?.taskCount ?? tasks.length} markdown={projectSummaryQuery.data?.markdown} error={projectSummaryQuery.error} isPending={projectSummaryQuery.isPending} isError={projectSummaryQuery.isError} onClose={() => setSummaryOpen(false)} />}
-    <HardDeleteDialog target={hardDeleteTarget} busy={hardDeleteBusy} error={hardDeleteError} onClose={() => { setHardDeleteTarget(null); setHardDeleteError(''); }} onConfirm={() => void confirmHardDelete()} />
+    {hardDeleteTarget && <HardDeleteDialog target={hardDeleteTarget} busy={hardDeleteBusy} error={hardDeleteError} onClose={() => { setHardDeleteTarget(null); setHardDeleteError(''); }} onConfirm={() => void confirmHardDelete()} />}
+    </Suspense>
     {notice && <div className={'toast toast-' + notice.kind} role="status">{notice.message}<button onClick={() => setNotice(null)} aria-label="Dispensar">×</button></div>}
   </div>;
 }
