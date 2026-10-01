@@ -7,6 +7,7 @@ import { CreateTaskDialog } from './CreateTaskDialog';
 import { CreateFeatureDialog } from './CreateFeatureDialog';
 import { MetricCard } from '../../components/ui/MetricCard';
 import { errorMessage, formatDate } from '../../lib/format';
+import { routeUrl } from '../../route-state';
 import { statusLabels, statusTone } from './status';
 import { readTaskQueryState, syncTaskQueryState } from './task-query-params';
 import { filterTasks, getTaskFilterOptions, taskFilterOptionLabel, type TaskFilters } from './task-filters';
@@ -25,6 +26,7 @@ type TaskWorkspaceProps = {
   saving: boolean;
   onRefresh: () => void;
   onOpenTask: (task: Task) => void;
+  onOpenQuestionChat: (conversationId: string | null) => void;
   onChangeStatus: (task: Task) => void;
   onToggleChecked: (task: Task) => void;
   canHardDelete: boolean;
@@ -34,7 +36,7 @@ type TaskWorkspaceProps = {
   onSetTasksChecked: (taskIds: string[], checked: boolean) => Promise<string[]>;
 };
 
-export function TaskWorkspace({ token, nonce, projectId, repositories = [], projectAreas = ['backend', 'frontend', 'outro'], tasks, isPending, isError, error, saving, onRefresh, onOpenTask, onChangeStatus, onToggleChecked, canHardDelete, onRequestHardDeleteTask, onArchiveTask, onApproveSelected, onSetTasksChecked }: TaskWorkspaceProps) {
+export function TaskWorkspace({ token, nonce, projectId, repositories = [], projectAreas = ['backend', 'frontend', 'outro'], tasks, isPending, isError, error, saving, onRefresh, onOpenTask, onOpenQuestionChat, onChangeStatus, onToggleChecked, canHardDelete, onRequestHardDeleteTask, onArchiveTask, onApproveSelected, onSetTasksChecked }: TaskWorkspaceProps) {
   const [createTaskOpen, setCreateTaskOpen] = useState(false);
   const [createFeatureOpen, setCreateFeatureOpen] = useState(false);
   const [createdTaskNotice, setCreatedTaskNotice] = useState('');
@@ -65,7 +67,7 @@ export function TaskWorkspace({ token, nonce, projectId, repositories = [], proj
     enabled: Boolean(token && nonce && projectId),
     queryFn: () => query<{
       summary: { taskCount: number; unreadTaskCount: number; openQuestionCount: number };
-      tasks: Array<{ taskId: string; unread: { count: number }; openQuestions: unknown[]; gitDiff: unknown | null }>;
+      tasks: Array<{ taskId: string; unread: { count: number }; openQuestions: Array<{ conversationId: string | null; createdAt: string }>; gitDiff: unknown | null }>;
     }>(token, 'get_project_sync_report', { projectId, ...(featureFilter ? { featureId: featureFilter } : {}) })
   });
   const syncTasks = new Map((syncReportQuery.data?.tasks ?? []).map(item => [item.taskId, item]));
@@ -216,15 +218,23 @@ export function TaskWorkspace({ token, nonce, projectId, repositories = [], proj
 
       {isPending ? <div className="loading">Carregando tarefas…</div> : isError ? <div className="notice error">{errorMessage(error)}</div> : visibleTasks.length ? <div className="table-scroll"><table className="task-table">
         <thead><tr><th><input type="checkbox" aria-label="Selecionar tarefas elegíveis nesta página" disabled={saving || selectableTasks.length === 0} checked={selectableTasks.length > 0 && selectableTasks.every(task => selectedIds.includes(task._id))} onChange={event => setSelectedIds(event.target.checked ? Array.from(new Set([...selectedIds, ...selectableTasks.map(task => task._id)])) : selectedIds.filter(id => !selectableTasks.some(task => task._id === id)))} /></th><th>Tarefa</th><th>Status</th><th>Área</th><th>Responsável</th><th>Atualizada</th><th>Ações</th></tr></thead>
-        <tbody>{visibleTasks.map(task => <tr key={task._id}>
+        <tbody>{visibleTasks.map(task => {
+          const taskSync = syncTasks.get(task._id);
+          const openQuestions = taskSync?.openQuestions ?? [];
+          const latestQuestion = openQuestions.at(-1);
+          const conversationParams = new URLSearchParams();
+          if (latestQuestion?.conversationId) conversationParams.set('conversationId', latestQuestion.conversationId);
+          const conversationHref = routeUrl('conversations', conversationParams.toString(), projectId);
+          return <tr key={task._id}>
           <td><input type="checkbox" aria-label={'Selecionar ' + task.name} disabled={!selectionAllowed(task) || saving} checked={selectedIds.includes(task._id)} onChange={event => toggleSelected(task._id, event.target.checked)} /></td>
-          <td><button className="task-name" onClick={() => onOpenTask(task)}>{task.name}</button><span className="task-id">{task._id.slice(0, 8)} · P{task.priority ?? '—'}</span><span className="task-sync-flags">{(syncTasks.get(task._id)?.unread.count ?? 0) > 0 && <Badge tone="amber">{syncTasks.get(task._id)?.unread.count} não lida(s)</Badge>}{Boolean(syncTasks.get(task._id)?.openQuestions.length) && <Badge tone="blue">{syncTasks.get(task._id)?.openQuestions.length} pergunta(s)</Badge>}{Boolean(syncTasks.get(task._id)?.gitDiff) && <Badge tone="green">Diff Git</Badge>}</span>{task.checked && <small className="checked-label">✓ Conferida por {task.checkedBy || 'membro'}</small>}</td>
+          <td><button className="task-name" onClick={() => onOpenTask(task)}>{task.name}</button><span className="task-id">{task._id.slice(0, 8)} · P{task.priority ?? '—'}</span><span className="task-sync-flags">{(taskSync?.unread.count ?? 0) > 0 && <Badge tone="amber">{taskSync?.unread.count} não lida(s)</Badge>}{openQuestions.length > 0 && <a className="badge inline-flex items-center rounded-full px-2 py-1 text-[9px] font-semibold bg-indigo-50 text-indigo-700 task-question-link" href={conversationHref} aria-label={`Abrir chat sobre ${openQuestions.length} pergunta(s) aberta(s) de ${task.name}`} onClick={event => { if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); onOpenQuestionChat(latestQuestion?.conversationId ?? null); }}>{openQuestions.length} pergunta(s)</a>}{Boolean(taskSync?.gitDiff) && <Badge tone="green">Diff Git</Badge>}</span>{task.checked && <small className="checked-label">✓ Conferida por {task.checkedBy || 'membro'}</small>}</td>
           <td><Badge tone={statusTone[task.status]}>{statusLabels[task.status] ?? task.status}</Badge></td>
           <td><span className="area-label">{task.area ?? '—'}</span></td>
           <td>{task.responsible || <span className="muted-text">Não atribuído</span>}</td>
           <td>{formatDate(task.updatedAt)}</td>
           <td><div className="row-actions"><button className="small-icon" title="Ver detalhes" aria-label={'Ver detalhes de ' + task.name} onClick={() => onOpenTask(task)}>↗</button><button className="small-icon" title="Alterar status" aria-label={'Alterar status de ' + task.name} onClick={() => onChangeStatus(task)}>⋯</button>{task.status === 'concluida' && <button className={task.checked ? 'small-icon checked-action' : 'small-icon'} title={task.checked ? 'Remover conferência' : 'Conferir tarefa'} aria-label={task.checked ? 'Remover conferência de ' + task.name : 'Conferir tarefa ' + task.name} disabled={saving} onClick={() => onToggleChecked(task)}>{task.checked ? '✓' : '○'}</button>}{['concluida', 'cancelada'].includes(task.status) && <button type="button" className="row-label-action archive-row-action" disabled={saving} onClick={() => onArchiveTask(task)}>Arquivar</button>}{canHardDelete && <button type="button" className="row-label-action delete-row-action" disabled={saving} onClick={() => onRequestHardDeleteTask(task)} aria-label={'Excluir definitivamente a tarefa ' + task.name}>Excluir</button>}</div></td>
-        </tr>)}</tbody>
+        </tr>;
+        })}</tbody>
       </table></div> : <div className="empty-state compact"><h3>Nenhuma tarefa encontrada</h3><p>Altere os filtros ou selecione outro projeto.</p></div>}
 
       <footer className="table-footer"><span>Mostrando {pagination.firstItem}–{pagination.lastItem} de {filtered.length}</span><div className="pagination"><label>Por página <select value={pageSize} onChange={event => updatePageSize(Number(event.target.value))}><option>10</option><option>25</option><option>50</option><option>100</option></select></label><button className="small-icon" disabled={currentPage <= 1} onClick={() => updatePage(currentPage - 1)} aria-label="Página anterior">‹</button><span>Página {currentPage} de {pages}</span><button className="small-icon" disabled={currentPage >= pages} onClick={() => updatePage(currentPage + 1)} aria-label="Próxima página">›</button></div></footer>
