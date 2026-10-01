@@ -28,6 +28,9 @@ export function AdminPanel({ project, projects, onChanged, notify, token, canHar
   const [credentialProjectId, setCredentialProjectId] = useState(project._id);
   const [credentialLimit, setCredentialLimit] = useState(25);
   const [credentialCursors, setCredentialCursors] = useState<Array<string | undefined>>([undefined]);
+  const [areas, setAreas] = useState<string[]>(project.areas?.length ? project.areas : ['backend', 'frontend', 'outro']);
+  const [areasVersion, setAreasVersion] = useState(project.version);
+  const [areaDraft, setAreaDraft] = useState('');
   useEffect(() => {
     const repository = project.repositories?.find(item => item.id === repositoryId) ?? project.repositories?.[0];
     const selectedId = repository?.id ?? '';
@@ -40,6 +43,10 @@ export function AdminPanel({ project, projects, onChanged, notify, token, canHar
     setCredentialProjectId(project._id);
     setCredentialCursors([undefined]);
   }, [project._id]);
+  useEffect(() => {
+    setAreas(project.areas?.length ? project.areas : ['backend', 'frontend', 'outro']);
+    setAreasVersion(project.version);
+  }, [project._id, project.version, project.areas]);
   const currentCursor = credentialCursors[credentialCursors.length - 1];
   const credentialsQuery = useQuery({
     queryKey: ['admin-credentials', token, credentialEmail.trim(), credentialScope, credentialStatus, credentialProjectId, credentialLimit, currentCursor],
@@ -59,7 +66,10 @@ export function AdminPanel({ project, projects, onChanged, notify, token, canHar
   const bindingMutation = useMutation({
     mutationFn: (body: Record<string, unknown>) => request<Project>(token, '/admin', { body })
   });
-  const busy = issueMutation.isPending || bindingMutation.isPending;
+  const areaMutation = useMutation({
+    mutationFn: (body: Record<string, unknown>) => request<{ version: number; areas: string[] }>(token, '/admin', { body })
+  });
+  const busy = issueMutation.isPending || bindingMutation.isPending || areaMutation.isPending;
 
   async function issue(scope: 'agent' | 'project') {
     const email = scope === 'agent' ? agentEmail.trim() : memberEmail.trim();
@@ -110,6 +120,41 @@ export function AdminPanel({ project, projects, onChanged, notify, token, canHar
     } catch (error) { notify(errorMessage(error), 'error'); }
   }
 
+  async function saveAreas(nextAreas: string[]) {
+    try {
+      const updated = await areaMutation.mutateAsync({ action: 'project_areas', operationId: operationId(), projectId: project._id, version: areasVersion, areas: nextAreas });
+      setAreas(updated.areas);
+      setAreasVersion(updated.version);
+      setAreaDraft('');
+      notify('Áreas do projeto atualizadas.', 'success');
+      onChanged();
+    } catch (error) {
+      const message = errorMessage(error);
+      notify(message.includes('Area is still used') ? 'Esta área ainda está em uso por uma ou mais tarefas. Reatribua ou arquive essas tarefas antes de removê-la.' : message, 'error');
+    }
+  }
+
+  function addArea(event: FormEvent) {
+    event.preventDefault();
+    const area = areaDraft.trim();
+    if (!area) return;
+    if (areas.some(existing => existing.toLocaleLowerCase('pt-BR') === area.toLocaleLowerCase('pt-BR'))) {
+      notify('Essa área já está cadastrada.', 'error');
+      return;
+    }
+    if (areas.length >= 100) {
+      notify('O projeto já atingiu o limite de 100 áreas.', 'error');
+      return;
+    }
+    void saveAreas([...areas, area]);
+  }
+
+  function removeArea(area: string) {
+    if (areas.length <= 1) return notify('O projeto precisa manter pelo menos uma área.', 'error');
+    if (!window.confirm(`Remover a área “${area}” deste projeto?`)) return;
+    void saveAreas(areas.filter(item => item !== area));
+  }
+
   async function copyIssued() {
     if (!issued) return;
     try { await navigator.clipboard.writeText(issued.token); notify('Token copiado.', 'success'); }
@@ -128,6 +173,7 @@ export function AdminPanel({ project, projects, onChanged, notify, token, canHar
     </section>
     <section className="panel-card"><div className="section-heading"><div><p className="eyebrow">ACESSO AO PROJETO</p><h2>Conceder acesso individual</h2></div><span className="lock-mark">⌑</span></div><p className="muted-text">Emite token de acesso para uma pessoa neste projeto.</p><form className="stack-form" onSubmit={event => { event.preventDefault(); if (confirm('Emitir acesso ao projeto ' + project.name + ' para ' + memberEmail + '?')) void issue('project'); }}><label>E-mail<input type="email" value={memberEmail} onChange={event => setMemberEmail(event.target.value)} required placeholder="pessoa@empresa.com" /></label><button className="button secondary" disabled={busy}>Emitir acesso</button></form>
     </section>
+    <section className="panel-card wide-card" aria-labelledby="project-areas-title"><div className="section-heading"><div><p className="eyebrow">ÁREAS DO PROJETO</p><h2 id="project-areas-title">Gerenciar áreas</h2></div></div><p className="muted-text">As áreas cadastradas aparecem na pergunta de contexto da IA e nos formulários de tarefa. Uma área em uso precisa ser reatribuída ou arquivada antes de ser removida.</p><form className="area-add-form" onSubmit={addArea}><label htmlFor="new-project-area">Nova área<input id="new-project-area" value={areaDraft} onChange={event => setAreaDraft(event.target.value)} required maxLength={80} placeholder="Ex.: dados, operações" /></label><button className="button secondary" disabled={busy || areas.length >= 100 || !areaDraft.trim()}>{areaMutation.isPending ? 'Salvando…' : 'Adicionar área'}</button></form><div className="area-catalog-list" role="list" aria-label="Áreas cadastradas">{areas.map(area => <div className="area-catalog-row" role="listitem" key={area}><span>{area === 'backend' ? 'Backend' : area === 'frontend' ? 'Frontend' : area === 'outro' ? 'Outro' : area}</span><button type="button" className="button ghost small-button" disabled={busy || areas.length <= 1} onClick={() => removeArea(area)} aria-label={`Remover área ${area}`}>Remover</button></div>)}</div></section>
     <section className="panel-card wide-card credential-inventory" aria-labelledby="credential-inventory-title">
       <div className="section-heading"><div><p className="eyebrow">CREDENCIAIS EMITIDAS</p><h2 id="credential-inventory-title">Inventário por e-mail</h2></div><button type="button" className="button secondary small-button" onClick={() => void credentialsQuery.refetch()} disabled={credentialsQuery.isFetching}>↻ Atualizar</button></div>
       <p className="muted-text">Consulte os metadados de cada token. Segredos antigos não podem ser recuperados; emitir outro não revoga os anteriores.</p>

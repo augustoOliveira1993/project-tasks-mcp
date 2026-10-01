@@ -40,7 +40,7 @@ function AgentClientIcon({ clientName }: { clientName?: string | null }) {
 }
 
 function areaLabel(area?: string) {
-  return area === 'backend' ? 'Backend' : area === 'frontend' ? 'Frontend' : area === 'outro' ? 'Outro' : 'Não definida';
+  return area === 'backend' ? 'Backend' : area === 'frontend' ? 'Frontend' : area === 'outro' ? 'Outro' : area || 'Não definida';
 }
 
 function authorDisplayName(author: string) {

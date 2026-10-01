@@ -5,7 +5,7 @@ export type NewTaskDraft = {
   name: string;
   instructions: string;
   acceptanceText: string;
-  area: 'backend' | 'frontend' | 'outro';
+  area: string;
   repositoryId: string;
   featureId: string;
   type: 'feature' | 'fix' | 'chore' | 'docs' | 'refactor' | 'test' | 'perf' | 'build' | 'ci' | 'revert';

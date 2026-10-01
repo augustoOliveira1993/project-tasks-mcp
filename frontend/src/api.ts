@@ -7,6 +7,7 @@ export type Project = {
   description?: string;
   visibility?: string;
   repositories?: Array<{ id: string; name: string; url: string; git?: { canonicalRemoteUrl: string; rootCommit: string } }>;
+  areas?: string[];
   createdAt?: string;
   updatedAt?: string;
 };

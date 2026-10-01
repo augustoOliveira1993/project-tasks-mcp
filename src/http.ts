@@ -6,6 +6,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { tools } from './schema.js';
+import { areasForProject } from './area-catalog.js';
 import { authenticate, authenticateAny, trustedLocal, DomainError, Service } from './service.js';
 import { env } from './env.js';
 import { logger } from './logger.js';
@@ -15,7 +16,7 @@ import { adminPage } from './admin-page.js';
 
 const MCP_AGENT_INSTRUCTIONS = [
   'Use apenas as ferramentas anunciadas nesta sessão. O guia operacional no repositório detalha todas as famílias; não assuma que uma capacidade documentada está conectada ao cliente atual.',
-  'Comece com get_session_context. Respeite o projeto indicado pelo usuário; se faltar, resolva pelo workspace Git com resolve_project_context antes de perguntar. Pergunte a área apenas quando ela continuar ausente.',
+  'Comece com get_session_context. Respeite o projeto indicado pelo usuário; se faltar, resolva pelo workspace Git com resolve_project_context e chame get_session_context novamente para receber availableAreas. Quando a área continuar ausente, peça a escolha entre as áreas cadastradas naquele projeto e registre a seleção em uma ferramenta compatível.',
   'Para descobrir registros, use list_records; list_pending serve apenas para encontrar tasks pendentes executáveis. Use resumos para panorama e get_task_context antes de alterar ou assumir uma task. Contexto pode ser paginado/truncado: carregue detalhes sob demanda.',
   'Crie registros só quando solicitados e depois de procurar duplicatas. Para executar, leia dependências/status e claim_task com versão atual; durante a execução use heartbeat_task e record_progress. Atualize cada critério com evidência objetiva usando set_acceptance_criterion antes de submit_task.',
   'Em revisão, aprove com set_task_status somente após conferir diff e evidências de todos os critérios; devolva pendente descrevendo lacunas. block_task bloqueia a execução; não tente desbloquear com set_task_status. Permissões, credenciais, vínculo Git e configuração/liberação de automação são ações humanas administrativas.',
@@ -27,7 +28,7 @@ const MCP_AGENT_INSTRUCTIONS = [
 ].join(' ');
 
 const START_WORK_PROMPT = [
-  'Inicie o fluxo do Project Tasks MCP. Primeiro chame get_session_context. Use o projeto indicado pelo usuário; se projectId estiver ausente, obtenha a raiz absoluta do workspace e, se for checkout Git, remote e commit raiz, então chame resolve_project_context. Use automaticamente um resultado matched; para ambiguous, not_found ou workspace indisponível, explique e peça esclarecimento. Pergunte backend, frontend ou outro somente se a área continuar ausente.',
+  'Inicie o fluxo do Project Tasks MCP. Primeiro chame get_session_context. Use o projeto indicado pelo usuário; se projectId estiver ausente, obtenha a raiz absoluta do workspace e, se for checkout Git, remote e commit raiz, então chame resolve_project_context. Use automaticamente um resultado matched e chame get_session_context novamente para obter availableAreas; para ambiguous, not_found ou workspace indisponível, explique e peça esclarecimento. Se a área continuar ausente, pergunte qual área cadastrada do projeto deve ser assumida.',
   'Use o pedido atual como objetivo quando estiver claro. Use list_records/list_pending para localizar trabalho existente e nunca invente IDs. Se não houver correspondência, houver ambiguidade ou a única task correspondente estiver concluída/não executável, explique o que encontrou e pergunte como prosseguir antes de criar ou alterar registros.',
   'Para uma única task correspondente e executável, leia get_task_context antes de mutações, confira dependências e status, e claim_task com a versão atual. Siga heartbeat_task, record_progress e set_acceptance_criterion assim que houver evidência por critério; use block_task para impedimento e submit_task quando a entrega estiver pronta.',
   'Use o guia operacional para escolher as outras famílias de ferramentas: chat compartilhado, colaboração de task, Markdown, eventos, automação, Git ou transferência. Mensagens no chat não acordam automaticamente outra IA. Respeite aprovações humanas, versão, operationId, identidade e limites da sessão.'
@@ -155,7 +156,7 @@ export function createApp(service: Service, origins: string[]) {
     const page = await service.query(actor, 'list_records', { kind: 'project', archived: false, ...query });
     const items = await Promise.all(page.items.map(async (project: any) => ({
       project: {
-        _id: project._id, version: project.version, name: project.name, description: project.description, visibility: project.visibility,
+        _id: project._id, version: project.version, name: project.name, description: project.description, visibility: project.visibility, areas: areasForProject(project),
         repositories: (project.repositories ?? []).map((repository: any) => ({
           id: repository.id, name: repository.name, url: repository.url,
           ...(repository.git ? { git: { canonicalRemoteUrl: repository.git.canonicalRemoteUrl, rootCommit: repository.git.rootCommit } } : {})
@@ -298,7 +299,7 @@ export function createApp(service: Service, origins: string[]) {
     const actor = await authenticate(token(req.headers.authorization), 'agent');
     res.json(await service.automation.runner(actor, req.body));
   });
-  type Session = { transport: StreamableHTTPServerTransport; server: McpServer; actor: any; clientName?: string; subscriptions: Set<string>; filters: Map<string, EventFilter>; waits: number; busy: boolean; lastSeen: number; projectId?: string; area?: 'backend' | 'frontend' | 'outro' };
+  type Session = { transport: StreamableHTTPServerTransport; server: McpServer; actor: any; clientName?: string; subscriptions: Set<string>; filters: Map<string, EventFilter>; waits: number; busy: boolean; lastSeen: number; projectId?: string; area?: string };
   const sessions = new Map<string, Session>();
   service.events.start();
   const removeListener = service.onTaskEvent(event => {
@@ -355,8 +356,20 @@ export function createApp(service: Service, origins: string[]) {
         const meta = { tool: name, actor: session.actor.userId, projectId: (args as any).projectId, taskId: (args as any).taskId };
         try {
           if (name === 'get_session_context') {
-            const missing = [!session.projectId ? 'Use o projeto indicado pelo usuário quando houver; caso contrário, resolva-o pelo workspace com resolve_project_context antes de perguntar o nome.' : undefined,!session.area ? 'Qual area devo assumir? Escolha: backend, frontend ou outro.' : undefined].filter(Boolean);
-            const result = { projectId: session.projectId ?? null, area: session.area ?? null, missing, ready: missing.length === 0 };
+            const missing: string[] = [];
+            let availableAreas: string[] = [];
+            if (!session.projectId) missing.push('Use o projeto indicado pelo usuário quando houver; caso contrário, resolva-o pelo workspace com resolve_project_context antes de perguntar o nome.');
+            else {
+              const projects = await service.query(session.actor, 'list_records', { kind: 'project', projectId: session.projectId, archived: false, limit: 1 });
+              const project = projects.items?.[0];
+              if (!project) missing.push('O projeto selecionado não está acessível ou foi arquivado.');
+              else {
+                availableAreas = areasForProject(project);
+                if (session.area && !availableAreas.includes(session.area)) session.area = undefined;
+                if (!session.area) missing.push(`Qual área devo assumir? Escolha uma área cadastrada: ${availableAreas.join(', ')}.`);
+              }
+            }
+            const result = { projectId: session.projectId ?? null, area: session.area ?? null, availableAreas, missing, ready: missing.length === 0 };
             return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
           }
           const result = await service.call({ ...session.actor, ...(session.clientName ? { clientName: session.clientName } : {}) }, name, args);

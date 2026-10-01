@@ -17,6 +17,7 @@ type TaskWorkspaceProps = {
   nonce: string;
   projectId: string;
   repositories?: Project['repositories'];
+  projectAreas?: string[];
   tasks: Task[];
   isPending: boolean;
   isError: boolean;
@@ -33,7 +34,7 @@ type TaskWorkspaceProps = {
   onSetTasksChecked: (taskIds: string[], checked: boolean) => Promise<string[]>;
 };
 
-export function TaskWorkspace({ token, nonce, projectId, repositories = [], tasks, isPending, isError, error, saving, onRefresh, onOpenTask, onChangeStatus, onToggleChecked, canHardDelete, onRequestHardDeleteTask, onArchiveTask, onApproveSelected, onSetTasksChecked }: TaskWorkspaceProps) {
+export function TaskWorkspace({ token, nonce, projectId, repositories = [], projectAreas = ['backend', 'frontend', 'outro'], tasks, isPending, isError, error, saving, onRefresh, onOpenTask, onChangeStatus, onToggleChecked, canHardDelete, onRequestHardDeleteTask, onArchiveTask, onApproveSelected, onSetTasksChecked }: TaskWorkspaceProps) {
   const [createTaskOpen, setCreateTaskOpen] = useState(false);
   const [createFeatureOpen, setCreateFeatureOpen] = useState(false);
   const [createdTaskNotice, setCreatedTaskNotice] = useState('');
@@ -71,7 +72,7 @@ export function TaskWorkspace({ token, nonce, projectId, repositories = [], task
 
   const filtered = useMemo(() => filterTasks(tasks, filters)
     .sort((a, b) => (a.priority ?? 999) - (b.priority ?? 999) || String(b.updatedAt ?? '').localeCompare(String(a.updatedAt ?? ''))), [tasks, search, statusFilter, areaFilter, typeFilter, priorityFilter, responsibleFilter, featureFilter, createdAfter, createdBefore, updatedAfter, updatedBefore]);
-  const filterOptions = useMemo(() => getTaskFilterOptions(tasks, filters), [tasks, search, statusFilter, areaFilter, typeFilter, priorityFilter, responsibleFilter, featureFilter, createdAfter, createdBefore, updatedAfter, updatedBefore]);
+  const filterOptions = useMemo(() => getTaskFilterOptions(tasks, filters, projectAreas), [tasks, projectAreas, search, statusFilter, areaFilter, typeFilter, priorityFilter, responsibleFilter, featureFilter, createdAfter, createdBefore, updatedAfter, updatedBefore]);
   const pagination = paginateItems(filtered, page, pageSize);
   const { page: currentPage, pageCount: pages, items: visibleTasks } = pagination;
   const countStatus = (status: string) => tasks.filter(task => task.status === status).length;
@@ -228,7 +229,7 @@ export function TaskWorkspace({ token, nonce, projectId, repositories = [], task
 
       <footer className="table-footer"><span>Mostrando {pagination.firstItem}–{pagination.lastItem} de {filtered.length}</span><div className="pagination"><label>Por página <select value={pageSize} onChange={event => updatePageSize(Number(event.target.value))}><option>10</option><option>25</option><option>50</option><option>100</option></select></label><button className="small-icon" disabled={currentPage <= 1} onClick={() => updatePage(currentPage - 1)} aria-label="Página anterior">‹</button><span>Página {currentPage} de {pages}</span><button className="small-icon" disabled={currentPage >= pages} onClick={() => updatePage(currentPage + 1)} aria-label="Próxima página">›</button></div></footer>
     </section>
-    {createTaskOpen && <CreateTaskDialog key={projectId} token={token} nonce={nonce} projectId={projectId} repositories={repositories ?? []} tasks={tasks} defaultFeatureId={featureFilter} close={() => setCreateTaskOpen(false)} onCreated={task => { setCreateTaskOpen(false); setCreatedTaskNotice(`Task “${task.name}” criada.`); }} />}
+    {createTaskOpen && <CreateTaskDialog key={projectId} token={token} nonce={nonce} projectId={projectId} repositories={repositories ?? []} areas={projectAreas} tasks={tasks} defaultFeatureId={featureFilter} close={() => setCreateTaskOpen(false)} onCreated={task => { setCreateTaskOpen(false); setCreatedTaskNotice(`Task “${task.name}” criada.`); }} />}
     {createFeatureOpen && <CreateFeatureDialog key={projectId} token={token} nonce={nonce} projectId={projectId} close={() => setCreateFeatureOpen(false)} onCreated={feature => { setCreateFeatureOpen(false); setCreatedFeatureNotice(`Feature “${feature.name}” criada.`); }} />}
   </>;
 }

@@ -37,12 +37,13 @@ export function filterTasks(tasks: Task[], filters: TaskFilters, excluded?: Filt
   });
 }
 
-function collectOptions(tasks: Task[], getValue: (task: Task) => string | undefined, preferredOrder: string[] = [], numeric = false): TaskFacetOption[] {
+function collectOptions(tasks: Task[], getValue: (task: Task) => string | undefined, preferredOrder: string[] = [], numeric = false, additionalValues: string[] = []): TaskFacetOption[] {
   const counts = new Map<string, number>();
   for (const task of tasks) {
     const value = getValue(task);
     if (value !== undefined && value !== '') counts.set(value, (counts.get(value) ?? 0) + 1);
   }
+  for (const value of additionalValues) if (value) counts.set(value, counts.get(value) ?? 0);
 
   const preferredRank = new Map(preferredOrder.map((value, index) => [value, index]));
   return Array.from(counts, ([value, count]) => ({ value, count })).sort((a, b) => {
@@ -54,10 +55,10 @@ function collectOptions(tasks: Task[], getValue: (task: Task) => string | undefi
   });
 }
 
-export function getTaskFilterOptions(tasks: Task[], filters: TaskFilters): TaskFilterOptions {
+export function getTaskFilterOptions(tasks: Task[], filters: TaskFilters, projectAreas: string[] = []): TaskFilterOptions {
   return {
     status: collectOptions(filterTasks(tasks, filters, 'status'), task => task.status, Object.keys(statusLabels)),
-    area: collectOptions(filterTasks(tasks, filters, 'area'), task => task.area, ['backend', 'frontend', 'outro']),
+    area: collectOptions(filterTasks(tasks, filters, 'area'), task => task.area, ['backend', 'frontend', 'outro'], false, projectAreas),
     type: collectOptions(filterTasks(tasks, filters, 'type'), task => task.type),
     priority: collectOptions(filterTasks(tasks, filters, 'priority'), task => task.priority == null ? undefined : String(task.priority), [], true)
   };

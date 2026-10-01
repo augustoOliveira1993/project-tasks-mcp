@@ -11,6 +11,7 @@ import { Automation } from './services/automation-service.js';
 import { deleteProjectCascade, ProjectDeletionConflict } from './services/project-deletion-service.js';
 import { deleteTaskCascade, TaskDeletionConflict } from './services/task-deletion-service.js';
 import { ConversationService } from './services/conversation-service.js';
+import { areasForProject } from './area-catalog.js';
 import { tools, adminSchema, approveActionProposalSchema, approveTasksSchema, changeTaskStatusSchema, setTaskAcceptanceCriterionSchema, setTaskCheckedSchema, projectData, featureData, taskData, states, userId as userIdSchema } from './schema.js';
 
 export class DomainError extends Error { constructor(message: string, public status = 409) { super(message); } }
@@ -20,7 +21,7 @@ const plain = (value: unknown) => JSON.parse(JSON.stringify(value));
 const projectDto = (project: any) => ({
   _id: project._id, version: project.version, archived: project.archived, name: project.name,
   description: project.description, instructions: project.instructions, visibility: project.visibility,
-  repositories: project.repositories, createdAt: project.createdAt, updatedAt: project.updatedAt
+  repositories: project.repositories, areas: areasForProject(project), createdAt: project.createdAt, updatedAt: project.updatedAt
 });
 const memberKey = (userId: string) => /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(userId) ? userId : 'email_' + hash(userId.toLowerCase()).slice(0, 32);
 const projectTaskReadKey = '__project_baseline__';
@@ -416,8 +417,13 @@ export class Service {
   private async graph(projectId: string, taskId: string, data: any, s: ClientSession) {
     const p = await Project.findById(projectId).session(s);
     requireThat(p?.repositories.some(r => r.id === data.repositoryId), 'Unknown repository');
+    requireThat(areasForProject(p).includes(data.area), 'Unknown project area', 400);
     if (data.featureId) requireThat(await Feature.exists({ _id: data.featureId, projectId, archived: false }).session(s), 'Unknown or archived feature');
     await validateTaskDependencyGraph(projectId, taskId, data.dependencies ?? [], s, requireThat);
+  }
+  private async ensureAreasUnused(projectId: string, current: string[], next: string[], s: ClientSession) {
+    const removed = current.filter(area => !next.includes(area));
+    if (removed.length) requireThat(!await Task.exists({ projectId, archived: false, area: { $in: removed } }).session(s), 'Area is still used by one or more tasks', 409);
   }
   private async taskTransferPlan(actor: Actor, a: any, s?: ClientSession) {
     const source: any = await this.access(actor, a.projectId, true, false, s);
@@ -431,6 +437,7 @@ export class Service {
     const blockers: string[] = [];
     if (task.archived) blockers.push('Archived tasks cannot be transferred.');
     if (!destination.repositories?.some((repository: any) => repository.id === a.targetRepositoryId)) blockers.push('Destination repository is not registered in the destination project.');
+    if (!areasForProject(destination).includes(task.area)) blockers.push(`Destination project does not register area "${task.area}".`);
     if (a.targetFeatureId && !await Feature.exists({ _id: a.targetFeatureId, projectId: a.targetProjectId, archived: false }).session(s ?? null)) blockers.push('Destination feature is missing, archived, or belongs to another project.');
     if (await Task.exists({ _id: a.taskId, projectId: a.targetProjectId }).session(s ?? null)) blockers.push('Destination already contains this task ID.');
     if (await MarkdownDocument.exists({ projectId: a.targetProjectId, targetKind: 'task', targetId: a.taskId }).session(s ?? null)) blockers.push('Destination already contains Markdown documents for this task ID.');
@@ -608,6 +615,7 @@ export class Service {
             requireThat(new Set(ids).size === ids.length, 'Duplicate repository');
             requireThat(!await Task.exists({ projectId: a.projectId, repositoryId: { $nin: ids } }).session(s), 'Repository is referenced');
           }
+          if (a.kind === 'project' && 'areas' in data && data.areas) await this.ensureAreasUnused(a.projectId, areasForProject(doc), data.areas, s);
           Object.assign(doc, data);
         }
         doc.version += 1; await doc.save({ session: s });
@@ -828,7 +836,12 @@ export class Service {
         : actor.systemAdmin ? {} : { [`members.${memberKey(actor.userId)}`]: { $exists: true } };
       const filter: any = kind === 'project' ? { ...projectAccessFilter, ...(a.projectId ? { _id: a.projectId } : {}) } : { projectId: a.projectId };
       filter.archived = a.archived ?? false;
+      requireThat(!a.area || kind === 'task', 'Area filter is only supported for tasks', 400);
       if (kind === 'task') {
+        if (a.area) {
+          const project = await Project.findById(a.projectId).select('areas').lean();
+          requireThat(areasForProject(project).includes(a.area), 'Unknown project area', 400);
+        }
         for (const key of ['area', 'responsible', 'status']) if (a[key]) filter[key] = a[key];
         if (a.featureId) filter.featureId = a.featureId;
         if (a.search) filter.name = { $regex: `^${a.search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, $options: 'i' };
@@ -928,8 +941,9 @@ export class Service {
       const label: Record<string, string> = { backend: 'Backend', frontend: 'Frontend', outro: 'Outro' };
       const escape = (value: string) => value.replace(/[|\x0D\x0A]/g, ' ');
       const lines = [`# Resumo do projeto: ${escape(project!.name!)}`, '', `Gerado em ${new Date().toISOString()}.${a.featureId ? ` Filtrado pela feature ${a.featureId}.` : ''}`];
-      for (const area of ['backend', 'frontend', 'outro']) {
-        const rows = tasks.filter(t => t.area === area); lines.push('', `## ${label[area]}`, '');
+      const summaryAreas = [...new Set([...areasForProject(project), ...tasks.map(task => task.area).filter((area): area is string => !!area)])];
+      for (const area of summaryAreas) {
+        const rows = tasks.filter(t => t.area === area); lines.push('', `## ${escape(label[area] ?? area)}`, '');
         for (const group of [['Concluídas', rows.filter(t => t.status === 'concluida')], ['Pendentes', rows.filter(t => t.status === 'pendente')], ['Outros estados', rows.filter(t => !['concluida', 'pendente'].includes(t.status!))]] as const) {
           lines.push(`### ${group[0]} (${group[1].length})`);
           if (!group[1].length) lines.push('- Nenhuma.');
@@ -1006,8 +1020,18 @@ export class Service {
     requireThat(actor.scope === 'human', 'Human credential required', 403);
     const a = adminSchema.parse(input);
     if (a.action === 'automation_policy' || a.action === 'automation_release' || a.action === 'automation_resolve') return this.automation.admin(actor, a);
-    const projectAdminRequired = new Set<string>(['bind_repository_git', 'issue_project_member', 'member']).has(a.action);
+    const projectAdminRequired = new Set<string>(['bind_repository_git', 'project_areas', 'issue_project_member', 'member']).has(a.action);
     const result = await this.mutate(actor, 'admin', a, async s => {
+      if (a.action === 'project_areas') {
+        const project = await Project.findOne({ _id: a.projectId, version: a.version, archived: false }).session(s);
+        requireThat(project, 'Project version conflict or archived', 409);
+        await this.ensureAreasUnused(a.projectId, areasForProject(project), a.areas, s);
+        project.areas = a.areas;
+        project.version! += 1;
+        await project.save({ session: s });
+        await this.event(s, actor, a.action, a.projectId, a.projectId, { areas: project.areas, version: project.version });
+        return { projectId: a.projectId, version: project.version, areas: areasForProject(project) };
+      }
       if (a.action === 'bind_repository_git') {
         const project = await Project.findOne({ _id: a.projectId, version: a.version, archived: false }).session(s);
         requireThat(project, 'Project version conflict or archived', 409);

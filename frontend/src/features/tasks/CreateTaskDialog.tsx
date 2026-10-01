@@ -8,11 +8,12 @@ import { submitNewTask } from './task-create';
 type Feature = { _id: string; name: string; archived?: boolean };
 type Repository = NonNullable<Project['repositories']>[number];
 
-export function CreateTaskDialog({ token, nonce, projectId, repositories, tasks, defaultFeatureId, close, onCreated }: {
+export function CreateTaskDialog({ token, nonce, projectId, repositories, areas, tasks, defaultFeatureId, close, onCreated }: {
   token: string;
   nonce: string;
   projectId: string;
   repositories: Repository[];
+  areas: string[];
   tasks: Task[];
   defaultFeatureId: string;
   close: () => void;
@@ -21,6 +22,7 @@ export function CreateTaskDialog({ token, nonce, projectId, repositories, tasks,
   const client = useQueryClient();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [dependencies, setDependencies] = useState<string[]>([]);
+  const defaultArea = areas.includes('frontend') ? 'frontend' : areas[0] ?? '';
   useEffect(() => {
     const dialog = dialogRef.current;
     if (dialog && !dialog.open) dialog.showModal();
@@ -50,7 +52,7 @@ export function CreateTaskDialog({ token, nonce, projectId, repositories, tasks,
       name: String(form.get('name') ?? ''),
       instructions: String(form.get('instructions') ?? ''),
       acceptanceText: String(form.get('acceptance') ?? ''),
-      area: String(form.get('area') ?? 'frontend') as 'backend' | 'frontend' | 'outro',
+      area: String(form.get('area') ?? defaultArea),
       repositoryId: String(form.get('repositoryId') ?? ''),
       featureId: String(form.get('featureId') ?? ''),
       type: String(form.get('type') ?? 'feature') as Parameters<typeof submitNewTask>[2]['type'],
@@ -70,7 +72,7 @@ export function CreateTaskDialog({ token, nonce, projectId, repositories, tasks,
       <label>Instruções<textarea name="instructions" required maxLength={20000} rows={4} placeholder="Descreva o objetivo, limites e contexto para quem assumir a task." /></label>
       <label>Critérios de aceite<textarea name="acceptance" required rows={4} placeholder={'Um critério por linha\nEx.: O botão exporta os filtros aplicados.'} /><small>Informe pelo menos um critério; cada linha vira um item separado.</small></label>
       <div className="create-task-fields">
-        <label>Área<select name="area" defaultValue="frontend"><option value="backend">Backend</option><option value="frontend">Frontend</option><option value="outro">Outro</option></select></label>
+        <label>Área<select name="area" defaultValue={defaultArea} required>{areas.map(area => <option value={area} key={area}>{area === 'backend' ? 'Backend' : area === 'frontend' ? 'Frontend' : area === 'outro' ? 'Outro' : area}</option>)}</select></label>
         <label>Repositório<select name="repositoryId" required defaultValue={repositories.length === 1 ? repositories[0].id : ''}><option value="" disabled>Selecione</option>{repositories.map(repository => <option key={repository.id} value={repository.id}>{repository.name}</option>)}</select></label>
         <label>Feature<select name="featureId" defaultValue={defaultFeatureId}><option value="">Sem feature</option>{(features.data ?? []).map(feature => <option key={feature._id} value={feature._id}>{feature.name}</option>)}</select>{features.isPending && <small>Carregando features…</small>}</label>
         <label>Tipo<select name="type" defaultValue="feature">{['feature', 'fix', 'chore', 'docs', 'refactor', 'test', 'perf', 'build', 'ci', 'revert'].map(type => <option key={type} value={type}>{type}</option>)}</select></label>

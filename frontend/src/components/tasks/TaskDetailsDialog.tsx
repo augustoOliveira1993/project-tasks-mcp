@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiRequestError, operationId, query, request } from '../../api';
 import type { Task } from '../../api';
+import { markTaskReadIfUnread, type TaskUnreadState } from '../../features/tasks/task-read';
 import { Badge } from '../ui/Badge';
 import { errorMessage, formatDate } from '../../lib/format';
 import { statusLabels, statusTone } from '../../features/tasks/status';
@@ -11,6 +12,7 @@ import { openTaskConversation } from '../../features/tasks/task-conversation';
 
 type TaskDiff = { _id: string; commit?: string; branch?: string; files?: string[]; at?: string; createdAt?: string };
 type TaskMarkdown = { _id: string; name: string; summary: string; revision: number };
+type TaskReadAttempt = { taskId: string; cursor: number; operationId: string };
 
 export function TaskDetailsDialog({ token, nonce, projectId, task, checking, onToggleChecked, onOpenConversation, close }: { token: string; nonce: string; projectId: string; task: Task; checking: boolean; onToggleChecked: (task: Task) => void; onOpenConversation: (conversationId: string) => void; close: () => void }) {
   const [markdown, setMarkdown] = useState<{ name: string; content: string } | null>(null);
@@ -19,10 +21,38 @@ export function TaskDetailsDialog({ token, nonce, projectId, task, checking, onT
   const [savingCriterion, setSavingCriterion] = useState<number | null>(null);
   const [criterionFeedback, setCriterionFeedback] = useState<{ kind: 'success' | 'error'; message: string } | null>(null);
   const queryClient = useQueryClient();
+  const readAttempt = useRef<TaskReadAttempt | null>(null);
   const context = useQuery({
     queryKey: ['task-context', nonce, task._id],
     queryFn: () => query<Record<string, any>>(token, 'get_task_context', { projectId, taskId: task._id })
   });
+  const activityReport = useQuery({
+    queryKey: ['project-sync-report', nonce, projectId, task.featureId ?? undefined],
+    queryFn: () => query<{ tasks: Array<{ taskId: string; unread: TaskUnreadState }> }>(token, 'get_project_sync_report', { projectId, ...(task.featureId ? { featureId: task.featureId } : {}) })
+  });
+  const unreadActivity = activityReport.data?.tasks.find(item => item.taskId === task._id)?.unread;
+  const markRead = useMutation({
+    mutationFn: (attempt: TaskReadAttempt) => markTaskReadIfUnread({
+      token, projectId, taskId: task._id,
+      unread: { count: 1, cursor: attempt.cursor },
+      operationId: attempt.operationId
+    }, () => queryClient.invalidateQueries({ queryKey: ['project-sync-report', nonce, projectId] }))
+  });
+  const markReadAutomatically = useCallback((unread: TaskUnreadState | undefined) => {
+    if (!unread || unread.count <= 0 || unread.cursor === null) return;
+    const previous = readAttempt.current;
+    if (previous?.taskId === task._id && previous.cursor === unread.cursor) return;
+    const attempt = { taskId: task._id, cursor: unread.cursor, operationId: operationId() };
+    readAttempt.current = attempt;
+    markRead.mutate(attempt);
+  }, [markRead.mutate, task._id]);
+  useEffect(() => {
+    readAttempt.current = null;
+    markRead.reset();
+  }, [markRead.reset, task._id]);
+  useEffect(() => {
+    markReadAutomatically(unreadActivity);
+  }, [markReadAutomatically, unreadActivity?.count, unreadActivity?.cursor]);
   const diffs = useQuery({
     queryKey: ['task-diffs', nonce, task._id],
     queryFn: () => query<{ items: TaskDiff[] }>(token, 'list_task_diffs', { projectId, taskId: task._id, limit: 20 })
@@ -126,6 +156,9 @@ export function TaskDetailsDialog({ token, nonce, projectId, task, checking, onT
           </aside>
         </div>}
       </>}
+      {markRead.isPending && <p className="notice" role="status">Marcando atividades como lidas…</p>}
+      {markRead.isSuccess && markRead.data && <p className="notice" role="status">Atividades marcadas como lidas.</p>}
+      {markRead.isError && <div className="notice error" role="alert"><span>Não foi possível marcar as atividades como lidas: {errorMessage(markRead.error)}</span><button className="text-button" disabled={markRead.isPending} onClick={() => { const attempt = readAttempt.current; if (attempt?.taskId === task._id) markRead.mutate(attempt); }}>Tentar novamente</button></div>}
       <footer className="dialog-footer"><button className="button secondary" onClick={close}>Fechar</button></footer>
     </section>
   </div>;

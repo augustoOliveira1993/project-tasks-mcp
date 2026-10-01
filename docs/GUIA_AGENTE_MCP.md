@@ -15,7 +15,7 @@ Use somente as ferramentas que aparecem na sessão atual. Uma ferramenta documen
 
 | Objetivo | Ferramentas | Escolha e limite |
 | --- | --- | --- |
-| Resolver projeto e escopo | get_session_context, resolve_project_context | Respeite projeto indicado pelo usuário. Sem seleção, resolva pelo workspace absoluto e metadados Git disponíveis. Só peça esclarecimento para ambiguous, not_found ou workspace ausente. Área continua sendo backend, frontend ou outro. |
+| Resolver projeto e escopo | get_session_context, resolve_project_context | Respeite projeto indicado pelo usuário. Sem seleção, resolva pelo workspace absoluto e metadados Git disponíveis. Só peça esclarecimento para ambiguous, not_found ou workspace ausente. Depois de resolver o projeto, consulte get_session_context novamente e escolha uma das áreas retornadas em availableAreas. |
 | Localizar trabalho existente | list_records, list_pending, get_record | Use list_records para projetos/features/tasks e filtros; list_pending só lista tasks pendentes candidatas a execução. Nunca crie IDs nem duplique item existente. |
 | Resumir e carregar detalhes | get_summary, get_project_area_summary, get_project_sync_report, get_task_context, get_task_markdown_summary, list_executions, get_history | Use os resumos para panorama. Antes de agir numa task, leia get_task_context; ele é limitado. Busque detalhes sob demanda com as ferramentas de paginação, get_record, histórico, execuções, Markdown ou diff. |
 | Criar e manter planejamento | create_project, create_feature, create_task, edit_record, archive_record | Crie somente quando solicitado e após buscar duplicatas. edit_record/archive_record exigem registro e versão atuais; respeite os estados em que a alteração é permitida. |
@@ -31,7 +31,7 @@ Use somente as ferramentas que aparecem na sessão atual. Uma ferramenta documen
 ## Sequência obrigatória
 
 1. Chame `get_session_context`.
-2. Se não houver `projectId` e o usuário não tiver indicado explicitamente um projeto, obtenha a raiz do workspace atual do chat; quando disponíveis, use `git remote get-url origin` e o único resultado de `git rev-list --max-parents=0 HEAD`. Chame `resolve_project_context` antes de pedir o nome do projeto. Use o projeto quando houver uma única correspondência. Se o resultado for `ambiguous` ou `not_found`, explique as opções e peça esclarecimento. Projeto indicado pelo usuário tem precedência. Peça a área somente se ela continuar ausente.
+2. Se não houver `projectId` e o usuário não tiver indicado explicitamente um projeto, obtenha a raiz do workspace atual do chat; quando disponíveis, use `git remote get-url origin` e o único resultado de `git rev-list --max-parents=0 HEAD`. Chame `resolve_project_context` antes de pedir o nome do projeto. Use o projeto quando houver uma única correspondência e chame `get_session_context` novamente para obter `availableAreas`. Se o resultado for `ambiguous` ou `not_found`, explique as opções e peça esclarecimento. Projeto indicado pelo usuário tem precedência. Peça a área somente se ela continuar ausente e ofereça as áreas cadastradas para o projeto.
 3. Use `list_records` ou `list_pending` para localizar registros. Nunca invente IDs.
 4. Antes de alterar uma tarefa, chame `get_task_context`.
 5. Tarefas pendentes sem `task.responsible` podem ser assumidas diretamente, sem perguntar pelo responsável nem preencher esse campo antes.

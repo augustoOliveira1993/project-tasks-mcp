@@ -236,6 +236,11 @@ h1, h2, h3, p { margin-top: 0; }
 .credential-role, .credential-date { display: block; margin-top: 4px; color: #929baa; font-size: 8px; }
 .credential-pagination { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-top: 12px; color: #8792a2; font-size: 9px; }
 .admin-form-grid { display: grid; grid-template-columns: 1fr 1.4fr 1.2fr auto; gap: 10px; align-items: end; }
+.area-add-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: end; }
+.area-add-form label { display: grid; gap: 6px; color: #566275; font-size: 10px; font-weight: 600; }
+.area-add-form input { width: 100%; min-height: 36px; border: 1px solid #e1e5ed; border-radius: 7px; padding: 9px 10px; background: #fff; color: #344054; outline: none; font-size: 11px; }
+.area-catalog-list { display: grid; gap: 5px; margin-top: 14px; }
+.area-catalog-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; padding: 8px 10px; border: 1px solid #edf0f4; border-radius: 8px; color: #414c5e; font-size: 10px; overflow-wrap: anywhere; }
 .git-root-help { display: grid; gap: 4px; margin-top: 2px; padding: 8px 9px; border: 1px solid #dbe5ff; border-radius: 7px; background: #f7f8ff; color: #647087; font-size: 9px; font-weight: 400; line-height: 1.45; }
 .git-root-help code { width: fit-content; padding: 3px 5px; border-radius: 4px; background: #fff; color: #4c5bc9; font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; }
 .repository-list { display: grid; gap: 5px; margin-top: 14px; }
@@ -520,6 +525,7 @@ dialog.projects-dialog::backdrop { background: #16203370; backdrop-filter: blur(
   .admin-disclosure-content { padding: 10px; }
   .wide-card { grid-column: auto; }
   .admin-form-grid { grid-template-columns: 1fr; }
+  .area-add-form { grid-template-columns: 1fr; }
   .credential-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .credential-filters .credential-search { grid-column: 1 / -1; }
   .credential-inventory .table-scroll { overflow-x: auto; }

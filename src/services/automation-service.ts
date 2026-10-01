@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { AutomationJob, AutomationPolicy, Runner, Task, Feature, Project, Execution, TaskMessage, MarkdownDocument } from '../db.js';
 import { DomainError, type Actor, type Service } from '../service.js';
 import { id, provider, tools } from '../schema.js';
+import { areasForProject } from '../area-catalog.js';
 
 const active = ['reserved', 'running', 'waiting_human'];
 function ensure(condition: unknown, message: string, status = 409): asserts condition { if (!condition) throw new DomainError(message, status); }
@@ -47,6 +48,7 @@ export class Automation {
         ensure(policy.version === a.version, 'Policy version conflict');
         const project = await Project.findById(a.projectId).session(s);
         ensure(a.routes.every((r: any) => project!.repositories.some(repo => repo.id === r.repositoryId)), 'Unknown repository');
+        ensure(a.routes.every((route: any) => areasForProject(project).includes(route.area)), 'Unknown project area');
         ensure(new Set(a.routes.map((r: any) => `${r.repositoryId}:${r.area}`)).size === a.routes.length, 'Duplicate route');
         Object.assign(policy, { enabled: a.enabled, maxConcurrent: a.maxConcurrent, routes: a.routes, version: policy.version! + 1 });
         await policy.save({ session: s });

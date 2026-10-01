@@ -2,7 +2,6 @@ import { statusLabels } from './status';
 
 export const taskTypes = ['feature', 'fix', 'chore', 'docs', 'refactor', 'test', 'perf', 'build', 'ci'] as const;
 
-const areas = ['backend', 'frontend', 'outro'] as const;
 const pageSizes = [10, 25, 50, 100] as const;
 
 export type TaskQueryState = {
@@ -45,7 +44,7 @@ export function readTaskQueryState(search = window.location.search): TaskQuerySt
   return {
     search: params.get('search') ?? '',
     status: Object.hasOwn(statusLabels, status) ? status : 'todos',
-    area: areas.some(value => value === area) ? area : 'todos',
+    area: area.trim().length > 0 && area.trim().length <= 80 && !/[\r\n]/.test(area) ? area.trim() : 'todos',
     type: taskTypes.some(value => value === type) ? type : 'todos',
     priority: normalizedPriority,
     responsible: params.get('responsible') ?? '',
