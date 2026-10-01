@@ -259,7 +259,7 @@ test('MCP real HTTP handshake, tool listing, tool call and endpoint boundaries',
   const client = new Client({ name: 'flow-test', version: '1.0' });
   try {
     await client.connect(new StreamableHTTPClientTransport(new URL(`${url}/mcp`), { requestInit: { headers: { authorization: `Bearer ${agentToken}` } } }));
-    const listed = await client.listTools(); assert.ok(listed.tools.some(t => t.name === 'claim_task')); assert.ok(listed.tools.some(t => t.name === 'set_task_status'));
+    const listed = await client.listTools(); assert.ok(listed.tools.some(t => t.name === 'claim_task')); assert.ok(listed.tools.some(t => t.name === 'set_task_status')); assert.ok(listed.tools.some(t => t.name === 'update_conversation_title'));
     assert.match(listed.tools.find(t => t.name === 'claim_task')!.description!, /responsible.*usuário autenticado atual/);
     assert.match(listed.tools.find(t => t.name === 'set_task_status')!.description!, /transições administrativas válidas/);
     assert.match(listed.tools.find(t => t.name === 'open_task_conversation')!.description!, /Use send_task_message.*does not wake another agent session automatically/i);
@@ -267,6 +267,10 @@ test('MCP real HTTP handshake, tool listing, tool call and endpoint boundaries',
     const response = await client.callTool({ name: 'list_records', arguments: { kind: 'project', limit: 1 } });
     assert.ok(!response.isError);
     const { p, create } = await fixture(); let task = await create('HTTP approval');
+    const conversation = await service.call(human, 'create_conversation', { operationId: op(), projectId: p._id, title: 'Original MCP title' });
+    const titleResponse = await client.callTool({ name: 'update_conversation_title', arguments: { operationId: op(), projectId: p._id, conversationId: conversation._id, title: 'Renamed through MCP', version: conversation.version } });
+    assert.ok(!titleResponse.isError);
+    assert.equal(JSON.parse((titleResponse.content as any)[0].text).title, 'Renamed through MCP');
     const statusTask = await create('MCP status transition');
     const statusResult = await client.callTool({ name: 'set_task_status', arguments: { operationId: op(), projectId: p._id, taskId: statusTask._id, version: statusTask.version, status: 'cancelada', reason: 'Not needed' } });
     assert.ok(!statusResult.isError);
@@ -452,6 +456,12 @@ test('human feature creation and task conversation HTTP routes retain project ac
     const opened = await openedResponse.json() as any;
     assert.equal(opened.created, true);
     assert.equal(opened.conversation.taskId, task._id);
+    const renamedResponse = await fetch(`${root}/admin/conversations/${opened.conversation._id}/title`, { method: 'PATCH', headers, body: JSON.stringify({
+      operationId: op(), projectId: p._id, title: 'Renamed through HTTP', version: opened.conversation.version
+    }) });
+    assert.equal(renamedResponse.status, 200);
+    assert.equal((await renamedResponse.json() as any).title, 'Renamed through HTTP');
+    assert.equal((await service.query(human, 'list_conversations', { projectId: p._id, limit: 20 })).items[0].title, 'Renamed through HTTP');
     const reusedResponse = await fetch(`${root}/admin/tasks/${task._id}/conversation`, { method: 'POST', headers, body: JSON.stringify({ ...conversationInput, operationId: op() }) });
     assert.equal(reusedResponse.status, 200);
     assert.equal((await reusedResponse.json() as any).created, false);
@@ -597,6 +607,43 @@ test('conversation can be created for an active task in its project', async () =
   const archived = await source.create('Archived conversation task');
   await Task.updateOne({ _id: archived._id }, { $set: { archived: true } });
   await assert.rejects(service.call(human, 'create_conversation', { operationId: op(), projectId: source.p._id, taskId: archived._id }), /Task not found/);
+});
+
+test('conversation title updates are validated, versioned, idempotent, and preserve related data', async () => {
+  const { p, create } = await fixture();
+  const task = await create('Conversation title task');
+  const conversation = await service.call(human, 'create_conversation', { operationId: op(), projectId: p._id, title: 'Original title' });
+  const linked = await service.call(human, 'link_conversation_task', {
+    operationId: op(), projectId: p._id, conversationId: conversation._id, taskId: task._id, version: conversation.version
+  });
+  const message = await service.call(human, 'send_conversation_message', {
+    operationId: op(), projectId: p._id, conversationId: conversation._id, content: 'Keep this message'
+  });
+  const proposal = await service.call(agent, 'create_action_proposal', {
+    operationId: op(), projectId: p._id, conversationId: conversation._id, taskId: task._id,
+    expectedTaskVersion: task.version, title: 'Keep this proposal', summary: 'No task patch', instructions: 'No task patch'
+  });
+  const before = await service.query(human, 'get_conversation', { projectId: p._id, conversationId: conversation._id, limit: 20 });
+  const input = { operationId: op(), projectId: p._id, conversationId: conversation._id, title: '  Updated title  ', version: before.conversation.version };
+  const updated = await service.call(human, 'update_conversation_title', input);
+  assert.equal(updated.title, 'Updated title');
+  assert.equal(updated.version, before.conversation.version + 1);
+  assert.deepEqual(await service.call(human, 'update_conversation_title', input), updated, 'same operation retries are idempotent');
+  assert.equal(await Event.countDocuments({ projectId: p._id, action: 'update_conversation_title' }), 1);
+  await assert.rejects(service.call(human, 'update_conversation_title', { ...input, operationId: op(), title: 'Stale title' }), /version conflict/i);
+  await assert.rejects(service.call(human, 'update_conversation_title', { ...input, operationId: op(), title: '   ' }));
+  await assert.rejects(service.call(human, 'update_conversation_title', { ...input, operationId: op(), title: 'x'.repeat(256) }));
+
+  const list = await service.query(human, 'list_conversations', { projectId: p._id, limit: 20 });
+  assert.equal(list.items[0].title, 'Updated title');
+  const detail = await service.query(human, 'get_conversation', { projectId: p._id, conversationId: conversation._id, limit: 20 });
+  assert.equal(detail.conversation.title, 'Updated title');
+  assert.equal(detail.conversation.taskId, linked.taskId);
+  assert.equal(detail.messages[0]._id, message._id);
+  assert.equal(detail.proposals[0]._id, proposal._id);
+
+  await service.call(human, 'delete_conversation', { operationId: op(), projectId: p._id, conversationId: conversation._id, version: updated.version });
+  await assert.rejects(service.call(human, 'update_conversation_title', { ...input, operationId: op(), version: updated.version + 1 }), /not found or closed/i);
 });
 
 test('conversation task search, linking, authorization, and soft deletion stay project-scoped', async () => {

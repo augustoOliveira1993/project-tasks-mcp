@@ -7,17 +7,18 @@ import { resolve } from 'node:path';
 import { createServer } from 'vite';
 
 const vite = await createServer({ configFile: resolve(process.cwd(), 'frontend/vite.config.ts'), server: { middlewareMode: true }, appType: 'custom' });
-const { ConversationPanel } = await vite.ssrLoadModule('/src/components/conversations/ConversationPanel.tsx');
+const { ConversationPanel, ConversationTaskSearch, ConversationTitleEditor } = await vite.ssrLoadModule('/src/components/conversations/ConversationPanel.tsx');
+const conversationActions = await vite.ssrLoadModule('/src/components/conversations/conversation-actions.ts');
 after(async () => { await vite.close(); });
 
-function renderPanel(items: Array<Record<string, unknown>>, next: string | null = null, error?: Error, requestedConversationId?: string, messages: Array<Record<string, unknown>> = []) {
+function renderPanel(items: Array<Record<string, unknown>>, next: string | null = null, error?: Error, requestedConversationId?: string, messages: Array<Record<string, unknown>> = [], detailOverrides: Record<string, unknown> = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
   const queryKey = ['conversations', 'session-nonce', 'project-id'];
   client.setQueryData(queryKey, { items, next });
   client.setQueryData(['project-features', 'session-nonce', 'project-id'], [{ _id: 'feature-1', name: 'Colaboração por task' }]);
   if (requestedConversationId) client.setQueryData(['conversation', 'session-nonce', 'project-id', requestedConversationId], {
     conversation: { _id: requestedConversationId, projectId: 'project-id', taskId: null, title: 'Teste dos ícones', status: 'open', version: 0 },
-    messages, next: null, proposals: [], task: null, jobs: []
+    messages, next: null, proposals: [], task: null, jobs: [], ...detailOverrides
   });
   if (error) {
     const cached = client.getQueryCache().find({ queryKey });
@@ -28,6 +29,12 @@ function renderPanel(items: Array<Record<string, unknown>>, next: string | null 
   })));
   client.clear();
   return html;
+}
+
+function renderTitleEditor(props: Record<string, unknown> = {}) {
+  return renderToStaticMarkup(createElement(ConversationTitleEditor, {
+    title: 'Título salvo', editing: false, draft: '', editable: true, saving: false, onEdit() {}, onDraftChange() {}, onSave() {}, onCancel() {}, ...props
+  }));
 }
 
 test('painel inicia conversa no escopo do projeto e oferece retomada paginada', () => {
@@ -54,6 +61,168 @@ test('painel apresenta erro de sessão retornado pela API', () => {
 
   assert.match(html, /notice error/);
   assert.match(html, /Sessão expirada/);
+});
+
+test('conversa vazia mantém criação geral e conversa sem vínculo oferece vincular tarefa', () => {
+  const emptyHtml = renderPanel([]);
+  assert.match(emptyHtml, /Comece uma conversa/);
+  assert.match(emptyHtml, /Nova conversa/);
+  assert.doesNotMatch(emptyHtml, /conversation-task-search/);
+
+  const unlinkedHtml = renderPanel([
+    { _id: 'conversation-unlinked', projectId: 'project-id', taskId: null, title: 'Conversa geral', status: 'open' }
+  ], null, undefined, 'conversation-unlinked');
+  assert.match(unlinkedHtml, /Vincular tarefa/);
+  assert.match(unlinkedHtml, /Excluir conversa/);
+  assert.doesNotMatch(unlinkedHtml, /new-conversation-task/);
+});
+
+test('conversa vinculada mostra task e feature e mantém propostas', () => {
+  const html = renderPanel([
+    { _id: 'conversation-linked', projectId: 'project-id', taskId: 'task-1', title: 'Task A', status: 'open' }
+  ], null, undefined, 'conversation-linked', [], {
+    conversation: { _id: 'conversation-linked', projectId: 'project-id', taskId: 'task-1', title: 'Task A', status: 'open', version: 3 },
+    task: { _id: 'task-1', version: 3, status: 'pendente', name: 'Task A', area: 'backend', featureId: 'feature-1' },
+    proposals: [{ _id: 'proposal-1', taskId: 'task-1', expectedTaskVersion: 3, title: 'Executar task', summary: 'Resumo da proposta', taskPatch: {}, status: 'pending', version: 0, stale: false }]
+  });
+
+  assert.match(html, /Conversa vinculada à tarefa/);
+  assert.match(html, /Task A/);
+  assert.match(html, /Feature · Colaboração por task/);
+  assert.match(html, /Propostas de execução/);
+  assert.match(html, /Aprovar e iniciar execução/);
+  assert.match(html, /Editar título/);
+  assert.doesNotMatch(html, /Vincular tarefa/);
+});
+
+test('edição de título oferece salvar/cancelar e preserva o rascunho quando há erro', () => {
+  const editingHtml = renderTitleEditor({ editing: true, draft: 'Título digitado', error: new Error('Conflito de versão') });
+  assert.match(editingHtml, /aria-label="Título da conversa"/);
+  assert.match(editingHtml, /value="Título digitado"/);
+  assert.match(editingHtml, /Salvar título/);
+  assert.match(editingHtml, /Cancelar/);
+  assert.match(editingHtml, /Conflito de versão/);
+
+  const cancelledHtml = renderTitleEditor({ draft: 'Rascunho descartado' });
+  assert.match(cancelledHtml, /Título salvo/);
+  assert.match(cancelledHtml, /Editar título da conversa/);
+  assert.doesNotMatch(cancelledHtml, /Rascunho descartado/);
+});
+
+test('busca de tarefa renderiza orientação, resultados, estados vazios e erro', () => {
+  const renderSearch = (props: Record<string, unknown>) => renderToStaticMarkup(createElement(ConversationTaskSearch, {
+    value: '', debouncedValue: '', isFetching: false, isError: false, error: undefined, tasks: [], onChange() {}, onSelect() {}, disabled: false,
+    featureLabel: () => 'Colaboração por task', ...props
+  }));
+
+  assert.match(renderSearch({ value: 'a', debouncedValue: 'a' }), /Digite ao menos 2 caracteres para buscar tarefas/);
+  assert.match(renderSearch({ value: 'task', debouncedValue: 'task', isFetching: true }), /Buscando tarefas/);
+  assert.match(renderSearch({ value: 'task', debouncedValue: 'task', tasks: [{ _id: 'task-1', name: 'Task A', status: 'pendente', featureId: 'feature-1' }] }), /role="option"[\s\S]*Task A[\s\S]*Feature · Colaboração por task/);
+  assert.match(renderSearch({ value: 'missing', debouncedValue: 'missing' }), /Nenhuma tarefa ativa corresponde à busca/);
+  assert.match(renderSearch({ value: 'task', debouncedValue: 'task', isError: true, error: new Error('Falha na busca') }), /Falha na busca/);
+});
+
+test('debounce da busca descarta consulta anterior e limpa o termo aplicado', async () => {
+  const applied: string[] = [];
+  const cancelFirst = conversationActions.scheduleTaskSearch('termo antigo', (value: string) => applied.push(`antigo:${value}`), 15);
+  const cancelSecond = conversationActions.scheduleTaskSearch('  Task atual  ', (value: string) => applied.push(value), 15);
+  cancelFirst();
+  await new Promise(resolve => setTimeout(resolve, 30));
+  cancelSecond();
+  assert.deepEqual(applied, ['Task atual']);
+});
+
+test('ações de conversa usam escopo, versão e operações de busca, vínculo e exclusão esperadas', async () => {
+  const originalFetch = globalThis.fetch;
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  globalThis.fetch = async (input, init) => {
+    calls.push({ url: String(input), init });
+    return new Response(JSON.stringify({ items: [] }), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  try {
+    await conversationActions.createProjectConversation('token', 'project-id');
+    await conversationActions.searchProjectTasks('token', 'project-id', 'Task');
+    await conversationActions.linkConversationTask('token', 'conversation-id', 'project-id', 'task-id', 7);
+    await conversationActions.deleteProjectConversation('token', 'conversation-id', 'project-id', 8);
+
+    const create = JSON.parse(String(calls[0].init?.body));
+    assert.equal(create.projectId, 'project-id');
+    assert.equal('taskId' in create, false);
+    assert.match(create.operationId, /^[0-9a-f-]{36}$/i);
+
+    const search = JSON.parse(String(calls[1].init?.body));
+    assert.equal(search.tool, 'list_records');
+    assert.deepEqual(search.arguments, { kind: 'task', projectId: 'project-id', archived: false, search: 'Task', limit: 20 });
+
+    const link = JSON.parse(String(calls[2].init?.body));
+    assert.match(calls[2].url, /\/admin\/conversations\/conversation-id\/task$/);
+    assert.equal(link.projectId, 'project-id');
+    assert.equal(link.taskId, 'task-id');
+    assert.equal(link.version, 7);
+    assert.match(link.operationId, /^[0-9a-f-]{36}$/i);
+
+    const deletion = JSON.parse(String(calls[3].init?.body));
+    assert.equal(calls[3].init?.method, 'DELETE');
+    assert.match(calls[3].url, /\/admin\/conversations\/conversation-id$/);
+    assert.equal(deletion.projectId, 'project-id');
+    assert.equal(deletion.version, 8);
+    assert.match(deletion.operationId, /^[0-9a-f-]{36}$/i);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('renomear conversa envia PATCH versionado e atualiza os títulos da lista', async () => {
+  const originalFetch = globalThis.fetch;
+  let url = '';
+  let init: RequestInit | undefined;
+  globalThis.fetch = async (input, options) => {
+    url = String(input); init = options;
+    return new Response(JSON.stringify({ _id: 'conversation-id', title: 'Novo título', version: 5 }), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  try {
+    await conversationActions.updateConversationTitle('token', 'conversation-id', 'project-id', 'Novo título', 4);
+    assert.match(url, /\/admin\/conversations\/conversation-id\/title$/);
+    assert.equal(init?.method, 'PATCH');
+    const body = JSON.parse(String(init?.body));
+    assert.deepEqual({ projectId: body.projectId, title: body.title, version: body.version }, { projectId: 'project-id', title: 'Novo título', version: 4 });
+    assert.match(body.operationId, /^[0-9a-f-]{36}$/i);
+
+    const history = conversationActions.historyAfterConversationTitleUpdate(
+      { items: [{ _id: 'conversation-id', title: 'Título antigo', version: 4 }, { _id: 'other', title: 'Outra conversa', version: 1 }] },
+      [{ items: [{ _id: 'conversation-id', title: 'Título antigo', version: 4 }] }],
+      { _id: 'conversation-id', title: 'Novo título', version: 5 }
+    );
+    assert.deepEqual(history.current?.items.map((item: { title: string }) => item.title), ['Novo título', 'Outra conversa']);
+    assert.equal(history.olderPages[0].items[0].title, 'Novo título');
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('erro de validação ou conflito do backend fica legível para a edição de título', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({ reason: 'Conversation version conflict' }), { status: 409, headers: { 'content-type': 'application/json' } });
+  try {
+    await assert.rejects(conversationActions.updateConversationTitle('token', 'conversation-id', 'project-id', 'Título digitado', 2), /Conversation version conflict/);
+  } finally { globalThis.fetch = originalFetch; }
+  const html = renderTitleEditor({ editing: true, draft: 'Título digitado', error: new Error('Conversation version conflict') });
+  assert.match(html, /value="Título digitado"/);
+  assert.match(html, /Conversation version conflict/);
+});
+
+test('excluir exige confirmação e atualiza o histórico e a seleção', () => {
+  let removed = 0;
+  conversationActions.confirmConversationDeletion(() => false, () => removed++);
+  assert.equal(removed, 0);
+  conversationActions.confirmConversationDeletion(message => { assert.match(message, /Tarefas e execuções não serão alteradas/); return true; }, () => removed++);
+  assert.equal(removed, 1);
+
+  const state = conversationActions.historyAfterConversationDeletion(
+    { items: [{ _id: 'deleted' }, { _id: 'next' }], next: 'cursor' },
+    [{ items: [{ _id: 'older' }], next: null }],
+    'deleted'
+  );
+  assert.deepEqual(state.current?.items.map((item: { _id: string }) => item._id), ['next']);
+  assert.deepEqual(state.olderPages[0].items.map((item: { _id: string }) => item._id), ['older']);
+  assert.equal(state.selectedId, 'next');
+  assert.equal(conversationActions.historyAfterConversationDeletion({ items: [{ _id: 'deleted' }] }, [], 'deleted').selectedId, '');
 });
 
 test('painel seleciona a conversa pedida pela navegação da task', () => {

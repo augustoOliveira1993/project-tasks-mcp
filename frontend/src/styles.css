@@ -674,6 +674,13 @@ dialog.projects-dialog::backdrop { background: #16203370; backdrop-filter: blur(
 .conversation-header, .conversation-composer-footer, .proposal-heading { display: flex; justify-content: space-between; gap: 12px; }
 .conversation-header { align-items: flex-start; flex-wrap: wrap; }
 .conversation-header > div:first-child { flex: 1 1 300px; min-width: 0; }
+.conversation-title-display { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 8px; }
+.conversation-title-display h2 { margin: 0; }
+.conversation-title-editor { display: grid; gap: 6px; max-width: 100%; }
+.conversation-title-label { color: #566275; font-size: 10px; font-weight: 600; }
+.conversation-title-editor > input { width: 100%; border: 1px solid #d9deea; border-radius: 7px; padding: 9px 10px; color: #344054; font: inherit; font-size: 11px; }
+.conversation-title-editor > .button-row { gap: 6px; }
+.conversation-title-editor > .notice { margin: 0; }
 .conversation-composer-footer, .proposal-heading { align-items: center; }
 .conversation-header-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
 .conversation-header h2, .conversation-proposals h3 { margin: 0 0 5px; color: #394558; font: 700 15px Manrope, sans-serif; }

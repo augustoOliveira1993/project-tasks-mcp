@@ -117,6 +117,21 @@ export class ConversationService {
     }, false, false);
   }
 
+  async updateTitle(actor: Actor, a: any) {
+    return this.service.mutate(actor, 'update_conversation_title', a, async (session: ClientSession) => {
+      const conversation = await Conversation.findOne({ _id: a.conversationId, projectId: a.projectId, status: 'open' }).session(session);
+      ensure(conversation, 'Conversation not found or closed', 404);
+      ensure(conversation.version === a.version, 'Conversation version conflict');
+      conversation.title = a.title;
+      conversation.version! += 1;
+      await conversation.save({ session });
+      await this.service.event(session, actor, 'update_conversation_title', a.projectId, conversation._id!, {
+        conversationId: conversation._id, title: conversation.title, version: conversation.version, summary: 'Título da conversa atualizado'
+      });
+      return conversationDto(conversation);
+    }, false, false);
+  }
+
   async delete(actor: Actor, a: any) {
     return this.service.mutate(actor, 'delete_conversation', a, async (session: ClientSession) => {
       const conversation = await Conversation.findOne({ _id: a.conversationId, projectId: a.projectId }).session(session);

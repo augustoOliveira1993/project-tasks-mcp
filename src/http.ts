@@ -18,7 +18,7 @@ const MCP_AGENT_INSTRUCTIONS = [
   'Use apenas as ferramentas anunciadas nesta sessão. O guia operacional no repositório detalha todas as famílias; não assuma que uma capacidade documentada está conectada ao cliente atual.',
   'Comece com get_session_context. Respeite o projeto indicado pelo usuário; se faltar, resolva pelo workspace Git com resolve_project_context e chame get_session_context novamente para receber availableAreas. Quando a área continuar ausente, peça a escolha entre as áreas cadastradas naquele projeto e registre a seleção em uma ferramenta compatível.',
   'Para descobrir registros, use list_records; list_pending serve apenas para encontrar tasks pendentes executáveis. Use resumos para panorama e get_task_context antes de alterar ou assumir uma task. Contexto pode ser paginado/truncado: carregue detalhes sob demanda.',
-  'Crie registros só quando solicitados e depois de procurar duplicatas. Para executar, leia dependências/status e claim_task com versão atual; durante a execução use heartbeat_task e record_progress. Atualize cada critério com evidência objetiva usando set_acceptance_criterion antes de submit_task.',
+  'Crie registros só quando solicitados e depois de procurar duplicatas. Para executar, leia dependências/status e claim_task com versão atual; durante a execução use heartbeat_task e record_progress. Atualize cada critério com evidência objetiva usando set_acceptance_criterion antes de submit_task. Escrever “ATENDIDO” ou emoji no texto do critério não atualiza acceptanceProgress.',
   'Em revisão, aprove com set_task_status somente após conferir diff e evidências de todos os critérios; devolva pendente descrevendo lacunas. block_task bloqueia a execução; não tente desbloquear com set_task_status. Permissões, credenciais, vínculo Git e configuração/liberação de automação são ações humanas administrativas.',
   'Diferencie a conversa compartilhada (get_conversation/send_conversation_message) das mensagens de execução/colaboração de task (list_task_messages/send_task_message/send_collaboration_message). Mensagem no chat não desperta outra sessão de IA. O servidor registra o autor autenticado e o nome do cliente MCP anunciado em initialize.clientInfo.name; envie apenas o conteúdo e não simule ou prefixe autoria. Uma pergunta cross-task com relatedTaskId, por send_task_message ou send_collaboration_message, só pode enfileirar consulta sem job ativo quando uma automação anterior concluída continua autorizada e com escopo inalterado.',
   'create_action_proposal registra uma proposta e aguarda aprovação humana; não execute a mudança antes dela. Use listas de eventos, assinaturas e waits para observar atualizações, não para acordar outro agente.',
@@ -39,12 +39,13 @@ const MCP_TOOL_GUIDANCE: Record<string, string> = {
   list_records: 'Use para localizar project, feature ou task com filtros/status. Inclua concluded/archived somente se a busca pedir.',
   list_pending: 'Lista somente tasks pendentes; use list_records para localizar tasks em execução, revisão, concluídas ou registros de outros tipos.',
   get_task_context: 'Leia antes de assumir ou alterar uma task. O contexto é limitado; use get_record e ferramentas paginadas para os detalhes omitidos.',
-  claim_task: 'Assuma somente task executável após conferir dependências e estado. Tasks pendentes sem responsável e tasks órfãs elegíveis em execução podem ser assumidas sem editar responsible antes.',
+  claim_task: 'Assuma somente task executável após conferir dependências e estado. Tasks pendentes sem responsável e tasks órfãs elegíveis em execução podem ser assumidas sem editar responsible antes; depois da claim, o servidor define responsible como o usuário autenticado atual.',
   set_acceptance_criterion: 'Grave evidência objetiva por índice zero-based assim que cada critério estiver comprovado; texto/emoji não atualiza acceptanceProgress. Use a versão retornada na próxima mutação.',
-  set_task_status: 'Use só para uma transição aceita pelo servidor, com motivo e versão atuais. Aprovar exige revisar diff/evidências; esta ferramenta não desbloqueia nem cria uma execução.',
+  set_task_status: 'Use só para transições administrativas válidas e aceitas pelo servidor, com motivo e versão atuais. Aprove após revisar diff/evidências; tarefa bloqueada pode voltar a pendente quando o servidor aceitar. Esta ferramenta não cria uma execução.',
   send_task_message: 'Exige a execução ativa da task e serve para mensagens operacionais dessa execução. Uma pergunta com relatedTaskId pode enfileirar consulta apenas sob as validações de automação cross-task.',
   send_collaboration_message: 'Use para perguntas/respostas/decisões entre tasks relacionadas. Uma pergunta com relatedTaskId pode enfileirar consulta apenas sem job ativo e com automação anterior concluída, ainda autorizada e no mesmo escopo; não é notificação genérica de outra IA.',
-  open_task_conversation: 'Abre ou reutiliza o chat multi-turno ligado à task. Leia o histórico com get_conversation antes de responder.',
+  open_task_conversation: 'Abre ou reutiliza o chat multi-turno ligado à task. Leia o histórico com get_conversation antes de responder. Use send_task_message para comunicação da execução ativa; isso não desperta outra sessão automaticamente (does not wake another agent session automatically).',
+  update_conversation_title: 'Renomeia uma conversa aberta do projeto com título trimado de 1 a 255 caracteres; informe version atual e operationId novo.',
   send_conversation_message: 'Grava mensagem na conversa compartilhada. A autoria usa identidade autenticada e nome do cliente MCP anunciado no initialize; envie apenas o conteúdo, sem simular outro autor. Não inicia nem desperta outra sessão Codex/Claude.',
   create_action_proposal: 'Registra uma proposta vinculada à conversa e task; a mudança aguarda aprovação humana e rota de automação configurada.',
   update_markdown: 'Atualiza documento existente somente com baseRevision lida. Após conflito, leia a revisão nova antes de decidir.',
@@ -275,6 +276,11 @@ export function createApp(service: Service, origins: string[]) {
   app.post('/admin/tasks/:taskId/conversation', async (req, res) => {
     const actor = await authenticate(token(req.headers.authorization), 'human');
     const result = await service.call(actor, 'open_task_conversation', { ...req.body, taskId: req.params.taskId });
+    res.json(result);
+  });
+  app.patch('/admin/conversations/:conversationId/title', async (req, res) => {
+    const actor = await authenticate(token(req.headers.authorization), 'human');
+    const result = await service.call(actor, 'update_conversation_title', { ...req.body, conversationId: req.params.conversationId });
     res.json(result);
   });
   app.post('/admin/conversations/:conversationId/task', async (req, res) => {

@@ -46,6 +46,7 @@ export const tools = {
   create_task: z.object({ ...op, projectId: id, data: taskData }).strict(),
   create_conversation: z.object({ ...op, projectId: id, taskId: id.optional(), title: z.string().trim().min(1).max(255).optional() }).strict(),
   open_task_conversation: z.object({ ...op, projectId: id, taskId: id }).strict(),
+  update_conversation_title: z.object({ ...op, projectId: id, conversationId: id, title: z.string().trim().min(1).max(255), version: z.number().int().nonnegative() }).strict(),
   link_conversation_task: z.object({ ...op, projectId: id, conversationId: id, taskId: id, version: z.number().int().nonnegative() }).strict(),
   delete_conversation: z.object({ ...op, projectId: id, conversationId: id, version: z.number().int().nonnegative() }).strict(),
   list_conversations: z.object({ projectId: id, after: cursor.optional(), limit: z.number().int().min(1).max(100).default(25) }).strict(),

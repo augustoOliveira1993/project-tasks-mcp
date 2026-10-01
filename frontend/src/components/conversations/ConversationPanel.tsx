@@ -4,6 +4,7 @@ import { allRecords, operationId, query, request } from '../../api';
 import { errorMessage, formatDate } from '../../lib/format';
 import { Badge } from '../ui/Badge';
 import { MarkdownView } from '../ui/MarkdownView';
+import { confirmConversationDeletion, createProjectConversation, deleteProjectConversation, historyAfterConversationDeletion, historyAfterConversationTitleUpdate, linkConversationTask, scheduleTaskSearch, searchProjectTasks, updateConversationTitle } from './conversation-actions';
 
 type Conversation = { _id: string; projectId: string; taskId: string | null; title: string; status: string; version: number; updatedAt?: string; lastMessageAt?: string | null };
 type Message = { _id: string; author: string; authorType: 'human' | 'agent'; clientName?: string | null; content: string; createdAt: string };
@@ -58,9 +59,26 @@ function statusTone(status: string) {
   return ({ pendente: 'blue', em_execucao: 'amber', em_revisao: 'amber', concluida: 'green', bloqueada: 'red', cancelada: 'muted' } as Record<string, string>)[status] ?? 'muted';
 }
 
+export function ConversationTaskSearch({ value, debouncedValue, isFetching, isError, error, tasks, onChange, onSelect, disabled, featureLabel }: {
+  value: string; debouncedValue: string; isFetching: boolean; isError: boolean; error: unknown; tasks: TaskOption[];
+  onChange: (value: string) => void; onSelect: (taskId: string) => void; disabled: boolean; featureLabel: (task: TaskOption) => string;
+}) {
+  return <section className="conversation-task-link"><label htmlFor="conversation-task-search">Buscar tarefa</label><input id="conversation-task-search" type="search" value={value} onChange={event => onChange(event.target.value)} placeholder="Digite o início do nome da tarefa…" autoComplete="off" /><small>Digite ao menos 2 caracteres. A busca considera tarefas ativas deste projeto.</small>{debouncedValue.length < 2 ? <div className="empty-state compact">Digite ao menos 2 caracteres para buscar tarefas.</div> : isFetching ? <div className="loading">Buscando tarefas…</div> : isError ? <div className="notice error">{errorMessage(error)}</div> : tasks.length ? <div className="conversation-task-options" role="listbox" aria-label="Tarefas encontradas">{tasks.map(task => <button type="button" role="option" aria-selected="false" className="conversation-task-option" key={task._id} onClick={() => onSelect(task._id)} disabled={disabled}><strong>{task.name}</strong><span className="conversation-context-badges"><Badge tone="blue">Área · {areaLabel(task.area)}</Badge><Badge tone={statusTone(task.status)}>Status · {statusLabel(task.status)}</Badge><Badge tone="muted">Feature · {featureLabel(task)}</Badge></span></button>)}</div> : <div className="empty-state compact">Nenhuma tarefa ativa corresponde à busca.</div>}</section>;
+}
+
+export function ConversationTitleEditor({ title, editing, draft, editable, saving, error, onEdit, onDraftChange, onSave, onCancel }: {
+  title: string; editing: boolean; draft: string; editable: boolean; saving: boolean; error?: unknown;
+  onEdit: () => void; onDraftChange: (value: string) => void; onSave: (event: FormEvent<HTMLFormElement>) => void; onCancel: () => void;
+}) {
+  if (!editing) return <div className="conversation-title-display"><h2>{title}</h2>{editable && <button type="button" className="button ghost small-button" aria-label="Editar título da conversa" onClick={onEdit}>Editar título</button>}</div>;
+  return <form className="conversation-title-editor" onSubmit={onSave}><label className="conversation-title-label" htmlFor="conversation-title">Título da conversa</label><input id="conversation-title" aria-label="Título da conversa" type="text" maxLength={255} value={draft} onChange={event => onDraftChange(event.target.value)} autoFocus /><div className="button-row"><button type="submit" className="button primary small-button" disabled={!draft.trim() || saving}>{saving ? 'Salvando…' : 'Salvar título'}</button><button type="button" className="button secondary small-button" onClick={onCancel} disabled={saving}>Cancelar</button></div>{error !== undefined && error !== null && <div className="notice error" role="alert">{errorMessage(error)}</div>}</form>;
+}
+
 export function ConversationPanel({ token, nonce, projectId, tasks, requestedConversationId, onConversationSelected, onOpenAdmin }: { token: string; nonce: string; projectId: string; tasks: TaskOption[]; requestedConversationId?: string; onConversationSelected?: (conversationId: string) => void; onOpenAdmin: () => void }) {
   const client = useQueryClient();
   const [selectedId, setSelectedId] = useState(requestedConversationId ?? '');
+  const [titleEditing, setTitleEditing] = useState(false);
+  const [titleDraft, setTitleDraft] = useState('');
   const [linkTaskOpen, setLinkTaskOpen] = useState(false);
   const [taskSearch, setTaskSearch] = useState('');
   const [debouncedTaskSearch, setDebouncedTaskSearch] = useState('');
@@ -85,17 +103,14 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
   useEffect(() => {
     if (!selectedId && uniqueConversationItems[0]) setSelectedId(uniqueConversationItems[0]._id);
   }, [conversations.data, selectedId]);
-  useEffect(() => { setOlderConversationPages([]); setOlderMessagePages([]); setSelectedId(''); setLinkTaskOpen(false); setTaskSearch(''); setDebouncedTaskSearch(''); setDraft(''); setNotice(''); }, [projectId]);
+  useEffect(() => { setOlderConversationPages([]); setOlderMessagePages([]); setSelectedId(''); setTitleEditing(false); setTitleDraft(''); setLinkTaskOpen(false); setTaskSearch(''); setDebouncedTaskSearch(''); setDraft(''); setNotice(''); }, [projectId]);
   useEffect(() => {
     if (!requestedConversationId) return;
     setSelectedId(requestedConversationId);
     onConversationSelected?.(requestedConversationId);
   }, [requestedConversationId]);
-  useEffect(() => { setOlderMessagePages([]); setLinkTaskOpen(false); setTaskSearch(''); }, [selectedId]);
-  useEffect(() => {
-    const timeout = window.setTimeout(() => setDebouncedTaskSearch(taskSearch.trim()), 250);
-    return () => window.clearTimeout(timeout);
-  }, [taskSearch]);
+  useEffect(() => { setOlderMessagePages([]); setTitleEditing(false); setTitleDraft(''); setLinkTaskOpen(false); setTaskSearch(''); }, [selectedId]);
+  useEffect(() => scheduleTaskSearch(taskSearch, setDebouncedTaskSearch), [taskSearch]);
 
   const detail = useQuery({
     queryKey: ['conversation', nonce, projectId, selectedId],
@@ -118,7 +133,7 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
   const taskSearchResults = useQuery({
     queryKey: ['conversation-task-search', nonce, projectId, debouncedTaskSearch],
     enabled: Boolean(token && nonce && projectId && linkTaskOpen && latest && !latest.conversation.taskId && debouncedTaskSearch.length >= 2),
-    queryFn: () => query<{ items: TaskOption[] }>(token, 'list_records', { kind: 'task', projectId, archived: false, search: debouncedTaskSearch, limit: 20 })
+    queryFn: () => searchProjectTasks<{ items: TaskOption[] }>(token, projectId, debouncedTaskSearch)
   });
   const orderedMessages = [...olderMessagePages].reverse().flatMap(page => page.messages.slice().reverse()).concat(latest?.messages.slice().reverse() ?? []);
   const taskContext = useQuery({
@@ -156,27 +171,40 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
     finally { setLoadingOlder(false); }
   }
   const create = useMutation({
-    mutationFn: () => request<Conversation>(token, '/admin/conversations', { body: { projectId, operationId: operationId() } }),
+    mutationFn: () => createProjectConversation<Conversation>(token, projectId),
     onSuccess: async created => { setSelectedId(created._id); onConversationSelected?.(created._id); setNotice('Conversa criada no escopo do projeto e compartilhada com as IAs via MCP.'); await refresh(created._id); },
     onError: error => setNotice(errorMessage(error))
   });
   const linkTask = useMutation({
-    mutationFn: (taskId: string) => request<Conversation>(token, `/admin/conversations/${selectedId}/task`, { body: { projectId, taskId, version: latest!.conversation.version, operationId: operationId() } }),
+    mutationFn: (taskId: string) => linkConversationTask<Conversation>(token, selectedId, projectId, taskId, latest!.conversation.version),
     onSuccess: async linked => { setLinkTaskOpen(false); setTaskSearch(''); setNotice('Conversa vinculada à tarefa.'); await refresh(linked._id); await client.invalidateQueries({ queryKey: ['project-tasks'] }); },
     onError: error => setNotice(errorMessage(error))
   });
   const deleteConversation = useMutation({
-    mutationFn: () => request<{ deleted: boolean; conversationId: string }>(token, `/admin/conversations/${selectedId}`, { method: 'DELETE', body: { projectId, version: latest!.conversation.version, operationId: operationId() } }),
+    mutationFn: () => deleteProjectConversation<{ deleted: boolean; conversationId: string }>(token, selectedId, projectId, latest!.conversation.version),
     onSuccess: async result => {
-      const remaining = uniqueConversationItems.filter(item => item._id !== result.conversationId);
-      client.setQueryData<ConversationPage>(['conversations', nonce, projectId], current => current ? { ...current, items: current.items.filter(item => item._id !== result.conversationId) } : current);
-      setOlderConversationPages(pages => pages.map(page => ({ ...page, items: page.items.filter(item => item._id !== result.conversationId) })));
-      setSelectedId(remaining[0]?._id ?? '');
-      onConversationSelected?.(remaining[0]?._id ?? '');
+      const history = historyAfterConversationDeletion(conversations.data, olderConversationPages, result.conversationId);
+      client.setQueryData<ConversationPage>(['conversations', nonce, projectId], history.current);
+      setOlderConversationPages(history.olderPages);
+      setSelectedId(history.selectedId);
+      onConversationSelected?.(history.selectedId);
       setNotice('Conversa excluída do histórico. Tarefas e execuções foram mantidas.');
       await client.invalidateQueries({ queryKey: ['conversations', nonce, projectId] });
     },
     onError: error => setNotice(errorMessage(error))
+  });
+  const renameConversation = useMutation({
+    mutationFn: (title: string) => updateConversationTitle<Conversation>(token, selectedId, projectId, title, latest!.conversation.version),
+    onSuccess: async updated => {
+      const history = historyAfterConversationTitleUpdate(conversations.data, olderConversationPages, updated);
+      client.setQueryData<ConversationPage>(['conversations', nonce, projectId], history.current);
+      setOlderConversationPages(history.olderPages);
+      client.setQueryData<ConversationDetail>(['conversation', nonce, projectId, updated._id], current => current ? { ...current, conversation: { ...current.conversation, ...updated } } : current);
+      setTitleEditing(false);
+      setTitleDraft('');
+      setNotice('Título da conversa atualizado.');
+      await refresh(updated._id);
+    }
   });
   const send = useMutation({
     mutationFn: (content: string) => request(token, `/admin/conversations/${selectedId}/messages`, { body: { projectId, operationId: operationId(), content } }),
@@ -191,6 +219,23 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
     onError: error => setNotice(errorMessage(error))
   });
 
+  function beginTitleEdit() {
+    if (!latest) return;
+    renameConversation.reset();
+    setTitleDraft(latest.conversation.title);
+    setTitleEditing(true);
+    setNotice('');
+  }
+  function cancelTitleEdit() {
+    renameConversation.reset();
+    setTitleEditing(false);
+    setTitleDraft('');
+  }
+  function submitTitle(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const title = titleDraft.trim();
+    if (title && latest && selectedId) renameConversation.mutate(title);
+  }
   function submitMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const content = draft.trim();
@@ -207,7 +252,7 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
     catch { setNotice(`ID da conversa: ${selectedId}`); }
   }
   function confirmDeleteConversation() {
-    if (window.confirm('Excluir esta conversa do histórico? Tarefas e execuções não serão alteradas.')) deleteConversation.mutate();
+    confirmConversationDeletion(message => window.confirm(message), () => deleteConversation.mutate());
   }
 
   return <section className="conversation-layout">
@@ -221,8 +266,8 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
     </aside>
     <div className="panel-card conversation-main">
       {!selectedId ? <div className="empty-state"><h2>Conversa do projeto</h2><p>Selecione uma conversa ou crie uma nova para começar.</p></div> : <>
-        <header className="conversation-header"><div><h2>{latest?.conversation.title ?? 'Conversa'}</h2><p className="muted-text">{latest?.conversation.taskId ? 'Conversa vinculada à tarefa' : 'Escopo do projeto'}</p>{latest?.task && <div className="conversation-context-badges"><Badge tone="muted">{latest.task.name}</Badge><Badge tone="blue">Área · {areaLabel(latest.task.area)}</Badge><Badge tone={statusTone(latest.task.status)}>Status · {statusLabel(latest.task.status)}</Badge><Badge tone="muted">Feature · {featureBadgeForTask(latest.task._id)}</Badge></div>}</div><div className="conversation-header-actions">{latest && !latest.conversation.taskId && <button type="button" className="button secondary" onClick={() => setLinkTaskOpen(open => !open)} disabled={linkTask.isPending}>{linkTaskOpen ? 'Fechar busca' : 'Vincular tarefa'}</button>}<button type="button" className="button secondary" onClick={() => void copyConversationId()}>Copiar ID</button><button type="button" className="button danger-button" onClick={confirmDeleteConversation} disabled={!latest || deleteConversation.isPending}>{deleteConversation.isPending ? 'Excluindo…' : 'Excluir conversa'}</button></div></header>
-        {linkTaskOpen && latest && !latest.conversation.taskId && <section className="conversation-task-link"><label htmlFor="conversation-task-search">Buscar tarefa</label><input id="conversation-task-search" type="search" value={taskSearch} onChange={event => setTaskSearch(event.target.value)} placeholder="Digite o início do nome da tarefa…" autoComplete="off" /><small>Digite ao menos 2 caracteres. A busca considera tarefas ativas deste projeto.</small>{debouncedTaskSearch.length < 2 ? <div className="empty-state compact">Digite ao menos 2 caracteres para buscar tarefas.</div> : taskSearchResults.isFetching ? <div className="loading">Buscando tarefas…</div> : taskSearchResults.isError ? <div className="notice error">{errorMessage(taskSearchResults.error)}</div> : taskSearchResults.data?.items.length ? <div className="conversation-task-options" role="listbox" aria-label="Tarefas encontradas">{taskSearchResults.data.items.map(task => <button type="button" role="option" aria-selected="false" className="conversation-task-option" key={task._id} onClick={() => linkTask.mutate(task._id)} disabled={linkTask.isPending}><strong>{task.name}</strong><span className="conversation-context-badges"><Badge tone="blue">Área · {areaLabel(task.area)}</Badge><Badge tone={statusTone(task.status)}>Status · {statusLabel(task.status)}</Badge><Badge tone="muted">Feature · {task.featureId ? features.data?.find(feature => feature._id === task.featureId)?.name ?? 'Carregando…' : 'Sem feature'}</Badge></span></button>)}</div> : <div className="empty-state compact">Nenhuma tarefa ativa corresponde à busca.</div>}</section>}
+        <header className="conversation-header"><div><ConversationTitleEditor title={latest?.conversation.title ?? 'Conversa'} editing={titleEditing} draft={titleDraft} editable={Boolean(latest)} saving={renameConversation.isPending} error={renameConversation.isError ? renameConversation.error : undefined} onEdit={beginTitleEdit} onDraftChange={setTitleDraft} onSave={submitTitle} onCancel={cancelTitleEdit} /><p className="muted-text">{latest?.conversation.taskId ? 'Conversa vinculada à tarefa' : 'Escopo do projeto'}</p>{latest?.task && <div className="conversation-context-badges"><Badge tone="muted">{latest.task.name}</Badge><Badge tone="blue">Área · {areaLabel(latest.task.area)}</Badge><Badge tone={statusTone(latest.task.status)}>Status · {statusLabel(latest.task.status)}</Badge><Badge tone="muted">Feature · {featureBadgeForTask(latest.task._id)}</Badge></div>}</div><div className="conversation-header-actions">{latest && !latest.conversation.taskId && <button type="button" className="button secondary" onClick={() => setLinkTaskOpen(open => !open)} disabled={linkTask.isPending}>{linkTaskOpen ? 'Fechar busca' : 'Vincular tarefa'}</button>}<button type="button" className="button secondary" onClick={() => void copyConversationId()}>Copiar ID</button><button type="button" className="button danger-button" onClick={confirmDeleteConversation} disabled={!latest || deleteConversation.isPending}>{deleteConversation.isPending ? 'Excluindo…' : 'Excluir conversa'}</button></div></header>
+        {linkTaskOpen && latest && !latest.conversation.taskId && <ConversationTaskSearch value={taskSearch} debouncedValue={debouncedTaskSearch} isFetching={taskSearchResults.isFetching} isError={taskSearchResults.isError} error={taskSearchResults.error} tasks={taskSearchResults.data?.items ?? []} onChange={setTaskSearch} onSelect={taskId => linkTask.mutate(taskId)} disabled={linkTask.isPending} featureLabel={task => task.featureId ? features.data?.find(feature => feature._id === task.featureId)?.name ?? 'Carregando…' : 'Sem feature'} />}
         {latest?.task && <section className="conversation-task-progress"><div className="proposal-heading"><div><strong>{latest.task.name}</strong><small>Versão {taskContext.data?.task.version ?? latest.task.version}</small></div><div className="conversation-context-badges">{latest.task.area && <Badge tone="blue">Área · {areaLabel(latest.task.area)}</Badge>}<Badge tone={statusTone(latest.task.status)}>Status · {statusLabel(latest.task.status)}</Badge></div></div>{latest.jobs.map(job => <div className="conversation-job-state" key={job._id}><Badge tone={job.failed ? 'amber' : job.status === 'completed' ? 'green' : 'blue'}>{job.failed ? 'Falha na execução' : job.status === 'waiting_human' ? 'Aguardando autorização' : job.status === 'completed' ? 'Enviado para revisão' : job.status === 'queued' ? 'Na fila' : job.status === 'running' || job.status === 'reserved' ? 'Em execução' : job.status === 'blocked' ? 'Bloqueado' : job.status}</Badge>{job.permissionTitle && <small>{job.permissionTitle}</small>}{job.status === 'waiting_human' && <button className="button ghost" onClick={onOpenAdmin}>Abrir automações</button>}</div>)}{taskContext.isPending ? <small>Carregando acompanhamento…</small> : taskContext.isError ? <div className="notice error">{errorMessage(taskContext.error)}</div> : <><div className="conversation-acceptance">{taskContext.data?.task.acceptance.map((criterion, index) => <div key={index}><Badge tone={taskContext.data?.task.acceptanceProgress[index] ? 'green' : 'blue'}>{taskContext.data?.task.acceptanceProgress[index] ? 'Atendido' : 'Pendente'}</Badge><MarkdownView content={criterion} />{taskContext.data?.task.acceptanceEvidence[index] && <small>Evidência: {taskContext.data.task.acceptanceEvidence[index]}</small>}</div>)}</div>{taskContext.data?.messages.length ? <div className="conversation-task-messages"><strong>Progresso e decisões recentes</strong>{taskContext.data.messages.slice(0, 5).map(message => <article key={message._id}><div className="conversation-message-meta"><span>{message.type} · {message.author}</span><small>{formatDate(message.createdAt)}</small></div><MarkdownView content={message.message} /></article>)}</div> : null}{taskContext.data?.executions[0] && <div className="conversation-execution"><Badge>{taskContext.data.executions[0].status}</Badge><small>Execução iniciada em {formatDate(taskContext.data.executions[0].startedAt)}</small>{taskContext.data.executions[0].result?.summary && <MarkdownView content={taskContext.data.executions[0].result.summary} />}</div>}</>}</section>}
         {notice && <div className="notice">{notice}</div>}
         {detail.isPending ? <div className="loading">Carregando mensagens…</div> : detail.isError ? <div className="notice error">{errorMessage(detail.error)}</div> : <>
