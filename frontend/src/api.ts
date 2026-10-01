@@ -38,8 +38,6 @@ export type Task = {
   type?: string;
   priority?: number;
   responsible?: string;
-  priority?: number;
-  responsible?: string;
   featureId?: string | null;
   acceptance?: string[];
   acceptanceProgress?: boolean[];

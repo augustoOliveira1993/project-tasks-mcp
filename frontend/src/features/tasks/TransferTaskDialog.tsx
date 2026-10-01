@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { allRecords, operationId, request } from '../../api';
 import type { Project, Task } from '../../api';
 import { errorMessage } from '../../lib/format';
@@ -31,7 +31,6 @@ export function TransferTaskDialog({ token, nonce, projectId, task, projects, cl
   close: () => void;
   onTransferred: (result: TransferResult, targetProjectId: string) => void | Promise<void>;
 }) {
-  const queryClient = useQueryClient();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const sourceProject = projects.find(project => project._id === projectId);
   const sourceRepositoryId = task.repositoryId ?? sourceProject?.repositories?.[0]?.id ?? '';

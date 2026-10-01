@@ -24,10 +24,14 @@ export function routeForTab(tab: AppTab): AppRoute {
 }
 
 export function tabForRoute(route: AppRoute): AppTab {
-  return route === 'conversations' ? 'chat' : route === 'settings' ? 'admin' : route === 'projects' ? 'tasks' : isCatalogRoute(route) ? 'catalogs' : route;
+  if (route === 'conversations') return 'chat';
+  if (route === 'settings') return 'admin';
+  if (route === 'projects') return 'tasks';
+  if (isCatalogRoute(route)) return 'catalogs';
+  return route;
 }
 
-export function isCatalogRoute(route: AppRoute): boolean {
+export function isCatalogRoute(route: AppRoute): route is 'catalogs' | 'catalogProjects' | 'catalogFeatures' | 'catalogTasks' | 'catalogAreas' {
   return route === 'catalogs' || route === 'catalogProjects' || route === 'catalogFeatures' || route === 'catalogTasks' || route === 'catalogAreas';
 }
 

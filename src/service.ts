@@ -798,7 +798,12 @@ export class Service {
       const rows = await DeliveryEvent.find({ projectId: a.projectId, sequence: { $gt: after }, credentialId: { $ne: actor.id } }).sort({ sequence: 1 }).limit(a.limit + 1).lean();
       const more = rows.length > a.limit; if (more) rows.pop();
       const cursor = rows.at(-1)?.sequence ?? after;
-      return { count: rows.length, cursor, hasMore: more, items: rows.map(item => ({ sequence: item.sequence, taskId: item.taskIds?.[0] ?? null, kind: item.kind ?? `project.${item.action}`, summary: item.summary ?? item.action, author: item.author, at: item.at })), unreadTasks: await this.unreadTasks(actor, a.projectId, baseline) };
+      const credentialIds = [...new Set(rows.filter(item => !item.author?.trim() && item.credentialId).map(item => item.credentialId))];
+      const credentials = credentialIds.length
+        ? await Credential.find({ _id: { $in: credentialIds } }).select('_id userId').lean()
+        : [];
+      const authorsByCredential = new Map(credentials.filter(item => item.userId).map(item => [String(item._id), item.userId!]));
+      return { count: rows.length, cursor, hasMore: more, items: rows.map(item => ({ sequence: item.sequence, taskId: item.taskIds?.[0] ?? null, kind: item.kind ?? `project.${item.action}`, summary: item.summary ?? item.action, author: item.author?.trim() || authorsByCredential.get(String(item.credentialId)), at: item.at })), unreadTasks: await this.unreadTasks(actor, a.projectId, baseline) };
     }
     if (name.endsWith('_project_events')) {
       if (name === 'unsubscribe_project_events') return { subscribed: false };
