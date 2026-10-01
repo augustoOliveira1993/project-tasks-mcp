@@ -7,7 +7,7 @@ import { ProjectPickerDialog } from './components/projects/ProjectPickerDialog';
 import { Badge } from './components/ui/Badge';
 import type { HardDeleteTarget } from './components/ui/HardDeleteDialog';
 import { errorMessage, formatDate } from './lib/format';
-import { catalogSectionForRoute, conversationIdFromSearch, isCatalogRoute, projectIdFromSearch, routeForCatalogSection, routeForTab, routeFromPath, routeUrl, tabForRoute, type AppRoute, type AppTab } from './route-state';
+import { catalogSectionForRoute, conversationIdFromSearch, isCatalogRoute, projectIdFromSearch, routeForCatalogSection, routeForTab, routeFromPath, routeUrl, tabForRoute, taskIdFromSearch, type AppRoute, type AppTab } from './route-state';
 
 const AdminPanel = lazy(() => import('./components/admin/AdminPanel').then(module => ({ default: module.AdminPanel })));
 const ProjectsPage = lazy(() => import('./components/projects/ProjectsPage').then(module => ({ default: module.ProjectsPage })));
@@ -33,6 +33,7 @@ function App() {
   const catalogScreen = isCatalogRoute(activeRoute);
   const [notice, setNotice] = useState<{ message: string; kind: string } | null>(null);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [requestedTaskId, setRequestedTaskId] = useState(() => taskIdFromSearch(window.location.search));
   const [transferTask, setTransferTask] = useState<Task | null>(null);
   const [conversationToOpen, setConversationToOpen] = useState(() => conversationIdFromSearch(window.location.search));
   const [statusTask, setStatusTask] = useState<Task | null>(null);
@@ -50,10 +51,17 @@ function App() {
   });
 
   function navigateToRoute(route: AppRoute, projectId = activeProjectId, preserveQuery = true) {
-    const nextUrl = routeUrl(route, window.location.search, projectId, preserveQuery);
+    const params = new URLSearchParams(window.location.search);
+    if (route !== 'tasks') params.delete('taskId');
+    const nextUrl = routeUrl(route, params.toString(), projectId, preserveQuery);
     const currentUrl = window.location.pathname + window.location.search;
     if (nextUrl !== currentUrl) window.history.pushState({ route }, '', nextUrl);
     setActiveRoute(route);
+    if (route !== 'tasks') {
+      setRequestedTaskId('');
+      setSelectedTask(null);
+    }
+    if (projectId !== activeProjectId) setRequestedTaskId('');
     if (projectId !== activeProjectId) setActiveProjectId(projectId);
   }
 
@@ -69,6 +77,7 @@ function App() {
 
   function openConversation(conversationId: string) {
     const params = new URLSearchParams(window.location.search);
+    params.delete('taskId');
     params.set('conversationId', conversationId);
     const nextUrl = routeUrl('conversations', params.toString(), activeProjectId);
     const currentUrl = window.location.pathname + window.location.search;
@@ -76,6 +85,32 @@ function App() {
     setActiveRoute('conversations');
     setConversationToOpen(conversationId);
     setSelectedTask(null);
+    setRequestedTaskId('');
+  }
+
+  function openTaskFromConversation(taskId: string) {
+    const task = tasks.find(item => item._id === taskId);
+    if (!task) {
+      notify('A tarefa vinculada não está disponível na listagem deste projeto.', 'error');
+      return;
+    }
+    const params = new URLSearchParams();
+    params.set('taskId', taskId);
+    const nextUrl = routeUrl('tasks', params.toString(), activeProjectId);
+    const currentUrl = window.location.pathname + window.location.search;
+    if (nextUrl !== currentUrl) window.history.pushState({ route: 'tasks' }, '', nextUrl);
+    setActiveRoute('tasks');
+    setRequestedTaskId(taskId);
+    setSelectedTask(task);
+  }
+
+  function closeTaskDetails() {
+    setSelectedTask(null);
+    setRequestedTaskId('');
+    const params = new URLSearchParams(window.location.search);
+    params.delete('taskId');
+    const nextUrl = routeUrl(activeRoute, params.toString(), activeProjectId);
+    window.history.replaceState({ route: activeRoute }, '', nextUrl);
   }
 
   function rememberConversation(conversationId: string) {
@@ -103,6 +138,8 @@ function App() {
       setActiveRoute(routeFromPath(window.location.pathname));
       setActiveProjectId(projectIdFromSearch(window.location.search));
       setConversationToOpen(conversationIdFromSearch(window.location.search));
+      setRequestedTaskId(taskIdFromSearch(window.location.search));
+      setSelectedTask(null);
     };
     window.addEventListener('popstate', restoreRouteFromUrl);
     return () => window.removeEventListener('popstate', restoreRouteFromUrl);
@@ -136,6 +173,18 @@ function App() {
     queryFn: () => allRecords<Task>(token, { kind: 'task', projectId: activeProjectId, archived: false })
   });
   const tasks = tasksQuery.data ?? [];
+  useEffect(() => {
+    if (activeRoute !== 'tasks' || !requestedTaskId || tasksQuery.isPending) return;
+    const task = tasks.find(item => item._id === requestedTaskId);
+    if (task) setSelectedTask(current => current?._id === task._id ? current : task);
+    else {
+      setRequestedTaskId('');
+      const params = new URLSearchParams(window.location.search);
+      params.delete('taskId');
+      window.history.replaceState(window.history.state, '', routeUrl('tasks', params.toString(), activeProjectId));
+      notify('A tarefa deste link não está disponível na listagem do projeto.', 'error');
+    }
+  }, [activeRoute, requestedTaskId, tasks, tasksQuery.isPending]);
   const noveltiesQuery = useQuery({
     queryKey: ['project-novelties', nonce, activeProjectId],
     enabled: Boolean(token && nonce && activeProjectId && activeTab === 'activity'),
@@ -389,7 +438,7 @@ function App() {
         {activeRoute !== 'projects' && !catalogScreen && project && <>
           <div className="page-heading"><div><p className="eyebrow">{activeTab === 'tasks' ? 'ACOMPANHAMENTO' : activeTab === 'chat' ? 'COLABORAÇÃO' : activeTab === 'activity' ? 'ATIVIDADE' : activeTab === 'admin' ? 'CONFIGURAÇÃO' : 'DOCUMENTAÇÃO'}</p><h1>{activeTab === 'tasks' ? 'Tarefas do projeto' : activeTab === 'chat' ? 'Conversas com IA' : activeTab === 'activity' ? 'Novidades do projeto' : activeTab === 'admin' ? 'Administração' : 'Ajuda do Project Tasks'}</h1><p className="muted-text">{activeTab === 'tasks' ? 'Acompanhe execução, revisão e conclusão do trabalho.' : activeTab === 'chat' ? 'Esclareça pedidos com a IA e autorize a execução quando a proposta estiver pronta.' : activeTab === 'activity' ? 'Acompanhe as mudanças compartilhadas neste projeto.' : activeTab === 'admin' ? 'Credenciais e configurações restritas do workspace.' : 'Referência rápida para os servidores e ferramentas MCP.'}</p></div>{activeTab === 'tasks' && <div className="button-row"><button className="button secondary" onClick={() => setSummaryOpen(true)}>Resumo</button><button className="button secondary" onClick={() => { void projectsQuery.refetch(); void tasksQuery.refetch(); }}>↻ Atualizar</button></div>}</div>
           {activeTab === 'tasks' && <TaskWorkspace key={activeProjectId} token={token} nonce={nonce} projectId={activeProjectId} repositories={project?.repositories ?? []} projectAreas={project?.areas ?? ['backend', 'frontend', 'outro']} tasks={tasks} isPending={tasksQuery.isPending} isError={tasksQuery.isError} error={tasksQuery.error} saving={saving} canHardDelete={canHardDelete} onRefresh={() => { void tasksQuery.refetch(); }} onOpenTask={setSelectedTask} onChangeStatus={setStatusTask} onToggleChecked={toggleChecked} onRequestHardDeleteTask={requestTaskHardDelete} onArchiveTask={archiveTask} onApproveSelected={approveSelected} onSetTasksChecked={setTasksChecked} />}
-          {activeTab === 'chat' && <ConversationPanel token={token} nonce={nonce} projectId={activeProjectId} tasks={tasks} requestedConversationId={conversationToOpen || undefined} onConversationSelected={rememberConversation} onOpenAdmin={() => setActiveTab('admin')} />}
+          {activeTab === 'chat' && <ConversationPanel token={token} nonce={nonce} projectId={activeProjectId} tasks={tasks} requestedConversationId={conversationToOpen || undefined} onConversationSelected={rememberConversation} onOpenTask={openTaskFromConversation} onOpenAdmin={() => setActiveTab('admin')} />}
           {activeTab === 'activity' && <section className="panel-card"><div className="section-heading"><div><h2>Eventos recentes</h2><p className="muted-text">Atualizações de tarefas e colaboração</p></div><button className="button secondary" onClick={() => void noveltiesQuery.refetch()}>↻ Atualizar</button></div>{noveltiesQuery.isPending ? <div className="loading">Carregando eventos…</div> : noveltiesQuery.isError ? <div className="notice error">{errorMessage(noveltiesQuery.error)}</div> : noveltiesQuery.data?.items?.length ? <div className="timeline">{noveltiesQuery.data.items.map((item, index) => <article className="timeline-item" key={item._id ?? index}><span className="timeline-dot" /><div><strong>{item.summary || item.kind || item.action || 'Atualização do projeto'}</strong><small>{item.author || 'Autor não identificado'} · {formatDate(item.at)}</small></div><Badge>{item.kind || item.action || 'evento'}</Badge></article>)}</div> : <div className="empty-state compact"><h3>Sem novidades recentes</h3><p>Eventos de colaboração aparecerão aqui.</p></div>}</section>}
           {activeTab === 'admin' && <AdminPanel token={token} project={project} projects={projects.map(item => item.project)} onChanged={() => { void projectsQuery.refetch(); }} notify={notify} canHardDelete={canHardDelete} actionPending={saving} onRequestHardDeleteProject={requestProjectHardDelete} onArchiveProject={() => { void archiveProject(); }} />}
           {activeTab === 'help' && <HelpToolsPanel search={toolSearch} onSearchChange={setToolSearch} />}
@@ -399,7 +448,7 @@ function App() {
       <footer className="app-footer"><span>Project Tasks MCP</span><span>{project?.name ?? ''}</span></footer>
     </main>
     <Suspense fallback={null}>
-    {selectedTask && project && <TaskDetailsDialog key={`${project._id}:${selectedTask._id}`} token={token} nonce={nonce} projectId={project._id} task={selectedTask} checking={adminMutation.isPending || saving} onToggleChecked={toggleChecked} onOpenConversation={openConversation} onRequestTransfer={setTransferTask} close={() => setSelectedTask(null)} />}
+    {selectedTask && project && <TaskDetailsDialog key={`${project._id}:${selectedTask._id}`} token={token} nonce={nonce} projectId={project._id} task={selectedTask} checking={adminMutation.isPending || saving} onToggleChecked={toggleChecked} onOpenConversation={openConversation} onRequestTransfer={setTransferTask} close={closeTaskDetails} />}
     {transferTask && project && <TransferTaskDialog key={`${project._id}:${transferTask._id}`} token={token} nonce={nonce} projectId={project._id} task={transferTask} projects={projects.map(item => item.project)} close={() => setTransferTask(null)} onTransferred={onTaskTransferred} />}
     {statusTask && <TaskStatusDialog task={statusTask} saving={saving} onClose={() => setStatusTask(null)} onSubmit={updateStatus} />}
     <ProjectPickerDialog projects={currentProjectPage} activeProjectId={activeProjectId} search={allProjectsSearch} currentPage={projectPage} pages={projectPages} total={filteredProjects.length} onSearchChange={value => { setAllProjectsSearch(value); setProjectPage(1); }} onPageChange={setProjectPage} onSelect={id => { selectProject(id); (document.getElementById('projects-dialog') as HTMLDialogElement | null)?.close(); }} />

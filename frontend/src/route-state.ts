@@ -55,6 +55,10 @@ export function conversationIdFromSearch(search: string): string {
   return new URLSearchParams(search).get('conversationId') ?? '';
 }
 
+export function taskIdFromSearch(search: string): string {
+  return new URLSearchParams(search).get('taskId') ?? '';
+}
+
 export function routeUrl(route: AppRoute, search: string, projectId: string, preserveQuery = true): string {
   const params = preserveQuery ? new URLSearchParams(search) : new URLSearchParams();
   if (projectId) params.set('projectId', projectId);
