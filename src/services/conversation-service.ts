@@ -17,7 +17,7 @@ function conversationDto(item: any) {
 }
 
 function messageDto(item: any) {
-  return { _id: item._id, conversationId: item.conversationId, author: item.author, authorType: item.authorType, content: item.content, createdAt: item.createdAt };
+  return { _id: item._id, conversationId: item.conversationId, author: item.author, authorType: item.authorType, clientName: item.clientName ?? null, content: item.content, createdAt: item.createdAt };
 }
 
 function proposalDto(item: any, currentTaskVersion?: number) {
@@ -137,9 +137,12 @@ export class ConversationService {
       const conversation = await Conversation.findOne({ _id: a.conversationId, projectId: a.projectId, status: 'open' }).session(session);
       ensure(conversation, 'Conversation not found or closed', 404);
       const authorType = actor.scope === 'agent' ? 'agent' : 'human';
+      const clientName = authorType === 'agent' && typeof actor.clientName === 'string' && actor.clientName.trim()
+        ? actor.clientName.trim().slice(0, 100)
+        : undefined;
       const message = new ConversationMessage({
         _id: randomUUID(), projectId: a.projectId, conversationId: a.conversationId,
-        author: actor.userId, authorType, senderId: actor.id, operationId: a.operationId,
+        author: actor.userId, authorType, ...(clientName ? { clientName } : {}), senderId: actor.id, operationId: a.operationId,
         content: a.content, createdAt: new Date()
       });
       await message.save({ session });
@@ -153,7 +156,7 @@ export class ConversationService {
         authorType, summary: authorType === 'agent' ? 'Resposta da IA na conversa' : 'Nova mensagem na conversa'
       });
       // Keep the idempotency receipt small; content is fetched through get_conversation.
-      return { _id: message._id, conversationId: a.conversationId, author: actor.userId, authorType, createdAt: message.createdAt };
+      return { _id: message._id, conversationId: a.conversationId, author: actor.userId, authorType, clientName: clientName ?? null, createdAt: message.createdAt };
     }, false, false);
   }
 

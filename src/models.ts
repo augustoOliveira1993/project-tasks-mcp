@@ -41,7 +41,7 @@ export const Conversation = mongoose.model('Conversation', new Schema({
 Conversation.schema.index({ projectId: 1, createdAt: 1, _id: 1 });
 Conversation.schema.index({ projectId: 1, taskId: 1, createdAt: 1, _id: 1 });
 export const ConversationMessage = mongoose.model('ConversationMessage', new Schema({
-  _id: String, projectId: String, conversationId: String, author: String, authorType: String,
+  _id: String, projectId: String, conversationId: String, author: String, authorType: String, clientName: String,
   senderId: String, operationId: String, content: String, createdAt: { type: Date, default: Date.now }
 }, { versionKey: false }));
 ConversationMessage.schema.index({ projectId: 1, conversationId: 1, createdAt: 1, _id: 1 });

@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { allRecords, operationId, query, request } from '../../api';
 import { errorMessage, formatDate } from '../../lib/format';
@@ -6,7 +6,7 @@ import { Badge } from '../ui/Badge';
 import { MarkdownView } from '../ui/MarkdownView';
 
 type Conversation = { _id: string; projectId: string; taskId: string | null; title: string; status: string; version: number; updatedAt?: string; lastMessageAt?: string | null };
-type Message = { _id: string; author: string; authorType: 'human' | 'agent'; content: string; createdAt: string };
+type Message = { _id: string; author: string; authorType: 'human' | 'agent'; clientName?: string | null; content: string; createdAt: string };
 type Proposal = {
   _id: string; taskId: string; expectedTaskVersion: number; title: string; summary: string;
   taskPatch: { instructions?: string; acceptance?: string[] }; status: string; version: number; stale: boolean;
@@ -30,6 +30,13 @@ type TaskActivity = {
 
 function areaLabel(area?: string) {
   return area === 'backend' ? 'Backend' : area === 'frontend' ? 'Frontend' : area === 'outro' ? 'Outro' : 'Não definida';
+}
+
+function authorDisplayName(author: string) {
+  const identity = author.trim();
+  const localPart = identity.includes('@') ? identity.slice(0, identity.indexOf('@')) : identity;
+  const firstName = localPart.split(/[._+-]/).find(Boolean) ?? localPart;
+  return firstName ? firstName[0].toLocaleUpperCase('pt-BR') + firstName.slice(1) : 'Desconhecido';
 }
 
 function statusLabel(status: string) {
@@ -178,6 +185,11 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
     const content = draft.trim();
     if (content && selectedId) send.mutate(content);
   }
+  function sendMessageOnEnter(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return;
+    event.preventDefault();
+    if (draft.trim() && selectedId && !send.isPending) event.currentTarget.form?.requestSubmit();
+  }
   async function copyConversationId() {
     if (!selectedId) return;
     try { await navigator.clipboard.writeText(selectedId); setNotice('ID da conversa copiado; uma IA MCP pode retomá-la por esse ID.'); }
@@ -204,8 +216,8 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
         {notice && <div className="notice">{notice}</div>}
         {detail.isPending ? <div className="loading">Carregando mensagens…</div> : detail.isError ? <div className="notice error">{errorMessage(detail.error)}</div> : <>
           {(olderMessagePages.at(-1)?.next ?? latest?.next) && <button className="button ghost" disabled={loadingOlder} onClick={() => void loadOlderMessages()}>{loadingOlder ? 'Carregando…' : 'Carregar mensagens anteriores'}</button>}
-          <div className="conversation-messages" aria-live="polite">{orderedMessages.length ? orderedMessages.map(message => <article key={message._id} className={`conversation-message ${message.authorType}`}><div className="conversation-message-meta"><strong>{message.authorType === 'agent' ? 'IA' : 'Pessoa'}</strong><small>{formatDate(message.createdAt)}</small></div><MarkdownView content={message.content} /></article>) : <div className="empty-state compact"><h3>Sem mensagens</h3><p>Envie o objetivo e os detalhes conhecidos para iniciar.</p></div>}</div>
-          <form className="conversation-composer" onSubmit={submitMessage}><label htmlFor="conversation-message">Mensagem</label><textarea id="conversation-message" rows={4} maxLength={20000} value={draft} onChange={event => setDraft(event.target.value)} placeholder="Descreva o objetivo, restrições e dúvidas…" /><div className="conversation-composer-footer"><small>A IA pode responder nesta mesma conversa pelo MCP.</small><button className="button primary" disabled={!draft.trim() || send.isPending}>Enviar</button></div></form>
+          <div className="conversation-messages" aria-live="polite">{orderedMessages.length ? orderedMessages.map(message => <article key={message._id} className={`conversation-message ${message.authorType}`}><div className="conversation-message-meta"><strong>{message.authorType === 'agent' ? `${message.clientName?.trim() || 'IA'} (${authorDisplayName(message.author)})` : `Pessoa (${authorDisplayName(message.author)})`}</strong><small>{formatDate(message.createdAt)}</small></div><MarkdownView content={message.content} /></article>) : <div className="empty-state compact"><h3>Sem mensagens</h3><p>Envie o objetivo e os detalhes conhecidos para iniciar.</p></div>}</div>
+          <form className="conversation-composer" onSubmit={submitMessage}><label htmlFor="conversation-message">Mensagem</label><textarea id="conversation-message" rows={4} maxLength={20000} value={draft} onChange={event => setDraft(event.target.value)} onKeyDown={sendMessageOnEnter} placeholder="Descreva o objetivo, restrições e dúvidas…" /><div className="conversation-composer-footer"><small>Enter envia · Shift+Enter quebra a linha</small><button className="button primary" disabled={!draft.trim() || send.isPending}>Enviar</button></div></form>
           {latest?.proposals.length ? <section className="conversation-proposals"><div className="section-heading"><div><h3>Propostas de execução</h3><p className="muted-text">A aprovação inicia a automação configurada e envia o resultado para revisão.</p></div></div>{latest.proposals.map(proposal => <article className="proposal-card" key={proposal._id}><div className="proposal-heading"><h4>{proposal.title}</h4><Badge tone={proposal.status === 'pending' && !proposal.stale ? 'amber' : proposal.status === 'approved' ? 'green' : 'blue'}>{proposal.stale ? 'contexto desatualizado' : proposal.status}</Badge></div><MarkdownView content={proposal.summary} />{proposal.taskPatch.instructions && <div className="detail-section"><h4>Instruções propostas</h4><MarkdownView content={proposal.taskPatch.instructions} /></div>}{proposal.taskPatch.acceptance?.length ? <div className="detail-section"><h4>Critérios propostos</h4><ul>{proposal.taskPatch.acceptance.map((criterion, index) => <li key={index}><MarkdownView content={criterion} /></li>)}</ul></div> : null}<small>Tarefa {proposal.taskId} · versão esperada {proposal.expectedTaskVersion}</small><div className="button-row end-row"><button className="button primary" disabled={proposal.status !== 'pending' || proposal.stale || approve.isPending || !latest.task || latest.task.version !== proposal.expectedTaskVersion} onClick={() => approve.mutate(proposal)}>Aprovar e iniciar execução</button></div></article>)}</section> : null}
         </>}
       </>}
