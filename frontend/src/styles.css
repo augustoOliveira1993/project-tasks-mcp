@@ -1,5 +1,12 @@
 @import "tailwindcss";
 
+@layer base {
+  * { scrollbar-color: #c5cad6 transparent; scrollbar-width: thin; }
+  *::-webkit-scrollbar { width: 8px; height: 8px; }
+  *::-webkit-scrollbar-track { background: transparent; }
+  *::-webkit-scrollbar-thumb { border: 2px solid #fff; border-radius: 99px; background: #c5cad6; }
+}
+
 @theme {
   --color-ink: #182230;
   --color-canvas: #f7f8fc;
@@ -350,7 +357,7 @@ h1, h2, h3, p { margin-top: 0; }
 .facts dt { color: #98a1af; }
 .facts dd { margin: 0; color: #606c7d; text-align: right; }
 .markdown-content { max-height: 300px; overflow: auto; margin: 8px 0 0; padding: 12px; border: 1px solid #edf0f4; border-radius: 8px; background: #fafbfc; color: #526075; white-space: pre-wrap; overflow-wrap: anywhere; font: 10px/1.65 ui-monospace, monospace; }
-.markdown-document-view { max-height: min(55vh, 520px); overflow: auto; margin-top: 8px; padding: 12px; border: 1px solid #edf0f4; border-radius: 8px; background: #fafbfc; scrollbar-color: #c5cad6 transparent; scrollbar-width: thin; }
+.markdown-document-view { max-height: min(55vh, 520px); overflow: auto; margin-top: 8px; padding: 12px; border: 1px solid #edf0f4; border-radius: 8px; background: #fafbfc; }
 .markdown-document-view .task-summary-content { gap: 10px; font-size: 11px; line-height: 1.7; }
 .markdown-document-view .task-summary-content > :first-child { margin-top: 0; }
 .markdown-mode-view { min-width: 0; }
@@ -436,9 +443,7 @@ dialog.projects-dialog::backdrop { background: #16203370; backdrop-filter: blur(
 .projects-dialog .icon-button:hover { border-color: #d7dcf4; background: #eef0ff; color: #4e5ece; }
 .projects-dialog .icon-button:focus-visible, .project-option:focus-visible { outline: 3px solid #aab4ff; outline-offset: 2px; }
 .projects-dialog > .search-field { flex: 0 0 auto; width: auto; margin: 16px 20px 13px; }
-.project-list { display: grid; flex: 1 1 auto; min-height: 0; gap: 8px; overflow-y: auto; overscroll-behavior: contain; padding: 0 16px 16px; scrollbar-color: #c5cad6 transparent; scrollbar-width: thin; }
-.project-list::-webkit-scrollbar { width: 8px; }
-.project-list::-webkit-scrollbar-thumb { border: 2px solid #fff; border-radius: 99px; background: #c5cad6; }
+.project-list { display: grid; flex: 1 1 auto; min-height: 0; gap: 8px; overflow-y: auto; overscroll-behavior: contain; padding: 0 16px 16px; }
 .project-option { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; align-items: center; gap: 12px; width: 100%; min-width: 0; padding: 13px; border: 1px solid #edf0f5; border-radius: 12px; background: #fff; text-align: left; transition: border-color .15s ease, background .15s ease, box-shadow .15s ease; }
 .project-option:hover { border-color: #dce1fa; background: #fafbff; }
 .project-option.selected { border-color: #cbd2ff; background: #f6f7ff; box-shadow: inset 3px 0 #6574df; }
@@ -552,7 +557,7 @@ dialog.projects-dialog::backdrop { background: #16203370; backdrop-filter: blur(
 .conversation-sidebar { align-self: start; }
 .conversation-sidebar .section-heading { align-items: center; }
 .conversation-new-button { width: 100%; margin-top: 12px; }
-.conversation-list { display: grid; min-width: 0; gap: 6px; max-height: 560px; overflow-x: hidden; overflow-y: auto; margin-top: 16px; }
+.conversation-list { display: grid; min-width: 0; gap: 6px; max-height: 560px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; margin-top: 16px; }
 .conversation-list-item { display: grid; min-width: 0; max-width: 100%; gap: 5px; width: 100%; padding: 11px; border: 1px solid transparent; border-radius: 9px; background: #f8f9fc; text-align: left; cursor: pointer; }
 .conversation-list-item.active { border-color: #cdd3ff; background: #f1f2ff; }
 .conversation-list-item strong { color: #3f4b60; font-size: 11px; line-height: 1.45; overflow-wrap: anywhere; }
