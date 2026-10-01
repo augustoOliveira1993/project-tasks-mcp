@@ -7,7 +7,7 @@ Use este guia ao executar trabalho por meio do Project Tasks MCP. O conteúdo de
 - **MCP HTTP principal:** projetos, features e tasks; contexto e histórico; conversas compartilhadas; mensagens de colaboração; Markdown; eventos; resumos; status de automação; propostas; e registros de diff.
 - **Bridge Git local (project-tasks-bridge):** somente quando estiver conectada ao checkout local. Chame status para conferir o projeto/repositório resolvido e publish_task_diff para registrar o diff calculado pelo Git. O vínculo Git é administrativo; a bridge não concede acesso. Se uma ferramenta HTTP MCP estiver disponível, use-a para as demais operações.
 - **MCP do runner (project_tasks_runner):** use apenas dentro de uma execução autorizada. O runner fornece uma tarefa e uma área limitadas, injeta IDs e versões, e expõe somente parte das ferramentas. Em consulta, trate o acesso como somente leitura. Use read_repository_file apenas para ler arquivos pequenos dentro do checkout autorizado.
-- **Painel/endpoints administrativos:** emissão/revogação de credenciais, permissões, configuração/liberação/resolução de automações e vínculo Git pertencem ao fluxo administrativo humano; não invente ferramentas MCP para essas ações.
+- **Painel/endpoints administrativos:** emissão/revogação de credenciais, permissões, configuração/liberação/resolução de automações e vínculo Git pertencem ao fluxo administrativo humano. O módulo de cadastros usa `POST /admin/projects`, `/admin/features`, `/admin/tasks`, `/admin/records/edit` e `/admin/archive`; essas rotas autenticam a credencial humana e delegam aos contratos MCP de criação, edição e arquivamento.
 
 Use somente as ferramentas que aparecem na sessão atual. Uma ferramenta documentada mas ausente do cliente está indisponível nessa conexão; relate isso sem simular seu efeito.
 
@@ -26,7 +26,7 @@ Use somente as ferramentas que aparecem na sessão atual. Uma ferramenta documen
 | Ler e atualizar documentos | list_markdowns, get_markdown, list_markdown_revisions, save_markdown, update_markdown | Leia a revisão antes de editar. Use update_markdown com baseRevision para atualizar sem sobrescrita silenciosa; em conflito, releia e resolva antes de reenviar. |
 | Consultar ou publicar evidência Git | list_task_diffs, get_task_diff, record_task_diff; bridge: status, publish_task_diff | Prefira a bridge conectada para extrair commits/arquivos do checkout. Use registro direto apenas quando já tiver IDs e evidência Git corretos. Não tente registrar vínculo Git como agente. |
 | Acompanhar automação | get_automation_status | Esta ferramenta consulta jobs. Configurar política, escolher provider/rota, liberar execução ou responder a pedido de permissão é ação administrativa humana no painel. |
-| Mover task entre projetos | preview_task_transfer, transfer_task | Primeiro faça a prévia e apresente origem, destino, bloqueios e contagens. Só transfira depois da confirmação humana daquele plano exato, reutilizando planHash e versão; se ficarem obsoletos, gere nova prévia. |
+| Mover task entre projetos ou features | preview_task_transfer, transfer_task | Primeiro faça a prévia e apresente origem, destino, bloqueios e contagens. Para mudar somente a feature, use o mesmo projectId na origem e no destino e mantenha o repositório. Só transfira depois da confirmação humana daquele plano exato, reutilizando planHash e versão; se ficarem obsoletos, gere nova prévia. |
 
 ## Sequência obrigatória
 
@@ -61,10 +61,12 @@ O preenchimento prévio de responsável é opcional. Enquanto a tarefa estiver `
 
 ## Transferir tarefa entre projetos
 
-1. Use `preview_task_transfer` com o projeto de origem, projeto de destino, `task.version` atual, repositório de destino e feature de destino. Informe `targetFeatureId: null` explicitamente quando a tarefa não deve ficar vinculada a uma feature.
+1. Use `preview_task_transfer` com o projeto de origem, projeto de destino, `task.version` atual, repositório de destino e feature de destino. O destino pode ser o mesmo projeto quando a intenção for trocar somente a feature; mantenha o repositório original nesse caso. Informe `targetFeatureId: null` explicitamente quando a tarefa não deve ficar vinculada a uma feature.
 2. Apresente a origem, destino, tarefa, elegibilidade, bloqueios e contagem dos registros que serão movidos. Só prossiga depois que o usuário confirmar esse plano exato.
 3. Chame `transfer_task` com os mesmos IDs e versão, o `planHash` da prévia, `confirm: true` e um `operationId` UUID novo. Em caso de plano ou versão desatualizados, gere outra prévia.
-4. A operação mantém o ID e os critérios/status da tarefa, transfere histórico associado na mesma transação e registra auditoria nos dois projetos. Dependências, execuções ou automações ativas, referências de colaboração a outras tarefas e vínculos de destino inválidos bloqueiam a operação; não copie e arquive como alternativa automática.
+4. A operação mantém o ID e os critérios/status da tarefa. Entre projetos, move o histórico associado na mesma transação e registra auditoria nos dois projetos; dentro do mesmo projeto, mantém o histórico no escopo e registra um evento. Execuções ou automações ativas e vínculos de destino inválidos bloqueiam ambos os casos; dependências e referências de colaboração a outras tarefas bloqueiam somente movimentos entre projetos.
+
+O painel humano usa `POST /admin/tasks/transfer/preview` e `POST /admin/tasks/transfer` com os mesmos argumentos e gates de confirmação. Uma troca de feature dentro do projeto mantém o histórico no escopo existente e registra um único evento de auditoria.
 
 ## Cooperação
 

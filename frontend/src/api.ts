@@ -5,8 +5,9 @@ export type Project = {
   version: number;
   name: string;
   description?: string;
+  instructions?: string;
   visibility?: string;
-  repositories?: Array<{ id: string; name: string; url: string; git?: { canonicalRemoteUrl: string; rootCommit: string } }>;
+  repositories?: Array<{ id: string; name: string; url: string; instructions?: string; git?: { canonicalRemoteUrl: string; rootCommit: string } }>;
   areas?: string[];
   createdAt?: string;
   updatedAt?: string;
@@ -29,9 +30,14 @@ export type Task = {
   version: number;
   name: string;
   description?: string;
+  instructions?: string;
   status: string;
   area?: string;
+  repositoryId?: string;
+  dependencies?: string[];
   type?: string;
+  priority?: number;
+  responsible?: string;
   priority?: number;
   responsible?: string;
   featureId?: string | null;

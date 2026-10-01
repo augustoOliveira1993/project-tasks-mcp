@@ -394,14 +394,15 @@ export class Service {
         }
         if (a.projectId) await this.access(actor, a.projectId, false, projectAdmin, s);
         const targetProjectId = name === 'transfer_task' ? a.targetProjectId as string : undefined;
-        if (targetProjectId) await this.access(actor, targetProjectId, false, projectAdmin, s);
+        const distinctTargetProjectId = targetProjectId && targetProjectId !== a.projectId ? targetProjectId : undefined;
+        if (distinctTargetProjectId) await this.access(actor, distinctTargetProjectId, false, projectAdmin, s);
         const old = await Operation.findById(key).session(s);
         if (old) { requireThat(old.fingerprint === fingerprint, 'Operation ID reused with different arguments'); return old.result; }
         if (a.projectId) await this.access(actor, a.projectId, projectWrite, projectAdmin, s);
         if (graphWrite && a.projectId) await Project.updateOne({ _id: a.projectId }, { $inc: { fence: 1 } }, { session: s });
-        if (targetProjectId) {
-          await this.access(actor, targetProjectId, projectWrite, projectAdmin, s);
-          requireThat(await Project.exists({ _id: targetProjectId }).session(s), 'Destination project not found', 404);
+        if (distinctTargetProjectId) {
+          await this.access(actor, distinctTargetProjectId, projectWrite, projectAdmin, s);
+          requireThat(await Project.exists({ _id: distinctTargetProjectId }).session(s), 'Destination project not found', 404);
         }
         const result = plain(await run(s));
         const projectId = a.projectId ?? (name === 'create_project' ? result?._id : undefined);
@@ -428,7 +429,7 @@ export class Service {
   private async taskTransferPlan(actor: Actor, a: any, s?: ClientSession) {
     const source: any = await this.access(actor, a.projectId, true, false, s);
     const destination: any = await this.access(actor, a.targetProjectId, true, false, s);
-    requireThat(a.projectId !== a.targetProjectId, 'Source and destination projects must be different', 400);
+    const sameProject = a.projectId === a.targetProjectId;
 
     const task: any = await Task.findOne({ _id: a.taskId, projectId: a.projectId }).session(s ?? null).lean();
     requireThat(task, 'Task not found', 404);
@@ -439,15 +440,17 @@ export class Service {
     if (!destination.repositories?.some((repository: any) => repository.id === a.targetRepositoryId)) blockers.push('Destination repository is not registered in the destination project.');
     if (!areasForProject(destination).includes(task.area)) blockers.push(`Destination project does not register area "${task.area}".`);
     if (a.targetFeatureId && !await Feature.exists({ _id: a.targetFeatureId, projectId: a.targetProjectId, archived: false }).session(s ?? null)) blockers.push('Destination feature is missing, archived, or belongs to another project.');
-    if (await Task.exists({ _id: a.taskId, projectId: a.targetProjectId }).session(s ?? null)) blockers.push('Destination already contains this task ID.');
-    if (await MarkdownDocument.exists({ projectId: a.targetProjectId, targetKind: 'task', targetId: a.taskId }).session(s ?? null)) blockers.push('Destination already contains Markdown documents for this task ID.');
+    if (sameProject && task.repositoryId !== a.targetRepositoryId) blockers.push('Repository cannot change in a same-project feature transfer.');
+    if (sameProject && (task.featureId ?? null) === a.targetFeatureId) blockers.push('Task already belongs to this feature.');
+    if (!sameProject && await Task.exists({ _id: a.taskId, projectId: a.targetProjectId }).session(s ?? null)) blockers.push('Destination already contains this task ID.');
+    if (!sameProject && await MarkdownDocument.exists({ projectId: a.targetProjectId, targetKind: 'task', targetId: a.taskId }).session(s ?? null)) blockers.push('Destination already contains Markdown documents for this task ID.');
 
     const dependents: any[] = await Task.find({ projectId: a.projectId, _id: { $ne: a.taskId }, dependencies: a.taskId }).select('_id').session(s ?? null).lean();
-    if (task.dependencies?.length) blockers.push('Task has dependencies; transfer or remap them before moving this task.');
-    if (dependents.length) blockers.push('Other tasks depend on this task; transfer or remap them before moving it.');
+    if (!sameProject && task.dependencies?.length) blockers.push('Task has dependencies; transfer or remap them before moving this task.');
+    if (!sameProject && dependents.length) blockers.push('Other tasks depend on this task; transfer or remap them before moving it.');
 
     const messages: any[] = await TaskMessage.find({ projectId: a.projectId, $or: [{ taskId: a.taskId }, { relatedTaskId: a.taskId }] }).select('_id taskId relatedTaskId').session(s ?? null).lean();
-    if (messages.some(message => message.taskId !== a.taskId || (message.relatedTaskId && message.relatedTaskId !== a.taskId))) blockers.push('Task collaboration messages reference other tasks and cannot be moved independently.');
+    if (!sameProject && messages.some(message => message.taskId !== a.taskId || (message.relatedTaskId && message.relatedTaskId !== a.taskId))) blockers.push('Task collaboration messages reference other tasks and cannot be moved independently.');
 
     const proposals: any[] = await ActionProposal.find({ projectId: a.projectId, taskId: a.taskId }).select('_id conversationId').session(s ?? null).lean();
     const conversations: any[] = await Conversation.find({ projectId: a.projectId, $or: [
@@ -501,7 +504,7 @@ export class Service {
   }
   async call(actor: Actor, name: string, input: unknown): Promise<any> {
     const conversationTools = new Set(['create_conversation', 'open_task_conversation', 'link_conversation_task', 'delete_conversation', 'send_conversation_message', 'send_collaboration_message']);
-    requireThat(['agent', 'trusted_local'].includes(actor.scope) || (actor.scope === 'human' && (name === 'archive_record' || name === 'create_task' || name === 'create_feature' || name === 'mark_task_read' || conversationTools.has(name))), 'Agent scope required', 403);
+    requireThat(['agent', 'trusted_local'].includes(actor.scope) || (actor.scope === 'human' && (name === 'archive_record' || name === 'edit_record' || name === 'create_project' || name === 'create_task' || name === 'create_feature' || name === 'preview_task_transfer' || name === 'transfer_task' || name === 'mark_task_read' || conversationTools.has(name))), 'Agent scope required', 403);
     const schema = tools[name as keyof typeof tools];
     requireThat(schema, 'Unknown tool', 404);
     const a: any = schema.parse(input);
@@ -630,29 +633,32 @@ export class Service {
         requireThat(plan.eligible, plan.blockers.join(' '));
         requireThat(plan.planHash === a.planHash, 'Transfer plan changed or confirmation is stale; preview the transfer again');
         const task = plan.internal.task;
-        const sourceFilter = { projectId: a.projectId };
-        const updateScope = async (model: Model<any>, filter: any, expected: number) => {
-          const result = await model.updateMany(filter, { $set: { projectId: a.targetProjectId } }, { session: s });
-          requireThat(result.matchedCount === expected, 'Transfer references changed; preview the transfer again');
-        };
-        const executionIds = plan.internal.executions.map((item: any) => item._id);
-        if (executionIds.length) await updateScope(Execution, { _id: { $in: executionIds } }, executionIds.length);
-        if (plan.internal.messages.length) await updateScope(TaskMessage, { ...sourceFilter, _id: { $in: plan.internal.messages.map((item: any) => item._id) } }, plan.internal.messages.length);
-        if (plan.internal.conversations.length) await updateScope(Conversation, { ...sourceFilter, _id: { $in: plan.internal.conversations.map((item: any) => item._id) } }, plan.internal.conversations.length);
-        if (plan.internal.conversationMessages.length) await updateScope(ConversationMessage, { ...sourceFilter, _id: { $in: plan.internal.conversationMessages.map((item: any) => item._id) } }, plan.internal.conversationMessages.length);
-        if (plan.internal.actionProposals.length) await updateScope(ActionProposal, { ...sourceFilter, _id: { $in: plan.internal.actionProposals.map((item: any) => item._id) } }, plan.internal.actionProposals.length);
-        if (plan.internal.diffs.length) await updateScope(TaskDiff, { ...sourceFilter, _id: { $in: plan.internal.diffs.map((item: any) => item._id) } }, plan.internal.diffs.length);
-        const documentIds = plan.internal.documents.map((document: any) => document._id);
-        if (documentIds.length) {
-          await updateScope(MarkdownDocument, { ...sourceFilter, _id: { $in: documentIds } }, documentIds.length);
-          await MarkdownRevision.updateMany({ ...sourceFilter, documentId: { $in: documentIds } }, { $set: { projectId: a.targetProjectId } }, { session: s });
+        const crossesProjects = a.projectId !== a.targetProjectId;
+        if (crossesProjects) {
+          const sourceFilter = { projectId: a.projectId };
+          const updateScope = async (model: Model<any>, filter: any, expected: number) => {
+            const result = await model.updateMany(filter, { $set: { projectId: a.targetProjectId } }, { session: s });
+            requireThat(result.matchedCount === expected, 'Transfer references changed; preview the transfer again');
+          };
+          const executionIds = plan.internal.executions.map((item: any) => item._id);
+          if (executionIds.length) await updateScope(Execution, { _id: { $in: executionIds } }, executionIds.length);
+          if (plan.internal.messages.length) await updateScope(TaskMessage, { ...sourceFilter, _id: { $in: plan.internal.messages.map((item: any) => item._id) } }, plan.internal.messages.length);
+          if (plan.internal.conversations.length) await updateScope(Conversation, { ...sourceFilter, _id: { $in: plan.internal.conversations.map((item: any) => item._id) } }, plan.internal.conversations.length);
+          if (plan.internal.conversationMessages.length) await updateScope(ConversationMessage, { ...sourceFilter, _id: { $in: plan.internal.conversationMessages.map((item: any) => item._id) } }, plan.internal.conversationMessages.length);
+          if (plan.internal.actionProposals.length) await updateScope(ActionProposal, { ...sourceFilter, _id: { $in: plan.internal.actionProposals.map((item: any) => item._id) } }, plan.internal.actionProposals.length);
+          if (plan.internal.diffs.length) await updateScope(TaskDiff, { ...sourceFilter, _id: { $in: plan.internal.diffs.map((item: any) => item._id) } }, plan.internal.diffs.length);
+          const documentIds = plan.internal.documents.map((document: any) => document._id);
+          if (documentIds.length) {
+            await updateScope(MarkdownDocument, { ...sourceFilter, _id: { $in: documentIds } }, documentIds.length);
+            await MarkdownRevision.updateMany({ ...sourceFilter, documentId: { $in: documentIds } }, { $set: { projectId: a.targetProjectId } }, { session: s });
+          }
+          if (plan.internal.jobs.length) {
+            const jobs = await AutomationJob.updateMany({ ...sourceFilter, _id: { $in: plan.internal.jobs.map((item: any) => item._id) } }, { $set: { projectId: a.targetProjectId } }, { session: s });
+            requireThat(jobs.matchedCount === plan.internal.jobs.length, 'Transfer references changed; preview the transfer again');
+          }
+          const eventIds = plan.internal.events.map((event: any) => event._id);
+          if (eventIds.length) await updateScope(Event, { ...sourceFilter, _id: { $in: eventIds } }, eventIds.length);
         }
-        if (plan.internal.jobs.length) {
-          const jobs = await AutomationJob.updateMany({ ...sourceFilter, _id: { $in: plan.internal.jobs.map((item: any) => item._id) } }, { $set: { projectId: a.targetProjectId } }, { session: s });
-          requireThat(jobs.matchedCount === plan.internal.jobs.length, 'Transfer references changed; preview the transfer again');
-        }
-        const eventIds = plan.internal.events.map((event: any) => event._id);
-        if (eventIds.length) await updateScope(Event, { ...sourceFilter, _id: { $in: eventIds } }, eventIds.length);
 
         const changed = await Task.updateOne(
           { _id: a.taskId, projectId: a.projectId, version: a.version, archived: false },
@@ -669,7 +675,7 @@ export class Service {
           previousVersion: a.version, version: movedTask.version, moved: plan.moveCounts
         };
         await this.event(s, actor, name, a.projectId, a.taskId, audit);
-        await this.event(s, actor, name, a.targetProjectId, a.taskId, audit);
+        if (crossesProjects) await this.event(s, actor, name, a.targetProjectId, a.taskId, audit);
         return { operationId: a.operationId, sourceProjectId: a.projectId, targetProjectId: a.targetProjectId, task: movedTask, moved: plan.moveCounts };
       }
       const t = await Task.findOne({ _id: a.taskId, projectId: a.projectId, archived: false }).session(s);

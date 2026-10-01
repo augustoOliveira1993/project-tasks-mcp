@@ -14,7 +14,7 @@ type TaskDiff = { _id: string; commit?: string; branch?: string; files?: string[
 type TaskMarkdown = { _id: string; name: string; summary: string; revision: number };
 type TaskReadAttempt = { taskId: string; cursor: number; operationId: string };
 
-export function TaskDetailsDialog({ token, nonce, projectId, task, checking, onToggleChecked, onOpenConversation, close }: { token: string; nonce: string; projectId: string; task: Task; checking: boolean; onToggleChecked: (task: Task) => void; onOpenConversation: (conversationId: string) => void; close: () => void }) {
+export function TaskDetailsDialog({ token, nonce, projectId, task, checking, onToggleChecked, onOpenConversation, onRequestTransfer, close }: { token: string; nonce: string; projectId: string; task: Task; checking: boolean; onToggleChecked: (task: Task) => void; onOpenConversation: (conversationId: string) => void; onRequestTransfer: (task: Task) => void; close: () => void }) {
   const [markdown, setMarkdown] = useState<{ name: string; content: string } | null>(null);
   const [view, setView] = useState<'details' | 'summary' | 'json'>('details');
   const [criterionEvidence, setCriterionEvidence] = useState<Record<number, string>>({});
@@ -23,7 +23,7 @@ export function TaskDetailsDialog({ token, nonce, projectId, task, checking, onT
   const queryClient = useQueryClient();
   const readAttempt = useRef<TaskReadAttempt | null>(null);
   const context = useQuery({
-    queryKey: ['task-context', nonce, task._id],
+    queryKey: ['task-context', nonce, projectId, task._id],
     queryFn: () => query<Record<string, any>>(token, 'get_task_context', { projectId, taskId: task._id })
   });
   const activityReport = useQuery({
@@ -54,11 +54,11 @@ export function TaskDetailsDialog({ token, nonce, projectId, task, checking, onT
     markReadAutomatically(unreadActivity);
   }, [markReadAutomatically, unreadActivity?.count, unreadActivity?.cursor]);
   const diffs = useQuery({
-    queryKey: ['task-diffs', nonce, task._id],
+    queryKey: ['task-diffs', nonce, projectId, task._id],
     queryFn: () => query<{ items: TaskDiff[] }>(token, 'list_task_diffs', { projectId, taskId: task._id, limit: 20 })
   });
   const markdowns = useQuery({
-    queryKey: ['task-markdowns', nonce, task._id],
+    queryKey: ['task-markdowns', nonce, projectId, task._id],
     queryFn: () => query<{ items: TaskMarkdown[] }>(token, 'list_markdowns', { projectId, targetKind: 'task', targetId: task._id, limit: 20 })
   });
   const openConversation = useMutation({
@@ -92,7 +92,7 @@ export function TaskDetailsDialog({ token, nonce, projectId, task, checking, onT
       const acceptanceEvidence = [...(taskData.acceptanceEvidence ?? Array.from({ length: acceptance.length }, () => null))];
       acceptanceEvidence[criterionIndex] = complete ? evidence : null;
       const updatedTask = { ...result.task, acceptanceEvidence };
-      queryClient.setQueryData<Record<string, any>>(['task-context', nonce, task._id], current => current ? { ...current, task: updatedTask } : current);
+      queryClient.setQueryData<Record<string, any>>(['task-context', nonce, projectId, task._id], current => current ? { ...current, task: updatedTask } : current);
       queryClient.setQueryData<Task[]>(['project-tasks', nonce, projectId], current => current?.map(item => item._id === task._id ? { ...item, version: result.task.version, acceptanceProgress: result.task.acceptanceProgress } : item));
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['project-tasks', nonce, projectId] }),
@@ -132,7 +132,7 @@ export function TaskDetailsDialog({ token, nonce, projectId, task, checking, onT
           <div className="detail-check-copy"><Badge tone={taskData.checked ? 'green' : 'amber'}>{taskData.checked ? 'Conferida' : 'Não conferida'}</Badge><span>{taskData.checked ? 'por ' + (taskData.checkedBy || 'Usuário') + ' · ' + formatDate(taskData.checkedAt) : 'Marque após validar a tarefa.'}</span></div>
           <button type="button" className="button secondary small-button" disabled={checking} aria-pressed={Boolean(taskData.checked)} onClick={() => onToggleChecked(taskData as Task)}>{checking ? 'Salvando…' : taskData.checked ? 'Desmarcar' : 'Marcar como conferida'}</button>
         </section>}
-        <div className="detail-toolbar"><div className="button-row"><button type="button" className="button secondary small-button" disabled={openConversation.isPending} onClick={() => openConversation.mutate()}>{openConversation.isPending ? 'Abrindo…' : 'Abrir conversa'}</button><button className="text-button" aria-pressed={view === 'summary'} onClick={() => setView(current => current === 'summary' ? 'details' : 'summary')}>{view === 'summary' ? 'Voltar aos detalhes' : 'Resumo completo'}</button><button className="text-button" onClick={() => setView(current => current === 'json' ? 'details' : 'json')}>{view === 'json' ? 'Ver detalhes' : 'Ver JSON'}</button></div></div>
+        <div className="detail-toolbar"><div className="button-row"><button type="button" className="button secondary small-button" disabled={openConversation.isPending} onClick={() => openConversation.mutate()}>{openConversation.isPending ? 'Abrindo…' : 'Abrir conversa'}</button><button type="button" className="button secondary small-button" onClick={() => onRequestTransfer(taskData as Task)}>Transferir tarefa</button><button className="text-button" aria-pressed={view === 'summary'} onClick={() => setView(current => current === 'summary' ? 'details' : 'summary')}>{view === 'summary' ? 'Voltar aos detalhes' : 'Resumo completo'}</button><button className="text-button" onClick={() => setView(current => current === 'json' ? 'details' : 'json')}>{view === 'json' ? 'Ver detalhes' : 'Ver JSON'}</button></div></div>
         {openConversation.isError && <div className="notice error" role="alert">{errorMessage(openConversation.error)}</div>}
         {view === 'json' ? <pre className="markdown-content json-content">{JSON.stringify(context.data, null, 2)}</pre> : view === 'summary' ? <div className="detail-summary-layout"><TaskSummaryPanel token={token} nonce={nonce} projectId={projectId} taskId={task._id} onOpenConversation={onOpenConversation} /></div> : <div className="detail-columns">
           <div className="detail-main">

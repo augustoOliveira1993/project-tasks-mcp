@@ -62,8 +62,8 @@ const BRIDGE_TOOL_GUIDANCE: Record<string, string> = {
   set_task_status: 'Use only for valid evidence-based review transitions. It does not unblock tasks or create an execution.',
   update_markdown: 'Update an existing document with the revision previously read in baseRevision.',
   get_automation_status: 'Read-only job status; policy, provider, permission, and release actions remain administrative.',
-  preview_task_transfer: 'Read-only preflight. Present the exact plan and wait for human confirmation before transfer_task.',
-  transfer_task: 'Run only after the human confirms the exact preview; reuse its planHash and current version.'
+  preview_task_transfer: 'Read-only preflight. Present the exact plan and wait for human confirmation before transfer_task. targetProjectId may equal projectId to change only the feature.',
+  transfer_task: 'Run only after the human confirms the exact preview; reuse its planHash and current version. Keep project and repository unchanged for a same-project feature move.'
 };
 function describeBridgeTool(name: string) {
   const base = name + ' through the local Git-aware bridge. Call status first when relying on Git scope; explicit projectId may be supplied. The bridge uses the same server permissions and does not grant access.';

@@ -1,13 +1,15 @@
-export type AppRoute = 'projects' | 'tasks' | 'conversations' | 'activity' | 'settings' | 'help';
-export type AppTab = 'tasks' | 'chat' | 'activity' | 'admin' | 'help';
+export type AppRoute = 'projects' | 'tasks' | 'conversations' | 'activity' | 'catalogs' | 'catalogProjects' | 'catalogFeatures' | 'catalogTasks' | 'catalogAreas' | 'settings' | 'help';
+export type AppTab = 'tasks' | 'chat' | 'activity' | 'catalogs' | 'admin' | 'help';
+export type CatalogSection = 'overview' | 'projects' | 'features' | 'tasks' | 'areas';
 
 const routePaths: Record<AppRoute, string> = {
   projects: '/projects', tasks: '/tasks', conversations: '/conversations',
-  activity: '/activity', settings: '/settings', help: '/help'
+  activity: '/activity', catalogs: '/catalogs', catalogProjects: '/catalogs/projects', catalogFeatures: '/catalogs/features',
+  catalogTasks: '/catalogs/tasks', catalogAreas: '/catalogs/areas', settings: '/settings', help: '/help'
 };
 
 const tabRoutes: Record<AppTab, AppRoute> = {
-  tasks: 'tasks', chat: 'conversations', activity: 'activity', admin: 'settings', help: 'help'
+  tasks: 'tasks', chat: 'conversations', activity: 'activity', catalogs: 'catalogs', admin: 'settings', help: 'help'
 };
 
 export function routeFromPath(pathname: string): AppRoute {
@@ -22,7 +24,19 @@ export function routeForTab(tab: AppTab): AppRoute {
 }
 
 export function tabForRoute(route: AppRoute): AppTab {
-  return route === 'conversations' ? 'chat' : route === 'settings' ? 'admin' : route === 'projects' ? 'tasks' : route;
+  return route === 'conversations' ? 'chat' : route === 'settings' ? 'admin' : route === 'projects' ? 'tasks' : isCatalogRoute(route) ? 'catalogs' : route;
+}
+
+export function isCatalogRoute(route: AppRoute): boolean {
+  return route === 'catalogs' || route === 'catalogProjects' || route === 'catalogFeatures' || route === 'catalogTasks' || route === 'catalogAreas';
+}
+
+export function catalogSectionForRoute(route: AppRoute): CatalogSection {
+  return route === 'catalogProjects' ? 'projects' : route === 'catalogFeatures' ? 'features' : route === 'catalogTasks' ? 'tasks' : route === 'catalogAreas' ? 'areas' : 'overview';
+}
+
+export function routeForCatalogSection(section: CatalogSection): AppRoute {
+  return section === 'projects' ? 'catalogProjects' : section === 'features' ? 'catalogFeatures' : section === 'tasks' ? 'catalogTasks' : section === 'areas' ? 'catalogAreas' : 'catalogs';
 }
 
 export function pathForRoute(route: AppRoute): string {

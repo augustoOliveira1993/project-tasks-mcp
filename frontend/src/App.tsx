@@ -7,7 +7,7 @@ import { ProjectPickerDialog } from './components/projects/ProjectPickerDialog';
 import { Badge } from './components/ui/Badge';
 import type { HardDeleteTarget } from './components/ui/HardDeleteDialog';
 import { errorMessage, formatDate } from './lib/format';
-import { conversationIdFromSearch, projectIdFromSearch, routeForTab, routeFromPath, routeUrl, tabForRoute, type AppRoute, type AppTab } from './route-state';
+import { catalogSectionForRoute, conversationIdFromSearch, isCatalogRoute, projectIdFromSearch, routeForCatalogSection, routeForTab, routeFromPath, routeUrl, tabForRoute, type AppRoute, type AppTab } from './route-state';
 
 const AdminPanel = lazy(() => import('./components/admin/AdminPanel').then(module => ({ default: module.AdminPanel })));
 const ProjectsPage = lazy(() => import('./components/projects/ProjectsPage').then(module => ({ default: module.ProjectsPage })));
@@ -16,8 +16,10 @@ const TaskStatusDialog = lazy(() => import('./components/tasks/TaskStatusDialog'
 const TaskDetailsDialog = lazy(() => import('./components/tasks/TaskDetailsDialog').then(module => ({ default: module.TaskDetailsDialog })));
 const HardDeleteDialog = lazy(() => import('./components/ui/HardDeleteDialog').then(module => ({ default: module.HardDeleteDialog })));
 const TaskWorkspace = lazy(() => import('./features/tasks/TaskWorkspace').then(module => ({ default: module.TaskWorkspace })));
+const TransferTaskDialog = lazy(() => import('./features/tasks/TransferTaskDialog').then(module => ({ default: module.TransferTaskDialog })));
 const ConversationPanel = lazy(() => import('./components/conversations/ConversationPanel').then(module => ({ default: module.ConversationPanel })));
 const HelpToolsPanel = lazy(() => import('./components/help/HelpToolsPanel').then(module => ({ default: module.HelpToolsPanel })));
+const CatalogsPage = lazy(() => import('./features/catalogs/CatalogsPage').then(module => ({ default: module.CatalogsPage })));
 
 const tokenKey = 'project-tasks.human-token';
 
@@ -28,8 +30,10 @@ function App() {
   const [activeProjectId, setActiveProjectId] = useState(() => projectIdFromSearch(window.location.search));
   const [activeRoute, setActiveRoute] = useState<AppRoute>(() => routeFromPath(window.location.pathname));
   const activeTab = tabForRoute(activeRoute);
+  const catalogScreen = isCatalogRoute(activeRoute);
   const [notice, setNotice] = useState<{ message: string; kind: string } | null>(null);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [transferTask, setTransferTask] = useState<Task | null>(null);
   const [conversationToOpen, setConversationToOpen] = useState(() => conversationIdFromSearch(window.location.search));
   const [statusTask, setStatusTask] = useState<Task | null>(null);
   const [saving, setSaving] = useState(false);
@@ -162,22 +166,41 @@ function App() {
   }
   function signOut() {
     try { localStorage.removeItem(tokenKey); } catch { /* ignore unavailable storage */ }
-    setToken(''); setNonce(''); setActiveProjectId(''); setSelectedTask(null); setStatusTask(null);
+    setToken(''); setNonce(''); setActiveProjectId(''); setSelectedTask(null); setTransferTask(null); setStatusTask(null);
     queryClient.clear();
+  }
+  async function onTaskTransferred(result: { task: Task }, targetProjectId: string) {
+    setSelectedTask(result.task);
+    setTransferTask(null);
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['project-tasks', nonce, activeProjectId] }),
+      queryClient.invalidateQueries({ queryKey: ['project-tasks', nonce, targetProjectId] }),
+      queryClient.invalidateQueries({ queryKey: ['task-context', nonce, activeProjectId, result.task._id] }),
+      queryClient.invalidateQueries({ queryKey: ['task-context', nonce, targetProjectId, result.task._id] }),
+      queryClient.invalidateQueries({ queryKey: ['task-diffs', nonce, activeProjectId, result.task._id] }),
+      queryClient.invalidateQueries({ queryKey: ['task-diffs', nonce, targetProjectId, result.task._id] }),
+      queryClient.invalidateQueries({ queryKey: ['task-markdowns', nonce, activeProjectId, result.task._id] }),
+      queryClient.invalidateQueries({ queryKey: ['task-markdowns', nonce, targetProjectId, result.task._id] }),
+      queryClient.invalidateQueries({ queryKey: ['project-sync-report', nonce, activeProjectId] }),
+      queryClient.invalidateQueries({ queryKey: ['project-sync-report', nonce, targetProjectId] }),
+      queryClient.invalidateQueries({ queryKey: ['admin-projects', nonce] })
+    ]);
+    if (targetProjectId !== activeProjectId) navigateToRoute('tasks', targetProjectId, false);
+    notify('Tarefa transferida. O projeto e os dados exibidos foram atualizados.', 'success');
   }
   async function toggleChecked(task: Task) {
     try {
       await adminMutation.mutateAsync({ path: '/admin/tasks/check', body: { operationId: operationId(), projectId: activeProjectId, taskId: task._id, version: task.version, checked: !task.checked } });
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['project-tasks', nonce, activeProjectId] }),
-        queryClient.invalidateQueries({ queryKey: ['task-context', nonce, task._id] })
+        queryClient.invalidateQueries({ queryKey: ['task-context', nonce, activeProjectId, task._id] })
       ]);
       notify(task.checked ? 'Conferência removida.' : 'Tarefa conferida.', 'success');
     } catch (error) {
       notify(errorMessage(error) + ' Atualizando os dados da tarefa…', 'error');
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['project-tasks', nonce, activeProjectId] }),
-        queryClient.invalidateQueries({ queryKey: ['task-context', nonce, task._id] })
+        queryClient.invalidateQueries({ queryKey: ['task-context', nonce, activeProjectId, task._id] })
       ]);
     }
   }
@@ -223,7 +246,7 @@ function App() {
       }
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['project-tasks', nonce, activeProjectId] }),
-        ...taskIds.map(taskId => queryClient.invalidateQueries({ queryKey: ['task-context', nonce, taskId] }))
+        ...taskIds.map(taskId => queryClient.invalidateQueries({ queryKey: ['task-context', nonce, activeProjectId, taskId] }))
       ]);
       const failedCount = taskIds.length - updatedIds.length;
       if (!failedCount) notify(checked ? `${updatedIds.length} tarefa(s) conferida(s).` : `Conferência removida de ${updatedIds.length} tarefa(s).`, 'success');
@@ -273,9 +296,9 @@ function App() {
       } else {
         const projectId = target.projectId ?? activeProjectId;
         queryClient.setQueryData<Task[]>(['project-tasks', nonce, projectId], current => current?.filter(task => task._id !== target.id) ?? []);
-        queryClient.removeQueries({ queryKey: ['task-context', nonce, target.id] });
-        queryClient.removeQueries({ queryKey: ['task-diffs', nonce, target.id] });
-        queryClient.removeQueries({ queryKey: ['task-markdowns', nonce, target.id] });
+        queryClient.removeQueries({ queryKey: ['task-context', nonce, projectId, target.id] });
+        queryClient.removeQueries({ queryKey: ['task-diffs', nonce, projectId, target.id] });
+        queryClient.removeQueries({ queryKey: ['task-markdowns', nonce, projectId, target.id] });
         if (selectedTask?._id === target.id) setSelectedTask(null);
         if (statusTask?._id === target.id) setStatusTask(null);
         notify('Tarefa excluída definitivamente.', 'success');
@@ -348,6 +371,7 @@ function App() {
         <button className={activeRoute === 'activity' ? 'nav-item active' : 'nav-item'} onClick={() => navigateToRoute('activity')}><span>◷</span> Novidades</button>
         <div className="sidebar-label nav-section-label">WORKSPACE</div>
         <button className={activeRoute === 'projects' ? 'nav-item active' : 'nav-item'} onClick={() => navigateToRoute('projects')}><span>▣</span> Projetos <b>{projects.length}</b></button>
+        <button className={catalogScreen ? 'nav-item active' : 'nav-item'} onClick={() => navigateToRoute('catalogs')}><span>＋</span> Cadastros</button>
         <button className={activeRoute === 'settings' ? 'nav-item active' : 'nav-item'} onClick={() => navigateToRoute('settings')}><span>⚙</span> Administração</button>
         <button className={activeRoute === 'help' ? 'nav-item active' : 'nav-item'} onClick={() => navigateToRoute('help')}><span>ⓘ</span> Ajuda</button>
       </nav>
@@ -355,13 +379,14 @@ function App() {
       <div className="sidebar-footer"><span className="online-dot" /> Conectado ao MCP <button className="small-icon" onClick={signOut} title="Sair">↪</button></div>
     </aside>
     <main className="main-area min-h-screen">
-      <header className="topbar"><div className="breadcrumbs"><span>Workspace</span><span>/</span><strong>{activeRoute === 'projects' ? 'Projetos' : project?.name ?? 'Carregando projeto'}</strong></div><div className="topbar-actions"><span className="connection-pill"><span className="online-dot" /> Serviço ativo</span><button className="avatar-button" onClick={signOut} title="Sair">AU</button></div></header>
+      <header className="topbar"><div className="breadcrumbs"><span>Workspace</span><span>/</span><strong>{activeRoute === 'projects' ? 'Projetos' : catalogScreen ? `Cadastros · ${{overview:'Visão geral',projects:'Projetos',features:'Features',tasks:'Tarefas',areas:'Áreas'}[catalogSectionForRoute(activeRoute)]}` : project?.name ?? 'Carregando projeto'}</strong></div><div className="topbar-actions"><span className="connection-pill"><span className="online-dot" /> Serviço ativo</span><button className="avatar-button" onClick={signOut} title="Sair">AU</button></div></header>
       <div className="content-wrap">
         {projectsQuery.isError && <div className="notice error">{errorMessage(projectsQuery.error)}</div>}
         <Suspense fallback={<div className="loading">Carregando tela…</div>}>
         {activeRoute === 'projects' && <ProjectsPage projects={currentProjectPage} isPending={projectsQuery.isPending} activeProjectId={activeProjectId} search={allProjectsSearch} currentPage={projectPage} pages={projectPages} total={filteredProjects.length} onSearchChange={value => { setAllProjectsSearch(value); setProjectPage(1); }} onPageChange={setProjectPage} onSelect={selectProject} />}
-        {activeRoute !== 'projects' && !projects.length && !projectsQuery.isPending && <div className="empty-state"><h2>Nenhum projeto disponível</h2><p>Esta credencial ainda não possui projetos acessíveis.</p><button className="button secondary" onClick={() => navigateToRoute('projects')}>Abrir projetos</button></div>}
-        {activeRoute !== 'projects' && project && <>
+        {activeRoute !== 'projects' && !catalogScreen && !projects.length && !projectsQuery.isPending && <div className="empty-state"><h2>Nenhum projeto disponível</h2><p>Esta credencial ainda não possui projetos acessíveis.</p><button className="button secondary" onClick={() => navigateToRoute('projects')}>Abrir projetos</button></div>}
+        {catalogScreen && <CatalogsPage section={catalogSectionForRoute(activeRoute)} token={token} nonce={nonce} projects={projects.map(item => item.project)} project={project} tasks={tasks} notify={notify} onProjectCreated={async created => { await projectsQuery.refetch(); navigateToRoute(routeForCatalogSection('projects'), created._id, false); }} onSelectProject={projectId => navigateToRoute(activeRoute, projectId, false)} onNavigateSection={section => navigateToRoute(routeForCatalogSection(section))} onChanged={() => { void projectsQuery.refetch(); void tasksQuery.refetch(); }} />}
+        {activeRoute !== 'projects' && !catalogScreen && project && <>
           <div className="page-heading"><div><p className="eyebrow">{activeTab === 'tasks' ? 'ACOMPANHAMENTO' : activeTab === 'chat' ? 'COLABORAÇÃO' : activeTab === 'activity' ? 'ATIVIDADE' : activeTab === 'admin' ? 'CONFIGURAÇÃO' : 'DOCUMENTAÇÃO'}</p><h1>{activeTab === 'tasks' ? 'Tarefas do projeto' : activeTab === 'chat' ? 'Conversas com IA' : activeTab === 'activity' ? 'Novidades do projeto' : activeTab === 'admin' ? 'Administração' : 'Ajuda do Project Tasks'}</h1><p className="muted-text">{activeTab === 'tasks' ? 'Acompanhe execução, revisão e conclusão do trabalho.' : activeTab === 'chat' ? 'Esclareça pedidos com a IA e autorize a execução quando a proposta estiver pronta.' : activeTab === 'activity' ? 'Acompanhe as mudanças compartilhadas neste projeto.' : activeTab === 'admin' ? 'Credenciais e configurações restritas do workspace.' : 'Referência rápida para os servidores e ferramentas MCP.'}</p></div>{activeTab === 'tasks' && <div className="button-row"><button className="button secondary" onClick={() => setSummaryOpen(true)}>Resumo</button><button className="button secondary" onClick={() => { void projectsQuery.refetch(); void tasksQuery.refetch(); }}>↻ Atualizar</button></div>}</div>
           {activeTab === 'tasks' && <TaskWorkspace key={activeProjectId} token={token} nonce={nonce} projectId={activeProjectId} repositories={project?.repositories ?? []} projectAreas={project?.areas ?? ['backend', 'frontend', 'outro']} tasks={tasks} isPending={tasksQuery.isPending} isError={tasksQuery.isError} error={tasksQuery.error} saving={saving} canHardDelete={canHardDelete} onRefresh={() => { void tasksQuery.refetch(); }} onOpenTask={setSelectedTask} onChangeStatus={setStatusTask} onToggleChecked={toggleChecked} onRequestHardDeleteTask={requestTaskHardDelete} onArchiveTask={archiveTask} onApproveSelected={approveSelected} onSetTasksChecked={setTasksChecked} />}
           {activeTab === 'chat' && <ConversationPanel token={token} nonce={nonce} projectId={activeProjectId} tasks={tasks} requestedConversationId={conversationToOpen || undefined} onConversationSelected={rememberConversation} onOpenAdmin={() => setActiveTab('admin')} />}
@@ -374,7 +399,8 @@ function App() {
       <footer className="app-footer"><span>Project Tasks MCP</span><span>{project?.name ?? ''}</span></footer>
     </main>
     <Suspense fallback={null}>
-    {selectedTask && project && <TaskDetailsDialog token={token} nonce={nonce} projectId={project._id} task={selectedTask} checking={adminMutation.isPending || saving} onToggleChecked={toggleChecked} onOpenConversation={openConversation} close={() => setSelectedTask(null)} />}
+    {selectedTask && project && <TaskDetailsDialog key={`${project._id}:${selectedTask._id}`} token={token} nonce={nonce} projectId={project._id} task={selectedTask} checking={adminMutation.isPending || saving} onToggleChecked={toggleChecked} onOpenConversation={openConversation} onRequestTransfer={setTransferTask} close={() => setSelectedTask(null)} />}
+    {transferTask && project && <TransferTaskDialog key={`${project._id}:${transferTask._id}`} token={token} nonce={nonce} projectId={project._id} task={transferTask} projects={projects.map(item => item.project)} close={() => setTransferTask(null)} onTransferred={onTaskTransferred} />}
     {statusTask && <TaskStatusDialog task={statusTask} saving={saving} onClose={() => setStatusTask(null)} onSubmit={updateStatus} />}
     <ProjectPickerDialog projects={currentProjectPage} activeProjectId={activeProjectId} search={allProjectsSearch} currentPage={projectPage} pages={projectPages} total={filteredProjects.length} onSearchChange={value => { setAllProjectsSearch(value); setProjectPage(1); }} onPageChange={setProjectPage} onSelect={id => { selectProject(id); (document.getElementById('projects-dialog') as HTMLDialogElement | null)?.close(); }} />
     {summaryOpen && <ProjectSummaryDialog name={project?.name} taskCount={projectSummaryQuery.data?.taskCount ?? tasks.length} markdown={projectSummaryQuery.data?.markdown} error={projectSummaryQuery.error} isPending={projectSummaryQuery.isPending} isError={projectSummaryQuery.isError} onClose={() => setSummaryOpen(false)} />}
