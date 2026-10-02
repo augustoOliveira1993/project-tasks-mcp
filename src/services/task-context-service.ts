@@ -129,7 +129,7 @@ export async function getTaskContext(projectId: string, taskId: string, includeA
   const boundedMessages = messages.slice(0, 10).map((message, index) => {
     const boundedMessage = text(message.message, 1000, `messages[${index}].message`, truncated);
     const clientName = typeof message.clientName === 'string' && message.clientName.trim() ? text(message.clientName.trim(), 100, `messages[${index}].clientName`, truncated) : eventClientNames.get(message._id!) ?? null;
-    const authorType = message.authorType === 'human' || message.authorType === 'agent'
+    const authorType: TaskContextDto['messages'][number]['authorType'] = message.authorType === 'human' || message.authorType === 'agent'
       ? message.authorType
       : clientName ? isKnownAiMcpClient(clientName) ? 'agent' : 'unknown' : 'unknown';
     return {
