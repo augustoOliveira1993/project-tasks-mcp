@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { ClientSession } from 'mongoose';
 import { z } from 'zod';
-import { Event, Project } from '../db.js';
+import { ConversationMessage, DeliveryEvent, Event, MarkdownDocument, MarkdownRevision, Project, TaskDependency } from '../db.js';
 import { projectExportCollections, redactExport } from './project-export-service.js';
 
 export class ProjectImportError extends Error {
