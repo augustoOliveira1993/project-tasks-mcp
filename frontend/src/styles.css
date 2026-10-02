@@ -255,6 +255,19 @@ h1, h2, h3, p { margin-top: 0; }
 .catalog-row-id { display: block; max-width: 185px; margin-top: 3px; overflow: hidden; color: #919baa; font: 8px ui-monospace, SFMono-Regular, Menlo, monospace; text-overflow: ellipsis; }
 .catalog-row-actions { display: flex; flex-wrap: nowrap; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; }
 .catalog-row-actions .text-button { white-space: nowrap; }
+.project-catalog-table { min-width: 820px; }
+.project-catalog-table th:last-child, .project-catalog-table td:last-child { width: 270px; }
+.project-catalog-title { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
+.project-catalog-title strong { color: #344156; font-size: 11px; }
+.project-catalog-table .catalog-row-id { max-width: 230px; }
+.project-in-use-badge { min-height: 19px; padding: 2px 7px; font-size: 8px; }
+.project-catalog-table .badge { min-height: 22px; }
+.project-catalog-repository-count { display: inline-flex; align-items: baseline; gap: 4px; color: #687487; white-space: nowrap; }
+.project-catalog-repository-count strong { color: #344156; font-size: 11px; }
+.project-catalog-table time { white-space: nowrap; }
+.project-catalog-actions { gap: 5px; }
+.project-catalog-actions .small-button { min-height: 28px; padding: 0 8px; font-size: 9px; }
+.project-catalog-actions .text-button { padding: 5px 0 5px 4px; font-size: 9px; }
 .catalog-section-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 .catalog-section-card { display: grid; min-width: 0; gap: 7px; padding: 17px; text-align: left; transition: border-color .15s, box-shadow .15s; }
 .catalog-section-card:hover { border-color: #d3d9ff; box-shadow: 0 8px 20px #27336d0c; }
@@ -311,6 +324,7 @@ h1, h2, h3, p { margin-top: 0; }
 .project-area-badge { display: inline-flex; align-items: center; gap: 7px; max-width: 100%; padding: 4px 6px 4px 11px; border: 1px solid #dce0fb; border-radius: 8px; background: #eef0ff; color: #4652ac; font-size: 12px; }
 .project-area-badge span { min-width: 0; overflow-wrap: anywhere; }
 .project-area-badge button { display: grid; place-items: center; flex-shrink: 0; width: 28px; height: 28px; border: 0; border-radius: 5px; background: transparent; color: inherit; font-size: 18px; cursor: pointer; }
+.catalog-project-form .project-area-edit-input { width: min(160px, 30vw); min-height: 32px; padding: 4px 6px; }
 .project-area-badge button:hover:not(:disabled) { background: #dde2fc; }
 .project-area-entry { display: flex; gap: 8px; align-items: center; }
 .project-area-entry input { flex: 1; }
@@ -356,6 +370,16 @@ h1, h2, h3, p { margin-top: 0; }
 .issued-token > div:first-child { display: grid; gap: 3px; color: #354e43; font-size: 10px; }
 .issued-token small { color: #718279; font: 9px ui-monospace, monospace; }
 .issued-token textarea { font: 10px ui-monospace, monospace; overflow-wrap: anywhere; }
+.credential-issuance { margin-bottom: 14px; padding: 20px; }
+.credential-issuance > .section-heading { margin-bottom: 14px; }
+.credential-issue-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 12px; }
+.credential-issue-card { min-width: 0; padding: 16px; border: 1px solid #edf0f5; border-radius: 10px; background: #fff; }
+.credential-issue-card .section-heading { margin-bottom: 9px; }
+.credential-issue-card h3 { margin: 0; color: #344156; font-size: 12px; font-weight: 700; }
+.credential-issue-card .muted-text { margin: 0 0 12px; font-size: 10px; line-height: 1.6; }
+.credential-issue-card .stack-form > label:not(.confirm-line) { gap: 7px; color: #465368; font-size: 11px; }
+.credential-issue-card .stack-form input[type='email'] { min-height: 40px; font-size: 12px; }
+.credential-issue-card .stack-form > .button { justify-self: start; }
 .credential-inventory { min-width: 0; }
 .credential-filters { display: grid; grid-template-columns: minmax(180px, 1.7fr) repeat(4, minmax(115px, 1fr)); gap: 9px; margin: 15px 0 10px; }
 .credential-filters label { display: grid; gap: 5px; color: #566275; font-size: 9px; font-weight: 650; }
@@ -453,6 +477,11 @@ h1, h2, h3, p { margin-top: 0; }
 .overlay { @apply fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-slate-900/45 p-6 backdrop-blur-sm; }
 .dialog { @apply max-h-[90vh] overflow-auto rounded-xl border border-slate-200 bg-white shadow-2xl; width: min(100%, 760px); }
 .create-task-dialog[open] { display: block; width: min(100% - 28px, 720px); max-height: min(850px, calc(100dvh - 28px)); margin: auto; overflow: auto; padding: 0; border: 1px solid #dfe4ed; border-radius: 14px; background: #fff; color: #455164; box-shadow: 0 24px 70px #18223040; }
+.catalog-project-dialog[open] { display: flex; flex-direction: column; width: min(100% - 28px, 1100px); max-height: min(900px, calc(100dvh - 28px)); overflow: hidden; }
+.catalog-project-dialog > .dialog-header { flex: 0 0 auto; }
+.project-create-dialog-body { min-height: 0; overflow: auto; padding: 20px 23px 22px; }
+.project-create-dialog-body > .notice { margin: 0; }
+.project-create-dialog-body .catalog-project-form { gap: 24px; }
 .create-task-dialog::backdrop { background: #18203388; backdrop-filter: blur(3px); }
 .create-task-dialog > .notice { margin: 13px 22px 0; }
 .create-task-form { padding: 16px 22px 20px; }
@@ -743,6 +772,10 @@ dialog.projects-dialog::backdrop { background: #16203370; backdrop-filter: blur(
   .wide-card { grid-column: auto; }
   .admin-form-grid { grid-template-columns: 1fr; }
   .area-add-form { grid-template-columns: 1fr; }
+  .credential-issuance { padding: 15px; }
+  .credential-issue-grid { grid-template-columns: minmax(0, 1fr); }
+  .credential-issue-card { padding: 14px; }
+  .credential-issue-card .stack-form > .button { width: 100%; }
   .credential-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .credential-filters .credential-search { grid-column: 1 / -1; }
   .credential-inventory .table-scroll { overflow-x: auto; }

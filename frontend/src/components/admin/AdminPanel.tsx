@@ -3,7 +3,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { listAdminCredentials, operationId, request } from '../../api';
 import type { AdminCredential, Project } from '../../api';
 import { Badge } from '../ui/Badge';
-import { ProjectAreasManager } from '../projects/ProjectAreasManager';
 import { errorMessage } from '../../lib/format';
 import { makeToken } from '../../lib/token';
 import { ProjectExportPanel } from './ProjectExportPanel';
@@ -28,6 +27,7 @@ export function AdminPanel({ project, projects, onChanged, notify, token, canHar
   const queryClient = useQueryClient();
   const [activePanel, setActivePanel] = useState<(typeof adminPanelTabs)[number]['id']>('tools');
   const [agentEmail, setAgentEmail] = useState('');
+  const [agentIssueConfirmed, setAgentIssueConfirmed] = useState(false);
   const [memberEmail, setMemberEmail] = useState('');
   const [repositoryId, setRepositoryId] = useState(project.repositories?.[0]?.id ?? '');
   const [remoteUrl, setRemoteUrl] = useState(() => repositoryGitFields(project, project.repositories?.[0]?.id ?? '').remoteUrl);
@@ -88,6 +88,12 @@ export function AdminPanel({ project, projects, onChanged, notify, token, canHar
         ? await issueMutation.mutateAsync({ action: 'issue', operationId: operationId(), userId: email, scope: 'agent', systemAdmin: false, token: secret })
         : await issueMutation.mutateAsync({ action: 'issue_project_member', operationId: operationId(), projectId: project._id, version: project.version, userId: email, token: secret });
       setIssued({ token: secret, id: result.credentialId, email, scope, ...(scope === 'project' ? { projectName: project.name } : {}) });
+      if (scope === 'agent') {
+        setAgentEmail('');
+        setAgentIssueConfirmed(false);
+      } else {
+        setMemberEmail('');
+      }
       notify('Credencial emitida. Copie o token agora; ele não será exibido novamente.', 'success');
       await queryClient.invalidateQueries({ queryKey: ['admin-credentials'] });
       onChanged();
@@ -170,15 +176,10 @@ export function AdminPanel({ project, projects, onChanged, notify, token, canHar
           document.getElementById(`admin-tab-${next}`)?.focus();
         }}>{tab.label}</button>)}
     </div>
-      {issued && <div className="issued-token"><div><strong>Nova credencial · {issued.email}</strong><small>ID {issued.id}{issued.projectName ? ` · ${issued.projectName}` : ` · ${issued.scope === 'agent' ? 'agente' : 'pessoa'}`}</small></div><label>Token — copie agora, ele só estará disponível nesta sessão<textarea readOnly value={issued.token} rows={3} onFocus={event => event.currentTarget.select()} /></label><div className="button-row"><button type="button" className="button secondary" onClick={() => void copyIssued()}>Copiar</button><button type="button" className="button ghost" onClick={() => setIssued(null)}>Limpar</button></div></div>}
+      {activePanel === 'credentials' && issued && <div className="issued-token"><div><strong>Nova credencial · {issued.email}</strong><small>ID {issued.id}{issued.projectName ? ` · ${issued.projectName}` : ` · ${issued.scope === 'agent' ? 'agente' : 'pessoa'}`}</small></div><label>Token — copie agora, ele só estará disponível nesta sessão<textarea readOnly value={issued.token} rows={3} onFocus={event => event.currentTarget.select()} /></label><div className="button-row"><button type="button" className="button secondary" onClick={() => void copyIssued()}>Copiar</button><button type="button" className="button ghost" onClick={() => setIssued(null)}>Limpar</button></div></div>}
 
     <div id="admin-panel-tools" role="tabpanel" aria-labelledby="admin-tab-tools" hidden={activePanel !== 'tools'} tabIndex={0}>
     <div className="admin-disclosure-content"><div className="admin-grid">
-    <section className="panel-card"><div className="section-heading"><div><p className="eyebrow">CREDENCIAIS</p><h2>Emitir credencial de agente</h2></div><span className="lock-mark">⌑</span></div><p className="muted-text">O token é gerado no navegador e mostrado uma única vez após a emissão.</p><form className="stack-form" onSubmit={event => { event.preventDefault(); void issue('agent'); }}><label>E-mail do agente<input type="email" value={agentEmail} onChange={event => setAgentEmail(event.target.value)} required placeholder="pessoa@empresa.com" /></label><label className="confirm-line"><input type="checkbox" required />Confirmo a emissão da credencial de agente para este endereço.</label><button className="button primary" disabled={busy}>Emitir credencial</button></form>
-    </section>
-    <section className="panel-card"><div className="section-heading"><div><p className="eyebrow">ACESSO AO PROJETO</p><h2>Conceder acesso individual</h2></div><span className="lock-mark">⌑</span></div><p className="muted-text">Emite token de acesso para uma pessoa neste projeto.</p><form className="stack-form" onSubmit={event => { event.preventDefault(); if (confirm('Emitir acesso ao projeto ' + project.name + ' para ' + memberEmail + '?')) void issue('project'); }}><label>E-mail<input type="email" value={memberEmail} onChange={event => setMemberEmail(event.target.value)} required placeholder="pessoa@empresa.com" /></label><button className="button secondary" disabled={busy}>Emitir acesso</button></form>
-    </section>
-    <ProjectAreasManager token={token} project={project} onChanged={onChanged} notify={notify} />
     <section className="panel-card wide-card archive-panel"><div className="section-heading"><div><p className="eyebrow">ARQUIVAMENTO REVERSÍVEL</p><h2>Arquivar projeto</h2></div><Badge tone="amber">Preserva histórico</Badge></div><p className="muted-text">O projeto sai da lista ativa, mas pode ser restaurado depois. O servidor verifica se ainda há tarefas ativas e valida sua permissão de administrador do projeto.</p><button type="button" className="button secondary" disabled={actionPending} onClick={onArchiveProject}>{actionPending ? 'Arquivando…' : 'Arquivar projeto'}</button></section>
     {canHardDelete && <section className="panel-card wide-card danger-zone" aria-labelledby="project-delete-title"><div className="section-heading"><div><p className="eyebrow">EXCLUSÃO PERMANENTE</p><h2 id="project-delete-title">Excluir projeto e dados relacionados</h2></div><Badge tone="red">Administrador do sistema</Badge></div><p className="muted-text">Remove permanentemente o projeto, repositórios exclusivos, funcionalidades, tarefas, histórico, documentos, eventos e dados de automação. Credenciais humanas compartilhadas com outros projetos são preservadas. Execuções ou automações ativas fazem o servidor recusar a exclusão sem remover dados.</p><button type="button" className="button danger-button" onClick={() => onRequestHardDeleteProject(project)}>Excluir projeto definitivamente</button></section>}
     <section className="panel-card wide-card"><div className="section-heading"><div><p className="eyebrow">REPOSITÓRIOS</p><h2>Vincular repositório Git</h2></div><span className="lock-mark">⌑</span></div><p className="muted-text">O vínculo identifica o repositório; as permissões continuam sendo controladas pelo projeto.</p><form className="admin-form-grid" onSubmit={bindRepository}><label>Repositório<select value={repositoryId} onChange={event => { const nextId = event.target.value; setRepositoryId(nextId); const fields = repositoryGitFields(project, nextId); setRemoteUrl(fields.remoteUrl); setRootCommit(fields.rootCommit); }} required><option value="">Selecione</option>{(project.repositories ?? []).map(repository => <option value={repository.id} key={repository.id}>{repository.name}</option>)}</select></label><label>URL Git canônica<input value={remoteUrl} onChange={event => setRemoteUrl(event.target.value)} required placeholder="https://github.com/org/repo.git" /></label><label>Commit raiz<input value={rootCommit} onChange={event => setRootCommit(event.target.value)} required minLength={40} maxLength={40} placeholder="40 caracteres hexadecimais" /><small className="git-root-help" role="note"><span>Para localizar o commit raiz, execute na pasta do repositório:</span><code>git rev-list --max-parents=0 HEAD</code><span>Copie o hash de 40 caracteres retornado.</span></small></label><button className="button secondary" disabled={busy || !repositoryId}>Salvar vínculo</button></form>
@@ -187,6 +188,28 @@ export function AdminPanel({ project, projects, onChanged, notify, token, canHar
     </div></div>
     </div>
     <div id="admin-panel-credentials" role="tabpanel" aria-labelledby="admin-tab-credentials" hidden={activePanel !== 'credentials'} tabIndex={0}>
+    <section className="panel-card wide-card credential-issuance" aria-labelledby="credential-issuance-title">
+      <div className="section-heading"><div><p className="eyebrow">GERAÇÃO DE CREDENCIAIS</p><h2 id="credential-issuance-title">Emitir novo acesso</h2></div></div>
+      <div className="credential-issue-grid">
+        {systemAdmin && <section className="credential-issue-card" aria-labelledby="agent-credential-title">
+          <div className="section-heading"><div><h3 id="agent-credential-title">Credencial de agente</h3></div></div>
+          <p className="muted-text">Acesso global para automações. O token é criado no navegador e mostrado uma única vez.</p>
+          <form className="stack-form" autoComplete="off" onSubmit={event => { event.preventDefault(); void issue('agent'); }}>
+            <label htmlFor="agent-credential-email">E-mail do agente<input id="agent-credential-email" type="email" value={agentEmail} onChange={event => setAgentEmail(event.target.value)} required maxLength={320} placeholder="pessoa@empresa.com" /></label>
+            <label className="confirm-line"><input type="checkbox" checked={agentIssueConfirmed} onChange={event => setAgentIssueConfirmed(event.target.checked)} required />Confirmo a emissão de uma nova credencial de agente para este endereço.</label>
+            <button className="button primary" disabled={issueMutation.isPending}>{issueMutation.isPending ? 'Emitindo…' : 'Emitir credencial de agente'}</button>
+          </form>
+        </section>}
+        <section className="credential-issue-card" aria-labelledby="project-credential-title">
+          <div className="section-heading"><div><h3 id="project-credential-title">Acesso individual ao projeto</h3></div></div>
+          <p className="muted-text">Emite um token para uma pessoa colaborar no projeto <strong>{project.name}</strong>.</p>
+          <form className="stack-form" autoComplete="off" onSubmit={event => { event.preventDefault(); if (confirm('Emitir acesso ao projeto ' + project.name + ' para ' + memberEmail + '?')) void issue('project'); }}>
+            <label htmlFor="project-credential-email">E-mail da pessoa<input id="project-credential-email" type="email" value={memberEmail} onChange={event => setMemberEmail(event.target.value)} required maxLength={320} placeholder="pessoa@empresa.com" /></label>
+            <button className="button secondary" disabled={issueMutation.isPending}>{issueMutation.isPending ? 'Emitindo…' : 'Emitir acesso ao projeto'}</button>
+          </form>
+        </section>
+      </div>
+    </section>
     <section className="panel-card wide-card credential-inventory" aria-labelledby="credential-inventory-title">
       <div className="section-heading"><div><p className="eyebrow">CREDENCIAIS EMITIDAS</p><h2 id="credential-inventory-title">Inventário por e-mail</h2></div><button type="button" className="button secondary small-button" onClick={() => void credentialsQuery.refetch()} disabled={credentialsQuery.isFetching}>↻ Atualizar</button></div>
       <p className="muted-text">O acesso aos projetos é concedido por e-mail e compartilhado entre as credenciais ativas do mesmo endereço. Segredos antigos não podem ser recuperados; emitir outro não revoga os anteriores.</p>

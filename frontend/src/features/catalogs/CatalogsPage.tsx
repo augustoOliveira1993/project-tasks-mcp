@@ -1,5 +1,4 @@
 import type { Project, Task } from '../../api';
-import { ProjectAreasManager } from '../../components/projects/ProjectAreasManager';
 import type { CatalogSection } from '../../route-state';
 import { FeaturesCatalog } from './FeaturesCatalog';
 import { ProjectsCatalog } from './ProjectsCatalog';
@@ -8,8 +7,7 @@ import { TasksCatalog } from './TasksCatalog';
 const sections: Array<{ id: CatalogSection; title: string; description: string }> = [
   { id: 'projects', title: 'Projetos', description: 'Workspaces, visibilidade e repositórios' },
   { id: 'features', title: 'Features', description: 'Objetivos e critérios do projeto' },
-  { id: 'tasks', title: 'Tarefas', description: 'Atividades, vínculos e responsáveis' },
-  { id: 'areas', title: 'Áreas', description: 'Categorias disponíveis no projeto' }
+  { id: 'tasks', title: 'Tarefas', description: 'Atividades, vínculos e responsáveis' }
 ];
 
 export function CatalogsPage({ section, token, nonce, projects, project, tasks, notify, onProjectCreated, onSelectProject, onNavigateSection, onChanged }: {
@@ -27,7 +25,6 @@ export function CatalogsPage({ section, token, nonce, projects, project, tasks, 
       {section === 'projects' && <ProjectsCatalog token={token} nonce={nonce} projects={projects} activeProjectId={project?._id ?? ''} notify={notify} onChanged={onChanged} onProjectCreated={onProjectCreated} onSelectProject={onSelectProject} />}
       {section === 'features' && <FeaturesCatalog token={token} nonce={nonce} projectId={project?._id ?? ''} notify={notify} onChanged={onChanged} />}
       {section === 'tasks' && <TasksCatalog token={token} nonce={nonce} project={project} tasks={tasks} notify={notify} onChanged={onChanged} />}
-      {section === 'areas' && (project ? <ProjectAreasManager token={token} project={project} onChanged={onChanged} notify={notify} /> : <p className="notice">Selecione um projeto para consultar e alterar as áreas.</p>)}
     </>}
   </section>;
 }

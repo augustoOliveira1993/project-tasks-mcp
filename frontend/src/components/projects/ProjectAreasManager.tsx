@@ -1,14 +1,15 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { operationId, request } from '../../api';
 import type { Project } from '../../api';
 import { errorMessage } from '../../lib/format';
 
-export function ProjectAreasManager({ token, project, onChanged, notify }: {
+export function ProjectAreasManager({ token, project, onChanged, notify, embedded = false }: {
   token: string;
   project: Project;
   onChanged: () => void;
   notify: (message: string, kind?: string) => void;
+  embedded?: boolean;
 }) {
   const [areas, setAreas] = useState<string[]>(project.areas?.length ? project.areas : ['backend', 'frontend', 'outro']);
   const [areasVersion, setAreasVersion] = useState(project.version);
@@ -42,8 +43,7 @@ export function ProjectAreasManager({ token, project, onChanged, notify }: {
     }
   }
 
-  function addArea(event: FormEvent) {
-    event.preventDefault();
+  function addArea() {
     const area = areaDraft.trim();
     if (!area) return;
     if (areas.some(existing => existing.toLocaleLowerCase('pt-BR') === area.toLocaleLowerCase('pt-BR'))) {
@@ -71,15 +71,18 @@ export function ProjectAreasManager({ token, project, onChanged, notify }: {
     void saveAreas(areas.map(existing => existing === area ? next : existing));
   }
 
-  return <section className="panel-card catalog-table-card wide-card" aria-labelledby="project-areas-title">
-    <div className="section-heading"><div><p className="eyebrow">ÁREAS DO PROJETO</p><h2 id="project-areas-title">Gerenciar áreas</h2></div></div>
-    <p className="muted-text">As áreas cadastradas aparecem na pergunta de contexto da IA e nos formulários de tarefa. Uma área em uso precisa ser reatribuída ou arquivada antes de ser removida.</p>
-    <form className="area-add-form" onSubmit={addArea}>
-      <label htmlFor="new-project-area">Nova área<input id="new-project-area" value={areaDraft} onChange={event => setAreaDraft(event.target.value)} required maxLength={80} placeholder="Ex.: dados, operações" /></label>
-      <button className="button secondary" disabled={areaMutation.isPending || areas.length >= 100 || !areaDraft.trim()}>{areaMutation.isPending ? 'Salvando…' : 'Adicionar área'}</button>
-    </form>
+  const titleId = `project-areas-title-${project._id}`;
+  return <section className={embedded ? 'project-form-section project-areas-manager' : 'panel-card catalog-table-card wide-card'} aria-labelledby={titleId}>
+    {embedded ? <div className="project-section-heading"><div><h3 id={titleId}>Áreas do projeto</h3><p>As áreas aparecem no contexto da IA e nos formulários de tarefa. Uma área em uso precisa ser reatribuída ou arquivada antes de ser removida.</p></div></div> : <>
+      <div className="section-heading"><div><p className="eyebrow">ÁREAS DO PROJETO</p><h2 id={titleId}>Gerenciar áreas</h2></div></div>
+      <p className="muted-text">As áreas cadastradas aparecem na pergunta de contexto da IA e nos formulários de tarefa. Uma área em uso precisa ser reatribuída ou arquivada antes de ser removida.</p>
+    </>}
+    <div className="area-add-form" role="group" aria-label="Adicionar área">
+      <label htmlFor={`new-project-area-${project._id}`}>Nova área<input id={`new-project-area-${project._id}`} value={areaDraft} onChange={event => setAreaDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); addArea(); } }} maxLength={80} placeholder="Ex.: dados, operações" /></label>
+      <button type="button" className="button secondary" disabled={areaMutation.isPending || areas.length >= 100 || !areaDraft.trim()} onClick={addArea}>{areaMutation.isPending ? 'Salvando…' : 'Adicionar área'}</button>
+    </div>
     <div className="table-scroll"><table className="catalog-table area-catalog-table"><thead><tr><th>Área</th><th>Ações</th></tr></thead><tbody>
-      {areas.map(area => <tr key={area}><td>{editingArea === area ? <input className="area-edit-input" value={editDraft} onChange={event => setEditDraft(event.target.value)} maxLength={80} aria-label={`Nome da área ${area}`} /> : <strong>{area === 'backend' ? 'Backend' : area === 'frontend' ? 'Frontend' : area === 'outro' ? 'Outro' : area}</strong>}</td><td><div className="catalog-row-actions">{editingArea === area ? <><button type="button" className="text-button" disabled={areaMutation.isPending} onClick={() => saveRename(area)}>{areaMutation.isPending ? 'Salvando…' : 'Salvar'}</button><button type="button" className="text-button" disabled={areaMutation.isPending} onClick={() => { setEditingArea(null); setEditDraft(''); }}>Cancelar</button></> : <><button type="button" className="text-button" disabled={areaMutation.isPending} onClick={() => { setEditingArea(area); setEditDraft(area); }}>Editar</button><button type="button" className="text-button danger-text" disabled={areaMutation.isPending || areas.length <= 1} onClick={() => removeArea(area)} aria-label={`Remover área ${area}`}>Remover</button></>}</div></td></tr>)}
+      {areas.map(area => <tr key={area}><td>{editingArea === area ? <input className="area-edit-input" value={editDraft} onChange={event => setEditDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); saveRename(area); } }} maxLength={80} aria-label={`Nome da área ${area}`} /> : <strong>{area === 'backend' ? 'Backend' : area === 'frontend' ? 'Frontend' : area === 'outro' ? 'Outro' : area}</strong>}</td><td><div className="catalog-row-actions">{editingArea === area ? <><button type="button" className="text-button" disabled={areaMutation.isPending} onClick={() => saveRename(area)}>{areaMutation.isPending ? 'Salvando…' : 'Salvar'}</button><button type="button" className="text-button" disabled={areaMutation.isPending} onClick={() => { setEditingArea(null); setEditDraft(''); }}>Cancelar</button></> : <><button type="button" className="text-button" disabled={areaMutation.isPending} onClick={() => { setEditingArea(area); setEditDraft(area); }}>Editar</button><button type="button" className="text-button danger-text" disabled={areaMutation.isPending || areas.length <= 1} onClick={() => removeArea(area)} aria-label={`Remover área ${area}`}>Remover</button></>}</div></td></tr>)}
     </tbody></table></div>
   </section>;
 }

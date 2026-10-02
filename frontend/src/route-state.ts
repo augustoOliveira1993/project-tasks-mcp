@@ -1,6 +1,6 @@
 export type AppRoute = 'projects' | 'tasks' | 'conversations' | 'activity' | 'globalActivity' | 'catalogs' | 'catalogProjects' | 'catalogFeatures' | 'catalogTasks' | 'catalogAreas' | 'settings' | 'help';
 export type AppTab = 'tasks' | 'chat' | 'activity' | 'catalogs' | 'admin' | 'help';
-export type CatalogSection = 'overview' | 'projects' | 'features' | 'tasks' | 'areas';
+export type CatalogSection = 'overview' | 'projects' | 'features' | 'tasks';
 
 const routePaths: Record<AppRoute, string> = {
   projects: '/projects', tasks: '/tasks', conversations: '/conversations',
@@ -37,11 +37,11 @@ export function isCatalogRoute(route: AppRoute): route is 'catalogs' | 'catalogP
 }
 
 export function catalogSectionForRoute(route: AppRoute): CatalogSection {
-  return route === 'catalogProjects' ? 'projects' : route === 'catalogFeatures' ? 'features' : route === 'catalogTasks' ? 'tasks' : route === 'catalogAreas' ? 'areas' : 'overview';
+  return route === 'catalogProjects' || route === 'catalogAreas' ? 'projects' : route === 'catalogFeatures' ? 'features' : route === 'catalogTasks' ? 'tasks' : 'overview';
 }
 
 export function routeForCatalogSection(section: CatalogSection): AppRoute {
-  return section === 'projects' ? 'catalogProjects' : section === 'features' ? 'catalogFeatures' : section === 'tasks' ? 'catalogTasks' : section === 'areas' ? 'catalogAreas' : 'catalogs';
+  return section === 'projects' ? 'catalogProjects' : section === 'features' ? 'catalogFeatures' : section === 'tasks' ? 'catalogTasks' : 'catalogs';
 }
 
 export function pathForRoute(route: AppRoute): string {
