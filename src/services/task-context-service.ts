@@ -1,5 +1,6 @@
 import { Event, Execution, Feature, MarkdownDocument, Project, Task, TaskMessage } from '../models.js';
 import type { TaskContextDto } from '../contracts.js';
+import { isKnownAiMcpClient } from './task-message-author.js';
 import { logger } from '../logger.js';
 
 export const TASK_CONTEXT_MAX_BYTES = 128 * 1024;
@@ -87,13 +88,15 @@ export async function getTaskContext(projectId: string, taskId: string, includeA
   const [feature, repositoryRecord, messages, dependencyTasks, executions, taskDocs, featureDocs] = await Promise.all([
     task.featureId ? Feature.findOne({ _id: task.featureId, projectId }).select('_id version name objective context acceptance').lean() : Promise.resolve(null),
     task.repositoryId ? Project.findOne({ _id: projectId, 'repositories.id': task.repositoryId }).select({ 'repositories.$': 1 }).lean() : Promise.resolve(null),
-    TaskMessage.find({ projectId, $or: [{ taskId }, { relatedTaskId: taskId }] }).select('_id taskId relatedTaskId author type message references createdAt conversationId replyTo').sort({ createdAt: -1, _id: -1 }).limit(11).lean(),
+    TaskMessage.find({ projectId, $or: [{ taskId }, { relatedTaskId: taskId }] }).select('_id taskId relatedTaskId author authorType clientName type message references createdAt conversationId replyTo').sort({ createdAt: -1, _id: -1 }).limit(11).lean(),
     task.dependencies?.length ? Task.find({ _id: { $in: task.dependencies }, projectId }).select('_id name status area type executionId').lean() : Promise.resolve([]),
     Execution.find({ projectId, taskId }).select('_id status startedAt endedAt impediments result.summary result.evidence').sort({ startedAt: -1, _id: -1 }).limit(6).lean(),
     MarkdownDocument.find({ projectId, targetKind: 'task', targetId: taskId }).select('_id targetKind targetId name summary revision size createdAt').sort({ _id: 1 }).limit(11).lean(),
     task.featureId ? MarkdownDocument.find({ projectId, targetKind: 'feature', targetId: task.featureId }).select('_id targetKind targetId name summary revision size createdAt').sort({ _id: 1 }).limit(11).lean() : Promise.resolve([])
   ]);
 
+  const messageEvents = messages.length ? await Event.find({ projectId, action: 'task_message', entityId: { $in: messages.map(message => message._id) } }).select('entityId actor').lean() : [];
+  const eventClientNames = new Map(messageEvents.map(event => [event.entityId, typeof (event.actor as any)?.agent === 'string' ? (event.actor as any).agent.trim().slice(0, 100) : null]));
   const truncated = new Set<string>();
   const acceptance = (task.acceptance ?? []).map((item, index) => text(item, 240, `task.acceptance[${index}]`, truncated));
   const acceptanceProgress = Array.from({ length: acceptance.length }, (_value, index) => task.acceptanceProgress?.[index] === true);
@@ -125,9 +128,13 @@ export async function getTaskContext(projectId: string, taskId: string, includeA
   if ((feature?.acceptance?.length ?? 0) > 20) truncated.add('feature.acceptance');
   const boundedMessages = messages.slice(0, 10).map((message, index) => {
     const boundedMessage = text(message.message, 1000, `messages[${index}].message`, truncated);
+    const clientName = typeof message.clientName === 'string' && message.clientName.trim() ? text(message.clientName.trim(), 100, `messages[${index}].clientName`, truncated) : eventClientNames.get(message._id!) ?? null;
+    const authorType = message.authorType === 'human' || message.authorType === 'agent'
+      ? message.authorType
+      : clientName ? isKnownAiMcpClient(clientName) ? 'agent' : 'unknown' : 'unknown';
     return {
       _id: message._id!, taskId: message.taskId!, relatedTaskId: message.relatedTaskId ?? undefined,
-      author: text(message.author, 160, `messages[${index}].author`, truncated), type: message.type!,
+      author: text(message.author, 160, `messages[${index}].author`, truncated), authorType, clientName, type: message.type!,
       message: boundedMessage, references: (message.references ?? []).slice(0, 10).map((reference, refIndex) => text(reference, 160, `messages[${index}].references[${refIndex}]`, truncated)), createdAt: message.createdAt!,
       conversationId: message.conversationId ?? undefined, replyTo: message.replyTo ?? undefined,
       ...(boundedMessage !== message.message ? { truncated: true } : {})

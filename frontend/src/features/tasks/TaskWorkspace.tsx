@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useQuery } from '@tanstack/react-query';
 import { query } from '../../api';
 import type { Project, Task } from '../../api';
@@ -25,7 +26,9 @@ type TaskWorkspaceProps = {
   error: unknown;
   saving: boolean;
   onRefresh: () => void;
-  onOpenTask: (task: Task) => void;
+  onOpenTask: (task: Task, action?: 'details' | 'edit' | 'summary' | 'json') => void;
+  onOpenTaskConversation: (task: Task) => void;
+  onTransferTask: (task: Task) => void;
   onOpenQuestionChat: (conversationId: string | null) => void;
   onChangeStatus: (task: Task) => void;
   onToggleChecked: (task: Task) => void;
@@ -36,7 +39,7 @@ type TaskWorkspaceProps = {
   onSetTasksChecked: (taskIds: string[], checked: boolean) => Promise<string[]>;
 };
 
-export function TaskWorkspace({ token, nonce, projectId, repositories = [], projectAreas = ['backend', 'frontend', 'outro'], tasks, isPending, isError, error, saving, onRefresh, onOpenTask, onOpenQuestionChat, onChangeStatus, onToggleChecked, canHardDelete, onRequestHardDeleteTask, onArchiveTask, onApproveSelected, onSetTasksChecked }: TaskWorkspaceProps) {
+export function TaskWorkspace({ token, nonce, projectId, repositories = [], projectAreas = ['backend', 'frontend', 'outro'], tasks, isPending, isError, error, saving, onRefresh, onOpenTask, onOpenTaskConversation, onTransferTask, onOpenQuestionChat, onChangeStatus, onToggleChecked, canHardDelete, onRequestHardDeleteTask, onArchiveTask, onApproveSelected, onSetTasksChecked }: TaskWorkspaceProps) {
   const [createTaskOpen, setCreateTaskOpen] = useState(false);
   const [createFeatureOpen, setCreateFeatureOpen] = useState(false);
   const [createdTaskNotice, setCreatedTaskNotice] = useState('');
@@ -79,6 +82,18 @@ export function TaskWorkspace({ token, nonce, projectId, repositories = [], proj
   const { page: currentPage, pageCount: pages, items: visibleTasks } = pagination;
   const countStatus = (status: string) => tasks.filter(task => task.status === status).length;
   const selectionAllowed = (task: Task) => task.status === 'em_revisao' || task.status === 'concluida';
+  function runTaskAction(task: Task, action: string) {
+    if (action === 'details') onOpenTask(task);
+    else if (action === 'edit') onOpenTask(task, 'edit');
+    else if (action === 'status') onChangeStatus(task);
+    else if (action === 'conversation') onOpenTaskConversation(task);
+    else if (action === 'transfer') onTransferTask(task);
+    else if (action === 'summary') onOpenTask(task, 'summary');
+    else if (action === 'json') onOpenTask(task, 'json');
+    else if (action === 'check') onToggleChecked(task);
+    else if (action === 'archive') onArchiveTask(task);
+    else if (action === 'delete') onRequestHardDeleteTask(task);
+  }
   const selectableTasks = visibleTasks.filter(selectionAllowed);
   const selectedTasks = getSelectedVisibleItems(visibleTasks, selectedIds, selectionAllowed);
   const selectedForApproval = selectedTasks.filter(task => task.status === 'em_revisao');
@@ -232,7 +247,7 @@ export function TaskWorkspace({ token, nonce, projectId, repositories = [], proj
           <td><span className="area-label">{task.area ?? '—'}</span></td>
           <td>{task.responsible || <span className="muted-text">Não atribuído</span>}</td>
           <td>{formatDate(task.updatedAt)}</td>
-          <td><div className="row-actions"><button className="small-icon" title="Ver detalhes" aria-label={'Ver detalhes de ' + task.name} onClick={() => onOpenTask(task)}>↗</button><button className="small-icon" title="Alterar status" aria-label={'Alterar status de ' + task.name} onClick={() => onChangeStatus(task)}>⋯</button>{task.status === 'concluida' && <button className={task.checked ? 'small-icon checked-action' : 'small-icon'} title={task.checked ? 'Remover conferência' : 'Conferir tarefa'} aria-label={task.checked ? 'Remover conferência de ' + task.name : 'Conferir tarefa ' + task.name} disabled={saving} onClick={() => onToggleChecked(task)}>{task.checked ? '✓' : '○'}</button>}{['concluida', 'cancelada'].includes(task.status) && <button type="button" className="row-label-action archive-row-action" disabled={saving} onClick={() => onArchiveTask(task)}>Arquivar</button>}{canHardDelete && <button type="button" className="row-label-action delete-row-action" disabled={saving} onClick={() => onRequestHardDeleteTask(task)} aria-label={'Excluir definitivamente a tarefa ' + task.name}>Excluir</button>}</div></td>
+          <td><div className="row-actions"><button type="button" className="small-icon" title="Visualizar detalhes" aria-label={'Visualizar detalhes de ' + task.name} onClick={() => runTaskAction(task, 'details')}>↗</button><button type="button" className="task-status-direct" title="Alterar status" aria-label={'Alterar status de ' + task.name} onClick={() => runTaskAction(task, 'status')}>Status</button><TaskActionsMenu task={task} canHardDelete={canHardDelete} saving={saving} onAction={action => runTaskAction(task, action)} /></div></td>
         </tr>;
         })}</tbody>
       </table></div> : <div className="empty-state compact"><h3>Nenhuma tarefa encontrada</h3><p>Altere os filtros ou selecione outro projeto.</p></div>}
@@ -241,5 +256,91 @@ export function TaskWorkspace({ token, nonce, projectId, repositories = [], proj
     </section>
     {createTaskOpen && <CreateTaskDialog key={projectId} token={token} nonce={nonce} projectId={projectId} repositories={repositories ?? []} areas={projectAreas} tasks={tasks} defaultFeatureId={featureFilter} close={() => setCreateTaskOpen(false)} onCreated={task => { setCreateTaskOpen(false); setCreatedTaskNotice(`Task “${task.name}” criada.`); }} />}
     {createFeatureOpen && <CreateFeatureDialog key={projectId} token={token} nonce={nonce} projectId={projectId} close={() => setCreateFeatureOpen(false)} onCreated={feature => { setCreateFeatureOpen(false); setCreatedFeatureNotice(`Feature “${feature.name}” criada.`); }} />}
+  </>;
+}
+
+type TaskRowAction = 'edit' | 'conversation' | 'transfer' | 'summary' | 'json' | 'check' | 'archive' | 'delete';
+
+function TaskActionsMenu({ task, canHardDelete, saving, onAction }: { task: Task; canHardDelete: boolean; saving: boolean; onAction: (action: TaskRowAction) => void }) {
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState({ top: -1000, left: -1000 });
+  const actions: Array<{ id: TaskRowAction; label: string; danger?: boolean; disabled?: boolean; dividerBefore?: boolean }> = [
+    { id: 'edit', label: 'Editar tarefa' },
+    { id: 'conversation', label: 'Abrir conversa' },
+    { id: 'transfer', label: 'Transferir tarefa' },
+    { id: 'summary', label: 'Resumo completo', dividerBefore: true },
+    { id: 'json', label: 'Ver JSON' },
+    ...(task.status === 'concluida' ? [{ id: 'check' as const, label: task.checked ? 'Remover conferência' : 'Conferir tarefa', disabled: saving, dividerBefore: true }] : []),
+    ...(['concluida', 'cancelada'].includes(task.status) ? [{ id: 'archive' as const, label: 'Arquivar', disabled: saving, dividerBefore: task.status !== 'concluida' }] : []),
+    ...(canHardDelete ? [{ id: 'delete' as const, label: 'Excluir', danger: true, disabled: saving, dividerBefore: true }] : [])
+  ];
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    const updatePosition = () => {
+      const trigger = triggerRef.current;
+      const menu = menuRef.current;
+      if (!trigger || !menu) return;
+      const anchor = trigger.getBoundingClientRect();
+      const bounds = menu.getBoundingClientRect();
+      const margin = 10;
+      const gap = 6;
+      const below = window.innerHeight - anchor.bottom - margin;
+      const above = anchor.top - margin;
+      const preferredTop = below >= bounds.height || below >= above
+        ? anchor.bottom + gap
+        : anchor.top - bounds.height - gap;
+      const top = Math.min(Math.max(margin, preferredTop), window.innerHeight - bounds.height - margin);
+      const left = Math.max(margin, Math.min(anchor.right - bounds.width, window.innerWidth - bounds.width - margin));
+      setPosition({ top, left });
+    };
+    updatePosition();
+    const frame = window.requestAnimationFrame(() => menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus());
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (!menuRef.current?.contains(target) && !triggerRef.current?.contains(target)) setOpen(false);
+    };
+    const onFocusIn = (event: FocusEvent) => {
+      const target = event.target as Node;
+      if (!menuRef.current?.contains(target) && !triggerRef.current?.contains(target)) setOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setOpen(false);
+        triggerRef.current?.focus();
+        return;
+      }
+      const items = Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)') ?? []);
+      const index = items.indexOf(document.activeElement as HTMLButtonElement);
+      if (!items.length) return;
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Home' || event.key === 'End') {
+        event.preventDefault();
+        const next = event.key === 'Home' ? 0 : event.key === 'End' || (index < 0 && event.key === 'ArrowUp') ? items.length - 1 : index < 0 ? 0 : (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+        items[next]?.focus();
+      }
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('focusin', onFocusIn);
+    document.addEventListener('keydown', onKeyDown);
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('focusin', onFocusIn);
+      document.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [open]);
+
+  return <>
+    <button ref={triggerRef} type="button" className="small-icon task-action-menu-trigger" title="Mais ações" aria-label={'Mais ações para ' + task.name} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(value => !value)}>⋯</button>
+    {open && createPortal(<div ref={menuRef} className="task-action-menu" role="menu" aria-label={'Mais ações para ' + task.name} style={{ top: position.top, left: position.left }}>
+      {actions.map(action => <Fragment key={action.id}>{action.dividerBefore && <div className="task-action-menu-divider" role="separator" />}<button type="button" role="menuitem" className={action.danger ? 'task-action-menu-item danger' : 'task-action-menu-item'} disabled={action.disabled} onClick={() => { setOpen(false); onAction(action.id); }}>{action.label}</button></Fragment>)}
+    </div>, document.body)}
   </>;
 }

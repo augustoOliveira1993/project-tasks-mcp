@@ -58,7 +58,8 @@ Consulte o guia de [configuração global](docs/CONFIGURACAO_GLOBAL_MCP.md) para
 | Operação do servidor na rede privada | [Rede interna](docs/REDE_INTERNA.md) |
 | Cadastro e execução de tarefas de backend | [Tarefas de backend](docs/TAREFAS_BACKEND.md) |
 | Cadastro e execução de tarefas de frontend | [Tarefas de frontend](docs/TAREFAS_FRONTEND.md) |
-| Chamadas HTTP administrativas | [Collection Postman](postman/project-tasks-mcp.postman_collection.json) |
+| Chamadas HTTP administrativas | [Collection Postman versionada](postman/project-tasks-mcp.postman_collection.json) |
+| Download da collection no servidor | `GET ${SERVICE_URL}/postman/collection.json` (local: `http://localhost:3443/postman/collection.json`) |
 | Colaboração Git, diffs e contexto automático | [Uso do MCP](docs/USO_MCP.md) |
 | Runner e plano de colaboração autônoma entre IAs | [Loop autônomo de IA](docs/LOOP_AUTONOMO_IA.md) |
 

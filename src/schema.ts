@@ -109,6 +109,7 @@ export const adminSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('review'), ...op, projectId: id, taskId: id, version: z.number().int().nonnegative(), decision: z.enum(['approve', 'changes', 'unblock', 'cancel']), reason: text }).strict(),
   z.object({ action: z.literal('member'), ...op, projectId: id, version: z.number().int().nonnegative(), userId, role: z.enum(['administrador', 'colaborador', 'leitor']).nullable() }).strict(),
   z.object({ action: z.literal('issue_project_member'), ...op, projectId: id, version: z.number().int().nonnegative(), userId, token: z.string().regex(/^[a-f0-9]{64}$/) }).strict(),
+  z.object({ action: z.literal('grant_credential_project'), ...op, projectId: id, version: z.number().int().nonnegative(), credentialId: id }).strict(),
   z.object({ action: z.literal('bind_repository_git'), ...op, projectId: id, version: z.number().int().nonnegative(), repositoryId: id, canonicalRemoteUrl: z.string().min(1).max(2048), rootCommit: z.string().regex(/^[0-9a-f]{40}$/i) }).strict(),
   z.object({ action: z.literal('issue'), ...op, userId, scope: z.enum(['agent', 'human']), systemAdmin: z.boolean().default(false), token: z.string().regex(/^[a-f0-9]{64}$/) }).strict(),
   z.object({ action: z.literal('revoke'), ...op, credentialId: id }).strict()

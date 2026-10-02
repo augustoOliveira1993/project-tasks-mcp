@@ -33,7 +33,7 @@ Execution.schema.index({ projectId: 1, taskId: 1, createdAt: 1, _id: 1 });
 export const Event = mongoose.model('Event', new Schema({ _id: String, projectId: { type: String, index: true }, entityId: String,
   action: String, kind: String, summary: String, actor: Schema.Types.Mixed, git: Schema.Types.Mixed, author: String, credentialId: String, at: Date, data: Schema.Types.Mixed }, { versionKey: false }));
 Event.schema.index({ projectId: 1, at: 1, _id: 1 });
-export const TaskMessage = mongoose.model('TaskMessage', new Schema({ _id: String, projectId: { type: String, index: true }, taskId: { type: String, index: true }, relatedTaskId: String, executionId: String, operationId: String, author: String, credentialId: String, conversationId: String, replyTo: String, correlationId: String, type: String, message: String, references: [String], createdAt: { type: Date, default: Date.now } }, { versionKey: false }));
+export const TaskMessage = mongoose.model('TaskMessage', new Schema({ _id: String, projectId: { type: String, index: true }, taskId: { type: String, index: true }, relatedTaskId: String, executionId: String, operationId: String, author: String, authorType: String, clientName: String, credentialId: String, conversationId: String, replyTo: String, correlationId: String, type: String, message: String, references: [String], createdAt: { type: Date, default: Date.now } }, { versionKey: false }));
 TaskMessage.schema.index({ projectId: 1, taskId: 1, createdAt: 1, _id: 1 });
 TaskMessage.schema.index({ projectId: 1, relatedTaskId: 1, createdAt: 1, _id: 1 });
 export const Conversation = mongoose.model('Conversation', new Schema({

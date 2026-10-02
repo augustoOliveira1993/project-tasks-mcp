@@ -1,22 +1,26 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ApiRequestError, operationId, query, request } from '../../api';
-import type { Task } from '../../api';
+import { allRecords, ApiRequestError, operationId, query, request } from '../../api';
+import type { Project, Task } from '../../api';
 import { markTaskReadIfUnread, type TaskUnreadState } from '../../features/tasks/task-read';
 import { Badge } from '../ui/Badge';
 import { errorMessage, formatDate } from '../../lib/format';
 import { statusLabels, statusTone } from '../../features/tasks/status';
 import { MarkdownView } from '../ui/MarkdownView';
 import { TaskSummaryPanel } from './TaskSummaryPanel';
+import { TaskEditorDialog } from './TaskEditorDialog';
 import { openTaskConversation } from '../../features/tasks/task-conversation';
 
+type Feature = { _id: string; name: string };
+export type TaskDetailsAction = 'details' | 'edit' | 'summary' | 'json';
 type TaskDiff = { _id: string; commit?: string; branch?: string; files?: string[]; at?: string; createdAt?: string };
 type TaskMarkdown = { _id: string; name: string; summary: string; revision: number };
 type TaskReadAttempt = { taskId: string; cursor: number; operationId: string };
 
-export function TaskDetailsDialog({ token, nonce, projectId, task, checking, onToggleChecked, onOpenConversation, onRequestTransfer, close }: { token: string; nonce: string; projectId: string; task: Task; checking: boolean; onToggleChecked: (task: Task) => void; onOpenConversation: (conversationId: string) => void; onRequestTransfer: (task: Task) => void; close: () => void }) {
+export function TaskDetailsDialog({ token, nonce, projectId, project, tasks, task, initialAction = 'details', checking, notify, onToggleChecked, onOpenConversation, onRequestTransfer, close }: { token: string; nonce: string; projectId: string; project: Project; tasks: Task[]; task: Task; initialAction?: TaskDetailsAction; checking: boolean; notify: (message: string, kind?: string) => void; onToggleChecked: (task: Task) => void; onOpenConversation: (conversationId: string) => void; onRequestTransfer: (task: Task) => void; close: () => void }) {
   const [markdown, setMarkdown] = useState<{ name: string; content: string } | null>(null);
-  const [view, setView] = useState<'details' | 'summary' | 'json'>('details');
+  const [editing, setEditing] = useState(initialAction === 'edit');
+  const [view, setView] = useState<'details' | 'summary' | 'json'>(initialAction === 'summary' || initialAction === 'json' ? initialAction : 'details');
   const [criterionEvidence, setCriterionEvidence] = useState<Record<number, string>>({});
   const [savingCriterion, setSavingCriterion] = useState<number | null>(null);
   const [criterionFeedback, setCriterionFeedback] = useState<{ kind: 'success' | 'error'; message: string } | null>(null);
@@ -25,6 +29,10 @@ export function TaskDetailsDialog({ token, nonce, projectId, task, checking, onT
   const context = useQuery({
     queryKey: ['task-context', nonce, projectId, task._id],
     queryFn: () => query<Record<string, any>>(token, 'get_task_context', { projectId, taskId: task._id })
+  });
+  const features = useQuery({
+    queryKey: ['project-features', nonce, projectId],
+    queryFn: () => allRecords<Feature>(token, { kind: 'feature', projectId, archived: false })
   });
   const activityReport = useQuery({
     queryKey: ['project-sync-report', nonce, projectId, task.featureId ?? undefined],
@@ -77,6 +85,11 @@ export function TaskDetailsDialog({ token, nonce, projectId, task, checking, onT
     ?? contextExecutions.find(execution => execution.impediments?.length);
   const blockingReasons = (blockedExecution?.impediments ?? []).filter(reason => reason.trim().length > 0);
   const acceptance = taskData.acceptance ?? task.acceptance ?? [];
+  const availableFeatures = features.data ?? [];
+  const currentFeature = context.data?.feature;
+  const editorFeatures = currentFeature && !availableFeatures.some(feature => feature._id === currentFeature._id)
+    ? [...availableFeatures, { _id: currentFeature._id, name: currentFeature.name }]
+    : availableFeatures;
   const acceptanceProgress = acceptance.map((_item: string, index: number) => taskData.acceptanceProgress?.[index] === true);
   const completedCriteria = acceptanceProgress.filter(Boolean).length;
 
@@ -137,7 +150,7 @@ export function TaskDetailsDialog({ token, nonce, projectId, task, checking, onT
           <div className="detail-check-copy"><Badge tone={taskData.checked ? 'green' : 'amber'}>{taskData.checked ? 'Conferida' : 'Não conferida'}</Badge><span>{taskData.checked ? 'por ' + (taskData.checkedBy || 'Usuário') + ' · ' + formatDate(taskData.checkedAt) : 'Marque após validar a tarefa.'}</span></div>
           <button type="button" className="button secondary small-button" disabled={checking} aria-pressed={Boolean(taskData.checked)} onClick={() => onToggleChecked(taskData as Task)}>{checking ? 'Salvando…' : taskData.checked ? 'Desmarcar' : 'Marcar como conferida'}</button>
         </section>}
-        <div className="detail-toolbar"><div className="button-row"><button type="button" className="button secondary small-button" disabled={openConversation.isPending} onClick={() => openConversation.mutate()}>{openConversation.isPending ? 'Abrindo…' : 'Abrir conversa'}</button><button type="button" className="button secondary small-button" onClick={() => onRequestTransfer(taskData as Task)}>Transferir tarefa</button><button className="text-button" aria-pressed={view === 'summary'} onClick={() => setView(current => current === 'summary' ? 'details' : 'summary')}>{view === 'summary' ? 'Voltar aos detalhes' : 'Resumo completo'}</button><button className="text-button" onClick={() => setView(current => current === 'json' ? 'details' : 'json')}>{view === 'json' ? 'Ver detalhes' : 'Ver JSON'}</button></div></div>
+        <div className="detail-toolbar"><div className="button-row"><button type="button" className="button secondary small-button" disabled={features.isPending} onClick={() => setEditing(true)}>Editar tarefa</button><button type="button" className="button secondary small-button" disabled={openConversation.isPending} onClick={() => openConversation.mutate()}>{openConversation.isPending ? 'Abrindo…' : 'Abrir conversa'}</button><button type="button" className="button secondary small-button" onClick={() => onRequestTransfer(taskData as Task)}>Transferir tarefa</button><button className="text-button" aria-pressed={view === 'summary'} onClick={() => setView(current => current === 'summary' ? 'details' : 'summary')}>{view === 'summary' ? 'Voltar aos detalhes' : 'Resumo completo'}</button><button className="text-button" onClick={() => setView(current => current === 'json' ? 'details' : 'json')}>{view === 'json' ? 'Ver detalhes' : 'Ver JSON'}</button></div></div>
         {openConversation.isError && <div className="notice error" role="alert">{errorMessage(openConversation.error)}</div>}
         {view === 'json' ? <pre className="markdown-content json-content">{JSON.stringify(context.data, null, 2)}</pre> : view === 'summary' ? <div className="detail-summary-layout"><TaskSummaryPanel token={token} nonce={nonce} projectId={projectId} taskId={task._id} onOpenConversation={onOpenConversation} /></div> : <div className="detail-columns">
           <div className="detail-main">
@@ -166,5 +179,6 @@ export function TaskDetailsDialog({ token, nonce, projectId, task, checking, onT
       {markRead.isError && <div className="notice error" role="alert"><span>Não foi possível marcar as atividades como lidas: {errorMessage(markRead.error)}</span><button className="text-button" disabled={markRead.isPending} onClick={() => { const attempt = readAttempt.current; if (attempt?.taskId === task._id) markRead.mutate(attempt); }}>Tentar novamente</button></div>}
       <footer className="dialog-footer"><button className="button secondary" onClick={close}>Fechar</button></footer>
     </section>
+    {editing && !features.isPending && <TaskEditorDialog token={token} nonce={nonce} project={project} tasks={tasks} features={editorFeatures} task={taskData as Task} close={() => setEditing(false)} notify={notify} onSaved={() => setEditing(false)} />}
   </div>;
 }

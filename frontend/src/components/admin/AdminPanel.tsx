@@ -18,7 +18,7 @@ export function repositoryGitFields(project: Project, repositoryId: string) {
   };
 }
 
-export function AdminPanel({ project, projects, onChanged, notify, token, canHardDelete, actionPending, onRequestHardDeleteProject, onArchiveProject }: { token: string; project: Project; projects: Project[]; onChanged: () => void; notify: (message: string, kind?: string) => void; canHardDelete: boolean; actionPending: boolean; onRequestHardDeleteProject: (project: Project) => void; onArchiveProject: () => void }) {
+export function AdminPanel({ project, projects, onChanged, notify, token, canHardDelete, systemAdmin, actionPending, onRequestHardDeleteProject, onArchiveProject }: { token: string; project: Project; projects: Project[]; onChanged: () => void | Promise<unknown>; notify: (message: string, kind?: string) => void; canHardDelete: boolean; systemAdmin: boolean; actionPending: boolean; onRequestHardDeleteProject: (project: Project) => void; onArchiveProject: () => void }) {
   const queryClient = useQueryClient();
   const [activePanel, setActivePanel] = useState<'tools' | 'export'>('tools');
   const [agentEmail, setAgentEmail] = useState('');
@@ -30,7 +30,7 @@ export function AdminPanel({ project, projects, onChanged, notify, token, canHar
   const [credentialEmail, setCredentialEmail] = useState('');
   const [credentialScope, setCredentialScope] = useState<'all' | 'human' | 'agent'>('all');
   const [credentialStatus, setCredentialStatus] = useState<'all' | 'active' | 'revoked'>('all');
-  const [credentialProjectId, setCredentialProjectId] = useState(project._id);
+  const [credentialProjectId, setCredentialProjectId] = useState(systemAdmin ? '' : project._id);
   const [credentialLimit, setCredentialLimit] = useState(25);
   const [credentialCursors, setCredentialCursors] = useState<Array<string | undefined>>([undefined]);
   useEffect(() => {
@@ -42,9 +42,9 @@ export function AdminPanel({ project, projects, onChanged, notify, token, canHar
     setRootCommit(fields.rootCommit);
   }, [project._id, project.repositories, repositoryId]);
   useEffect(() => {
-    setCredentialProjectId(project._id);
+    setCredentialProjectId(systemAdmin ? '' : project._id);
     setCredentialCursors([undefined]);
-  }, [project._id]);
+  }, [project._id, systemAdmin]);
   const currentCursor = credentialCursors[credentialCursors.length - 1];
   const credentialsQuery = useQuery({
     queryKey: ['admin-credentials', token, credentialEmail.trim(), credentialScope, credentialStatus, credentialProjectId, credentialLimit, currentCursor],
@@ -64,7 +64,13 @@ export function AdminPanel({ project, projects, onChanged, notify, token, canHar
   const bindingMutation = useMutation({
     mutationFn: (body: Record<string, unknown>) => request<Project>(token, '/admin', { body })
   });
-  const busy = issueMutation.isPending || bindingMutation.isPending;
+  const grantMutation = useMutation({
+    mutationFn: (body: Record<string, unknown>) => request<{ credentialId: string; projectId: string; role: string; version: number; alreadyGranted: boolean }>(token, '/admin', { body })
+  });
+  const revokeMutation = useMutation({
+    mutationFn: (body: Record<string, unknown>) => request<{ credentialId: string }>(token, '/admin', { body })
+  });
+  const busy = issueMutation.isPending || bindingMutation.isPending || grantMutation.isPending;
 
   async function issue(scope: 'agent' | 'project') {
     const email = scope === 'agent' ? agentEmail.trim() : memberEmail.trim();
@@ -100,6 +106,29 @@ export function AdminPanel({ project, projects, onChanged, notify, token, canHar
       notify('Nova credencial emitida. Copie o token agora; ele não será exibido novamente.', 'success');
       await queryClient.invalidateQueries({ queryKey: ['admin-credentials'] });
       onChanged();
+    } catch (error) { notify(errorMessage(error), 'error'); }
+  }
+
+  async function grantProject(credential: AdminCredential, projectId: string) {
+    const target = projects.find(item => item._id === projectId);
+    if (!target || credential.state !== 'active' || credential.scope !== 'human') return;
+    if (!window.confirm(`Conceder a ${credential.email} acesso ao projeto ${target.name}? As credenciais desse e-mail também passarão a acessar o projeto.`)) return;
+    try {
+      const result = await grantMutation.mutateAsync({ action: 'grant_credential_project', operationId: operationId(), projectId: target._id, version: target.version, credentialId: credential.credentialId });
+      notify(result.alreadyGranted ? `${credential.email} já tinha acesso a ${target.name}.` : `Acesso a ${target.name} adicionado à credencial existente de ${credential.email}.`, result.alreadyGranted ? 'info' : 'success');
+      await queryClient.invalidateQueries({ queryKey: ['admin-credentials'] });
+      await onChanged();
+    } catch (error) { notify(errorMessage(error), 'error'); }
+  }
+
+  async function revokeCredential(credential: AdminCredential) {
+    if (!systemAdmin || credential.state !== 'active') return;
+    const confirmed = window.confirm(`Revogar a credencial ${credential.credentialId} de ${credential.email}? Somente esta credencial será revogada. Outras credenciais ativas do mesmo e-mail continuarão válidas.`);
+    if (!confirmed) return;
+    try {
+      await revokeMutation.mutateAsync({ action: 'revoke', operationId: operationId(), credentialId: credential.credentialId });
+      notify('Credencial revogada. Outras credenciais ativas deste e-mail continuam válidas.', 'success');
+      await queryClient.invalidateQueries({ queryKey: ['admin-credentials'] });
     } catch (error) { notify(errorMessage(error), 'error'); }
   }
 
@@ -143,25 +172,27 @@ export function AdminPanel({ project, projects, onChanged, notify, token, canHar
     <ProjectAreasManager token={token} project={project} onChanged={onChanged} notify={notify} />
     <section className="panel-card wide-card credential-inventory" aria-labelledby="credential-inventory-title">
       <div className="section-heading"><div><p className="eyebrow">CREDENCIAIS EMITIDAS</p><h2 id="credential-inventory-title">Inventário por e-mail</h2></div><button type="button" className="button secondary small-button" onClick={() => void credentialsQuery.refetch()} disabled={credentialsQuery.isFetching}>↻ Atualizar</button></div>
-      <p className="muted-text">Consulte os metadados de cada token. Segredos antigos não podem ser recuperados; emitir outro não revoga os anteriores.</p>
+      <p className="muted-text">O acesso aos projetos é concedido por e-mail e compartilhado entre as credenciais ativas do mesmo endereço. Segredos antigos não podem ser recuperados; emitir outro não revoga os anteriores.</p>
       <div className="credential-filters" role="search" aria-label="Filtros de credenciais">
         <label className="credential-search">Buscar por e-mail<input type="search" value={credentialEmail} onChange={event => { setCredentialEmail(event.target.value); setCredentialCursors([undefined]); }} placeholder="nome@empresa.com" /></label>
-        <label>Projeto<select value={credentialProjectId} disabled={credentialScope === 'agent'} onChange={event => { setCredentialProjectId(event.target.value); setCredentialCursors([undefined]); }}><option value="">Todos os projetos</option>{projects.map(item => <option value={item._id} key={item._id}>{item.name}</option>)}</select></label>
-        <label>Escopo<select value={credentialScope} onChange={event => { setCredentialScope(event.target.value as typeof credentialScope); setCredentialCursors([undefined]); }}><option value="all">Todos</option><option value="human">Pessoas</option><option value="agent">Agentes</option></select></label>
+        <label>Projeto<select value={credentialProjectId} disabled={credentialScope === 'agent'} onChange={event => { setCredentialProjectId(event.target.value); setCredentialCursors([undefined]); }}><option value="" disabled={!systemAdmin}>Todos os projetos</option>{projects.map(item => <option value={item._id} key={item._id}>{item.name}</option>)}</select></label>
+        <label>Escopo<select value={credentialScope} onChange={event => { setCredentialScope(event.target.value as typeof credentialScope); setCredentialCursors([undefined]); }}><option value="all">Todos</option><option value="human">Pessoas</option><option value="agent" disabled={!systemAdmin}>Agentes</option></select></label>
         <label>Estado<select value={credentialStatus} onChange={event => { setCredentialStatus(event.target.value as typeof credentialStatus); setCredentialCursors([undefined]); }}><option value="all">Todos</option><option value="active">Ativas</option><option value="revoked">Revogadas</option></select></label>
         <label>Por página<select value={credentialLimit} onChange={event => { setCredentialLimit(Number(event.target.value)); setCredentialCursors([undefined]); }}><option value={10}>10</option><option value={25}>25</option><option value={50}>50</option><option value={100}>100</option></select></label>
       </div>
       {credentialScope === 'agent' && <p className="credential-hint" role="note">A consulta de agentes é global e exige credencial de administrador do sistema.</p>}
       {credentialsQuery.isPending ? <div className="loading" role="status">Carregando credenciais…</div> : credentialsQuery.isError ? <div className="notice error" role="alert">{errorMessage(credentialsQuery.error)}</div> : credentialsQuery.data?.items.length ? <div className="table-scroll"><table className="credential-table"><thead><tr><th>E-mail</th><th>ID da credencial</th><th>Escopo</th><th>Estado</th><th>Projeto / emissão</th><th>Ação</th></tr></thead><tbody>{credentialsQuery.data.items.map(credential => {
         const targetProject = credential.projectId ? projects.find(item => item._id === credential.projectId) : undefined;
+        const linkedProjectIds = new Set((credential.projects ?? []).map(item => item.projectId));
+        const availableProjects = projects.filter(item => !linkedProjectIds.has(item._id));
         const canReissue = credential.scope === 'agent' || Boolean(targetProject);
         return <tr key={credential.credentialId}>
           <td><strong className="credential-email">{credential.email}</strong></td>
           <td><code className="credential-id">{credential.credentialId}</code></td>
           <td><span>{credential.scope === 'agent' ? 'Agente' : 'Pessoa'}</span>{credential.systemAdmin && <small className="credential-role">Administrador do sistema</small>}{credential.role && <small className="credential-role">{credential.role}</small>}</td>
           <td><Badge tone={credential.state === 'active' ? 'green' : 'muted'}>{credential.state === 'active' ? 'Ativa' : 'Revogada'}</Badge></td>
-          <td><span>{credential.projectName ?? (credential.scope === 'agent' ? 'Global' : '—')}</span><small className="credential-date">{credential.createdAt ? new Date(credential.createdAt).toLocaleString('pt-BR') : 'Data indisponível'}</small></td>
-          <td><button type="button" className="button secondary small-button" onClick={() => void reissue(credential)} disabled={issueMutation.isPending || !canReissue} title={!canReissue ? 'Não há projeto autorizado associado para emitir acesso.' : undefined}>Gerar novo token</button></td>
+          <td><span className="credential-project-list">{credential.projects?.length ? credential.projects.map(item => `${item.projectName ?? 'Projeto'}${item.role ? ` · ${item.role}` : ''}`).join(', ') : credential.projectName ?? (credential.scope === 'agent' ? 'Global' : 'Sem projeto')}</span><small className="credential-date">{credential.createdAt ? new Date(credential.createdAt).toLocaleString('pt-BR') : 'Data indisponível'}</small></td>
+          <td><div className="credential-actions">{systemAdmin && credential.scope === 'human' && credential.state === 'active' && <select aria-label={`Adicionar projeto à credencial de ${credential.email}`} defaultValue="" disabled={grantMutation.isPending || availableProjects.length === 0} onChange={event => { const projectId = event.currentTarget.value; event.currentTarget.value = ''; if (projectId) void grantProject(credential, projectId); }}><option value="" disabled>{availableProjects.length ? 'Adicionar projeto…' : 'Todos já vinculados'}</option>{availableProjects.map(item => <option value={item._id} key={item._id}>{item.name}</option>)}</select>}<button type="button" className="button secondary small-button" onClick={() => void reissue(credential)} disabled={issueMutation.isPending || !canReissue} title={!canReissue ? 'Não há projeto autorizado associado para emitir acesso.' : undefined}>Gerar novo token</button>{systemAdmin && credential.state === 'active' && <button type="button" className="button danger-button small-button" onClick={() => void revokeCredential(credential)} disabled={revokeMutation.isPending} aria-label={`Revogar credencial ${credential.credentialId}`}>Revogar credencial</button>}</div></td>
         </tr>;
       })}</tbody></table></div> : <div className="empty-state compact"><h3>Nenhuma credencial encontrada</h3><p>Ajuste os filtros ou emita a primeira credencial para este escopo.</p></div>}
       <div className="credential-pagination"><span>Página {credentialCursors.length}{credentialsQuery.data?.items.length ? ` · ${credentialsQuery.data.items.length} registro(s)` : ''}</span><div className="button-row"><button type="button" className="button secondary small-button" onClick={() => setCredentialCursors(values => values.slice(0, -1))} disabled={credentialCursors.length <= 1 || credentialsQuery.isFetching}>Anterior</button><button type="button" className="button secondary small-button" onClick={() => { if (credentialsQuery.data?.next) setCredentialCursors(values => [...values, credentialsQuery.data!.next!]); }} disabled={!credentialsQuery.data?.next || credentialsQuery.isFetching}>Próxima</button></div></div>

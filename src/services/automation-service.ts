@@ -5,6 +5,7 @@ import { AutomationJob, AutomationPolicy, Runner, Task, Feature, Project, Execut
 import { DomainError, type Actor, type Service } from '../service.js';
 import { id, provider, tools } from '../schema.js';
 import { areasForProject } from '../area-catalog.js';
+import { taskMessageAuthorMetadata } from './task-message-author.js';
 
 const active = ['reserved', 'running', 'waiting_human'];
 function ensure(condition: unknown, message: string, status = 409): asserts condition { if (!condition) throw new DomainError(message, status); }
@@ -106,7 +107,7 @@ export class Automation {
         if (question) { a.replyTo = question._id; a.conversationId ??= question.conversationId; }
       }
       await this.validateReply(a, s);
-      const [message] = await TaskMessage.create([{ ...a, _id: randomUUID(), author: actor.userId, credentialId: actor.id, createdAt: new Date() }], { session: s });
+      const [message] = await TaskMessage.create([{ ...a, _id: randomUUID(), author: actor.userId, ...taskMessageAuthorMetadata(actor), credentialId: actor.id, createdAt: new Date() }], { session: s });
       await this.onMessage(message, s);
       await this.service.event(s, actor, 'task_message', a.projectId, message._id!, { taskId: a.taskId, relatedTaskId: a.relatedTaskId, type: a.type });
       return message;

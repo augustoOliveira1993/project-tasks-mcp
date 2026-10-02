@@ -132,6 +132,13 @@ export function createApp(service: Service, origins: string[]) {
     try { await mongoose.connection.db!.admin().ping(); res.json({ status: 'ok' }); }
     catch { res.status(503).json({ status: 'unavailable' }); }
   });
+  app.get('/postman/collection.json', (_req, res, next) => {
+    res.download(
+      resolve(process.cwd(), 'postman', 'project-tasks-mcp.postman_collection.json'),
+      'project-tasks-mcp.postman_collection.json',
+      error => { if (error) next(error); }
+    );
+  });
   const token = (authorization?: string) => authorization?.startsWith('Bearer ') ? authorization.slice(7) : '';
   const adminDist = resolve(process.cwd(), 'frontend', 'dist');
   app.use('/admin/assets', express.static(resolve(adminDist, 'assets'), { fallthrough: true, immutable: true, maxAge: '1y' }));

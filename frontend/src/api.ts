@@ -20,6 +20,7 @@ export type AdminCredential = {
   systemAdmin: boolean;
   state: 'active' | 'revoked';
   createdAt: string | null;
+  projects?: Array<{ projectId: string; projectName: string | null; role: string | null }>;
   projectId?: string;
   projectName?: string | null;
   role?: string | null;

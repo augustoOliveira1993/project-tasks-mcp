@@ -8,6 +8,7 @@ import { logger } from './logger.js';
 import { validateTaskDependencyGraph } from './services/task-dependency-service.js';
 import { getTaskContext } from './services/task-context-service.js';
 import { Automation } from './services/automation-service.js';
+import { taskMessageAuthorMetadata } from './services/task-message-author.js';
 import { deleteProjectCascade, ProjectDeletionConflict } from './services/project-deletion-service.js';
 import { deleteTaskCascade, TaskDeletionConflict } from './services/task-deletion-service.js';
 import { ConversationService } from './services/conversation-service.js';
@@ -274,18 +275,19 @@ export class Service {
       if (query.status) credentialFilter['credential.revoked'] = query.status === 'revoked';
       if (emailPattern) credentialFilter['credential.userId'] = emailPattern;
       const events = await Event.aggregate([
-        { $match: { projectId: query.projectId, action: 'issue_project_member' } },
+        { $match: { projectId: query.projectId, action: { $in: ['issue_project_member', 'grant_credential_project'] } } },
         { $lookup: { from: Credential.collection.name, localField: 'entityId', foreignField: '_id', as: 'credential' } },
         { $unwind: '$credential' },
         { $match: credentialFilter },
-        { $sort: { 'credential._id': 1 } },
-        { $limit: query.limit + 1 },
-        { $project: { _id: '$credential._id', userId: '$credential.userId', scope: '$credential.scope', systemAdmin: '$credential.systemAdmin', revoked: '$credential.revoked', createdAt: '$credential.createdAt', projectId: 1, role: '$data.role' } }
+        { $sort: { 'credential._id': 1, at: 1 } },
+        { $group: { _id: '$credential._id', userId: { $first: '$credential.userId' }, scope: { $first: '$credential.scope' }, systemAdmin: { $first: '$credential.systemAdmin' }, revoked: { $first: '$credential.revoked' }, createdAt: { $first: '$credential.createdAt' }, projectId: { $first: '$projectId' }, role: { $first: '$data.role' } } },
+        { $sort: { _id: 1 } },
+        { $limit: query.limit + 1 }
       ]);
       const more = events.length > query.limit;
       if (more) events.pop();
       const project = await Project.findById(query.projectId).select('_id name').lean();
-      const items = events.map(item => ({ credentialId: item._id, email: item.userId, scope: item.scope, systemAdmin: item.systemAdmin === true, state: item.revoked ? 'revoked' : 'active', createdAt: item.createdAt ?? null, projectId: item.projectId, projectName: project?.name ?? null, role: item.role ?? null }));
+      const items = events.map(item => ({ credentialId: item._id, email: item.userId, scope: item.scope, systemAdmin: item.systemAdmin === true, state: item.revoked ? 'revoked' : 'active', createdAt: item.createdAt ?? null, projectId: item.projectId, projectName: project?.name ?? null, role: item.role ?? null, projects: [{ projectId: item.projectId, projectName: project?.name ?? null, role: item.role ?? null }] }));
       return { items, next: more ? events.at(-1)?._id ?? null : null };
     }
 
@@ -303,10 +305,23 @@ export class Service {
     const projectIds = [...new Set(issuances.map(item => item.projectId).filter((id): id is string => typeof id === 'string' && id.length > 0))];
     const projects = projectIds.length ? await Project.find({ _id: { $in: projectIds } }).select('_id name').lean() : [];
     const projectById = new Map(projects.map(item => [item._id, item]));
+    const userIds = [...new Set(credentials.map(item => item.userId).filter((id): id is string => typeof id === 'string' && id.length > 0))];
+    const memberFilters = userIds.map(userId => ({ [`members.${memberKey(userId)}`]: { $exists: true } }));
+    const memberProjects = memberFilters.length ? await Project.find({ $or: memberFilters }).select('_id name members').sort({ name: 1 }).exec() : [];
+    const projectsByUser = new Map<string, Array<{ projectId: string; projectName: string; role: string }>>();
+    for (const memberProject of memberProjects) {
+      for (const userId of userIds) {
+        const role = memberProject.members?.get(memberKey(userId));
+        if (!role) continue;
+        const associated = projectsByUser.get(userId) ?? [];
+        associated.push({ projectId: memberProject._id!, projectName: memberProject.name!, role });
+        projectsByUser.set(userId, associated);
+      }
+    }
     const items = credentials.map(item => {
       const issuance = issuanceByCredential.get(item._id);
       const project = typeof issuance?.projectId === 'string' ? projectById.get(issuance.projectId) : undefined;
-      return { credentialId: item._id, email: item.userId, scope: item.scope, systemAdmin: item.systemAdmin === true, state: item.revoked ? 'revoked' : 'active', createdAt: item.createdAt ?? null, ...(issuance && typeof issuance.projectId === 'string' ? { projectId: issuance.projectId, projectName: project?.name ?? null, role: (issuance.data as any)?.role ?? null } : {}) };
+      return { credentialId: item._id, email: item.userId, scope: item.scope, systemAdmin: item.systemAdmin === true, state: item.revoked ? 'revoked' : 'active', createdAt: item.createdAt ?? null, projects: item.userId ? projectsByUser.get(item.userId) ?? [] : [], ...(issuance && typeof issuance.projectId === 'string' ? { projectId: issuance.projectId, projectName: project?.name ?? null, role: (issuance.data as any)?.role ?? null } : {}) };
     });
     return { items, next: more ? credentials.at(-1)?._id ?? null : null };
   }
@@ -630,7 +645,6 @@ export class Service {
         const doc = await models[a.kind].findOne(filter).session(s);
         requireThat(doc && doc.version === a.version && !doc.archived, 'Version conflict or archived');
         if (a.kind === 'project') await this.access(actor, a.projectId, true, true, s);
-        if (a.kind === 'task') requireThat(['pendente', 'bloqueada'].includes(doc.status) || (name === 'archive_record' && ['concluida', 'cancelada'].includes(doc.status)), 'Task cannot be edited in this state');
         if (name === 'archive_record') {
           if (a.kind === 'task') {
             requireThat(['concluida', 'cancelada'].includes(doc.status), 'Only terminal tasks can be archived');
@@ -747,7 +761,7 @@ export class Service {
           const related = await Task.findOne({ _id: a.relatedTaskId, projectId: a.projectId, archived: false }).session(s);
           requireThat(related && (!!t.featureId && related.featureId === t.featureId || related.dependencies.includes(t._id!) || t.dependencies.includes(related._id!)), 'Tasks are not related', 403);
         }
-        const [message] = await TaskMessage.create([{ _id: randomUUID(), projectId: a.projectId, taskId: t._id, relatedTaskId: a.relatedTaskId, executionId: a.executionId, operationId: a.operationId, author: actor.userId, type: a.type, message: a.message, references: a.references, createdAt: now }], { session: s });
+        const [message] = await TaskMessage.create([{ _id: randomUUID(), projectId: a.projectId, taskId: t._id, relatedTaskId: a.relatedTaskId, executionId: a.executionId, operationId: a.operationId, author: actor.userId, ...taskMessageAuthorMetadata(actor), type: a.type, message: a.message, references: a.references, createdAt: now }], { session: s });
         await this.automation.validateReply(a, s);
         Object.assign(message, { credentialId: actor.id, conversationId: a.conversationId, replyTo: a.replyTo, correlationId: a.correlationId }); await message.save({ session: s });
         await this.automation.onMessage(message, s);
@@ -1068,7 +1082,7 @@ export class Service {
     requireThat(actor.scope === 'human', 'Human credential required', 403);
     const a = adminSchema.parse(input);
     if (a.action === 'automation_policy' || a.action === 'automation_release' || a.action === 'automation_resolve') return this.automation.admin(actor, a);
-    const projectAdminRequired = new Set<string>(['bind_repository_git', 'project_areas', 'issue_project_member', 'member']).has(a.action);
+    const projectAdminRequired = new Set<string>(['bind_repository_git', 'project_areas', 'issue_project_member', 'member', 'grant_credential_project']).has(a.action);
     const result = await this.mutate(actor, 'admin', a, async s => {
       if (a.action === 'project_areas') {
         const project = await Project.findOne({ _id: a.projectId, version: a.version, archived: false }).session(s);
@@ -1105,6 +1119,24 @@ export class Service {
         await Credential.create([{ _id: credentialId, userId: a.userId, scope: 'human', hash: hash(a.token), systemAdmin: false }], { session: s });
         await this.event(s, actor, a.action, a.projectId, credentialId, { credentialId, userId: a.userId, role });
         return { credentialId, version: project.version };
+      }
+      if (a.action === 'grant_credential_project') {
+        requireThat(actor.systemAdmin, 'System administrator required', 403);
+        const project = await Project.findOne({ _id: a.projectId, version: a.version, archived: false }).session(s);
+        requireThat(project, 'Project version conflict or archived', 409);
+        const credential = await Credential.findOne({ _id: a.credentialId, scope: 'human', revoked: false }).select('_id userId').session(s);
+        requireThat(credential?.userId, 'Active human credential not found', 404);
+        const key = memberKey(credential.userId);
+        const currentRole = project.members?.get(key);
+        if (currentRole) {
+          await this.event(s, actor, a.action, a.projectId, a.credentialId, { credentialId: a.credentialId, userId: credential.userId, role: currentRole, alreadyGranted: true, version: project.version });
+          return { credentialId: a.credentialId, projectId: a.projectId, version: project.version, role: currentRole, alreadyGranted: true };
+        }
+        project.members!.set(key, 'colaborador');
+        project.version! += 1;
+        await project.save({ session: s });
+        await this.event(s, actor, a.action, a.projectId, a.credentialId, { credentialId: a.credentialId, userId: credential.userId, role: 'colaborador', alreadyGranted: false, version: project.version });
+        return { credentialId: a.credentialId, projectId: a.projectId, version: project.version, role: 'colaborador', alreadyGranted: false };
       }
       if (a.action === 'issue' || a.action === 'revoke') {
         requireThat(actor.systemAdmin, 'System administrator required', 403);
