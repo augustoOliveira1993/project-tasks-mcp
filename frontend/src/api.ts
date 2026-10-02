@@ -59,14 +59,21 @@ export class ApiRequestError extends Error {
 
 const apiPrefix = import.meta.env.DEV ? '/api' : '';
 
-export async function request<T>(token: string, path: string, options: { method?: string; body?: unknown } = {}): Promise<T> {
+export async function request<T>(token: string, path: string, options: { method?: string; body?: unknown; gzip?: boolean } = {}): Promise<T> {
+  let body: BodyInit | undefined = options.body === undefined ? undefined : JSON.stringify(options.body);
+  let contentEncoding: Record<string, string> = {};
+  if (body && options.gzip && typeof CompressionStream !== 'undefined') {
+    const compressed = new Blob([body]).stream().pipeThrough(new CompressionStream('gzip'));
+    body = await new Response(compressed).blob();
+    contentEncoding = { 'content-encoding': 'gzip' };
+  }
   const response = await fetch(apiPrefix + path, {
     method: options.method ?? (options.body === undefined ? 'GET' : 'POST'),
     headers: {
       authorization: 'Bearer ' + token,
-      ...(options.body === undefined ? {} : { 'content-type': 'application/json' })
+      ...(options.body === undefined ? {} : { 'content-type': 'application/json', ...contentEncoding })
     },
-    ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) })
+    ...(body === undefined ? {} : { body })
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {

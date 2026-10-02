@@ -6,7 +6,7 @@ import './admin-panels.css';
 
 const maxFileSize = 25 * 1024 * 1024;
 export type ImportResult = { projectId: string; name: string; reused: boolean; counts: Record<string, number>; warnings: string[] };
-type ImportPreview = { package: ProjectExport; name: string; fileName: string };
+type ImportPreview = { package: ProjectExport; name: string; fileName: string; fileSize: number };
 
 export async function readProjectImport(file: Pick<File, 'size' | 'name' | 'text'>): Promise<ImportPreview> {
   if (file.size > maxFileSize) throw new Error('O arquivo deve ter no máximo 25 MB.');
@@ -18,7 +18,7 @@ export async function readProjectImport(file: Pick<File, 'size' | 'name' | 'text
     !value.counts || typeof value.counts !== 'object' || Object.values(value.counts).some(count => typeof count !== 'number' || !Number.isInteger(count) || count < 0)) {
     throw new Error('Formato não suportado. Use um JSON completo gerado por Exportar projeto.');
   }
-  return { package: value, name: value.data.project.name, fileName: file.name };
+  return { package: value, name: value.data.project.name, fileName: file.name, fileSize: file.size };
 }
 
 export function ProjectImportPanel({ token, canImport, onImported }: { token: string; canImport: boolean; onImported: (result: ImportResult) => void }) {
@@ -40,9 +40,13 @@ export function ProjectImportPanel({ token, canImport, onImported }: { token: st
     if (!preview || busy) return;
     setBusy(true); setError(''); setResult(null);
     try {
-      const imported = await request<ImportResult>(token, '/admin/projects/import', { body: preview.package });
+      const imported = await request<ImportResult>(token, '/admin/projects/import', { body: preview.package, gzip: true });
       setResult(imported); onImported(imported);
-    } catch (failure) { setError(errorMessage(failure)); }
+    } catch (failure) {
+      setError(failure instanceof TypeError
+        ? 'A conexão foi interrompida antes de o servidor responder. Confirme se o servidor está atualizado e se o proxy aceita o envio deste arquivo; depois tente novamente.'
+        : errorMessage(failure));
+    }
     finally { setBusy(false); }
   }
   return <section className="panel-card project-transfer-card" aria-labelledby="project-import-title" aria-busy={busy || reading}>
@@ -54,7 +58,7 @@ export function ProjectImportPanel({ token, canImport, onImported }: { token: st
         <small id="project-import-help">JSON gerado pela exportação · até 25 MB</small>
       </div>
       {reading && <p role="status">Lendo arquivo…</p>}
-      {preview && <div className="transfer-file-preview"><strong>{preview.name}</strong><span>{preview.fileName}</span><dl className="transfer-counts"><div><dt>Tarefas</dt><dd>{preview.package.counts.tasks ?? 0}</dd></div><div><dt>Documentos</dt><dd>{preview.package.counts.markdownDocuments ?? 0}</dd></div><div><dt>Conversas</dt><dd>{preview.package.counts.conversations ?? 0}</dd></div></dl></div>}
+      {preview && <div className="transfer-file-preview"><strong>{preview.name}</strong><span>{preview.fileName} · {preview.fileSize < 1024 * 1024 ? `${Math.ceil(preview.fileSize / 1024)} KB` : `${(preview.fileSize / (1024 * 1024)).toFixed(1)} MB`}</span><dl className="transfer-counts"><div><dt>Tarefas</dt><dd>{preview.package.counts.tasks ?? 0}</dd></div><div><dt>Documentos</dt><dd>{preview.package.counts.markdownDocuments ?? 0}</dd></div><div><dt>Conversas</dt><dd>{preview.package.counts.conversations ?? 0}</dd></div></dl></div>}
       <div className="transfer-note"><strong>Importação sem sobrescrita</strong><p>Os IDs e vínculos são preservados. Reenviar o mesmo pacote não duplica os registros; conflitos são informados antes de salvar.</p></div>
       <p className="muted-text">A importação cria o projeto do arquivo. Acessos devem ser configurados novamente; execuções e automações antigas não são retomadas.</p>
       {!canImport && <p className="notice" role="note">Entre com uma credencial de administrador do sistema para importar projetos.</p>}
