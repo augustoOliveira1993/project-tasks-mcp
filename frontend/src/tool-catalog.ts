@@ -12,6 +12,7 @@ export const toolDocs: readonly ToolDoc[] = [
   ['Contexto e consulta', 'get_project_sync_report', 'Resume status, atividade Git, perguntas abertas e tasks não lidas; aceita filtro por feature.', 'Leitura'],
   ['Contexto e consulta', 'get_task_markdown_summary', 'Gera um resumo Markdown do contexto de uma tarefa.', 'Leitura'],
   ['Contexto e consulta', 'get_project_novelties', 'Lista eventos recentes de outros participantes do projeto.', 'Leitura'],
+  ['Contexto e consulta', 'get_global_activity', 'Lista atividades recentes de todos os projetos; exige administrador de sistema.', 'Leitura'],
   ['Contexto e consulta', 'get_automation_status', 'Consulta execuções, liberações e estado da automação do projeto.', 'Leitura'],
   ['Projetos e tarefas', 'create_project', 'Cria um projeto e registra seus repositórios e regras de trabalho.', 'Gravação'],
   ['Projetos e tarefas', 'create_feature', 'Cria uma funcionalidade com objetivo, contexto e critérios de aceite.', 'Gravação'],
@@ -54,7 +55,7 @@ export const toolDocs: readonly ToolDoc[] = [
   ['Bridge local opcional', 'read_repository_file', 'Lê um arquivo pequeno dentro do checkout autorizado, sem executar comandos. Requer bridge local com repositório selecionado.', 'Leitura']
 ];
 
-const bridgeHttpOnly = new Set(['get_session_context', 'record_task_diff', 'get_project_novelties', 'mark_project_read', 'create_conversation', 'open_task_conversation', 'list_conversations', 'get_conversation', 'send_conversation_message', 'create_action_proposal']);
+const bridgeHttpOnly = new Set(['get_session_context', 'record_task_diff', 'get_project_novelties', 'get_global_activity', 'mark_project_read', 'create_conversation', 'open_task_conversation', 'list_conversations', 'get_conversation', 'send_conversation_message', 'create_action_proposal']);
 const bridgeOnly = new Set(['status', 'publish_task_diff', 'read_repository_file']);
 
 export function toolServers(name: string) {

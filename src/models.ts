@@ -31,8 +31,9 @@ export const Execution = mongoose.model('Execution', new Schema({ _id: String, p
   progress: [String], impediments: [String], result: Schema.Types.Mixed }, options));
 Execution.schema.index({ projectId: 1, taskId: 1, createdAt: 1, _id: 1 });
 export const Event = mongoose.model('Event', new Schema({ _id: String, projectId: { type: String, index: true }, entityId: String,
-  action: String, kind: String, summary: String, actor: Schema.Types.Mixed, git: Schema.Types.Mixed, author: String, credentialId: String, at: Date, data: Schema.Types.Mixed }, { versionKey: false }));
+  action: String, kind: String, summary: String, actor: Schema.Types.Mixed, git: Schema.Types.Mixed, author: String, origin: String, credentialId: String, at: Date, data: Schema.Types.Mixed }, { versionKey: false }));
 Event.schema.index({ projectId: 1, at: 1, _id: 1 });
+Event.schema.index({ at: -1, _id: -1 });
 export const TaskMessage = mongoose.model('TaskMessage', new Schema({ _id: String, projectId: { type: String, index: true }, taskId: { type: String, index: true }, relatedTaskId: String, executionId: String, operationId: String, author: String, authorType: String, clientName: String, credentialId: String, conversationId: String, replyTo: String, correlationId: String, type: String, message: String, references: [String], createdAt: { type: Date, default: Date.now } }, { versionKey: false }));
 TaskMessage.schema.index({ projectId: 1, taskId: 1, createdAt: 1, _id: 1 });
 TaskMessage.schema.index({ projectId: 1, relatedTaskId: 1, createdAt: 1, _id: 1 });
@@ -57,7 +58,7 @@ export const ActionProposal = mongoose.model('ActionProposal', new Schema({
 }, options));
 ActionProposal.schema.index({ projectId: 1, conversationId: 1, createdAt: -1, _id: -1 });
 ActionProposal.schema.index({ projectId: 1, taskId: 1, status: 1, createdAt: -1 });
-export const DeliveryEvent = mongoose.model('DeliveryEvent', new Schema({ _id: String, projectId: String, sequence: Number, taskIds: [String], action: String, kind: String, summary: String, author: String, credentialId: String, entityId: String, entityVersion: Number, at: Date }, { versionKey: false }));
+export const DeliveryEvent = mongoose.model('DeliveryEvent', new Schema({ _id: String, projectId: String, sequence: Number, taskIds: [String], action: String, kind: String, summary: String, author: String, origin: String, credentialId: String, entityId: String, entityVersion: Number, at: Date }, { versionKey: false }));
 DeliveryEvent.schema.index({ projectId: 1, sequence: 1 }, { unique: true });
 DeliveryEvent.schema.index({ projectId: 1, taskIds: 1, sequence: 1 });
 export const DeliveryRead = mongoose.model('DeliveryRead', new Schema({ projectId: String, userId: String, lastSequence: { type: Number, default: 0 } }, options));

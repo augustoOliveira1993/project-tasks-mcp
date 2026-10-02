@@ -1,10 +1,10 @@
-export type AppRoute = 'projects' | 'tasks' | 'conversations' | 'activity' | 'catalogs' | 'catalogProjects' | 'catalogFeatures' | 'catalogTasks' | 'catalogAreas' | 'settings' | 'help';
+export type AppRoute = 'projects' | 'tasks' | 'conversations' | 'activity' | 'globalActivity' | 'catalogs' | 'catalogProjects' | 'catalogFeatures' | 'catalogTasks' | 'catalogAreas' | 'settings' | 'help';
 export type AppTab = 'tasks' | 'chat' | 'activity' | 'catalogs' | 'admin' | 'help';
 export type CatalogSection = 'overview' | 'projects' | 'features' | 'tasks' | 'areas';
 
 const routePaths: Record<AppRoute, string> = {
   projects: '/projects', tasks: '/tasks', conversations: '/conversations',
-  activity: '/activity', catalogs: '/catalogs', catalogProjects: '/catalogs/projects', catalogFeatures: '/catalogs/features',
+  activity: '/activity', globalActivity: '/activity/global', catalogs: '/catalogs', catalogProjects: '/catalogs/projects', catalogFeatures: '/catalogs/features',
   catalogTasks: '/catalogs/tasks', catalogAreas: '/catalogs/areas', settings: '/settings', help: '/help'
 };
 
@@ -25,6 +25,7 @@ export function routeForTab(tab: AppTab): AppRoute {
 
 export function tabForRoute(route: AppRoute): AppTab {
   if (route === 'conversations') return 'chat';
+  if (route === 'globalActivity') return 'activity';
   if (route === 'settings') return 'admin';
   if (route === 'projects') return 'tasks';
   if (isCatalogRoute(route)) return 'catalogs';

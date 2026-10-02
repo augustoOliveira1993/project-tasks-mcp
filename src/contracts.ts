@@ -24,6 +24,7 @@ export type TaskContextDto = {
     repositoryId: string;
     dependencies: string[];
     status: string;
+    statusHistory: Array<{ status: string; startedAt: Date; endedAt: Date | null; durationMs: number }>;
     executionId: string | null;
     responsible: string | null;
     checked: boolean;

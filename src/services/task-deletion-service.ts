@@ -18,7 +18,7 @@ import {
   TaskRead
 } from '../db.js';
 
-type AuditActor = { id: string; userId: string };
+type AuditActor = { id: string; userId: string; origin?: string };
 
 export class TaskDeletionConflict extends Error {
   readonly status = 409;
@@ -149,6 +149,7 @@ export async function deleteTaskCascade(projectId: string, taskId: string, actor
     summary: 'Tarefa excluída definitivamente',
     actor: { userId: actor.userId, credentialId: actor.id },
     author: actor.userId,
+    origin: actor.origin ?? 'Origem não identificada',
     credentialId: actor.id,
     at,
     data: { removed }
@@ -164,6 +165,7 @@ export async function deleteTaskCascade(projectId: string, taskId: string, actor
       kind: 'task.deleted',
       summary: 'Tarefa excluída definitivamente',
       author: actor.userId,
+      origin: actor.origin ?? 'Origem não identificada',
       credentialId: actor.id,
       entityId: taskId,
       at

@@ -41,11 +41,13 @@ function fitContext(context: TaskContextDto, truncated: Set<string>) {
     }
     const optionalArrays: Array<[string, unknown[]]> = [
       ['messages', context.messages], ['executions', context.executions],
-      ['markdowns.task.items', context.markdowns.task.items], ['markdowns.feature.items', context.markdowns.feature.items]
+      ['markdowns.task.items', context.markdowns.task.items], ['markdowns.feature.items', context.markdowns.feature.items],
+      ['task.statusHistory', context.task.statusHistory]
     ];
     const removable = optionalArrays.find(([, items]) => items.length > 0);
     if (!removable) throw new Error('Required task context fields exceed the configured size limit');
-    removable[1].pop();
+    if (removable[0] === 'task.statusHistory') removable[1].shift();
+    else removable[1].pop();
     truncated.add(removable[0]);
   }
   context.contextMeta.truncatedFields = [...truncated].sort();
@@ -57,6 +59,44 @@ function fitContext(context: TaskContextDto, truncated: Set<string>) {
     context.contextMeta.payloadBytes = bytes;
   }
   return context;
+}
+
+function eventTaskStatus(event: any): string | undefined {
+  const status = event.action === 'create_task'
+    ? event.data?.status ?? event.data?.task?.status
+    : event.data?.task?.status;
+  return typeof status === 'string' ? status : undefined;
+}
+
+function buildStatusHistory(events: any[], task: { status: string; createdAt: Date; updatedAt: Date }, now = new Date()): TaskContextDto['task']['statusHistory'] {
+  const creation = events.find(event => event.action === 'create_task');
+  const initialStatus = eventTaskStatus(creation) ?? (events.length ? 'pendente' : task.status);
+  const states: Array<{ status: string; startedAt: Date }> = [{ status: initialStatus, startedAt: new Date(task.createdAt) }];
+
+  const chronologicalEvents = [...events].sort((left, right) => {
+    const timeDifference = new Date(left.at).getTime() - new Date(right.at).getTime();
+    if (timeDifference) return timeDifference;
+    const versionDifference = (left.data?.task?.version ?? 0) - (right.data?.task?.version ?? 0);
+    return versionDifference || String(left._id).localeCompare(String(right._id));
+  });
+  for (const event of chronologicalEvents) {
+    const status = eventTaskStatus(event);
+    const at = new Date(event.at);
+    const current = states.at(-1)!;
+    if (!status || status === current.status || Number.isNaN(at.getTime()) || at.getTime() < current.startedAt.getTime()) continue;
+    states.push({ status, startedAt: at });
+  }
+
+  if (states.at(-1)!.status !== task.status) {
+    const updatedAt = new Date(task.updatedAt);
+    const currentStart = Number.isNaN(updatedAt.getTime()) ? now : new Date(Math.max(states.at(-1)!.startedAt.getTime(), updatedAt.getTime()));
+    states.push({ status: task.status, startedAt: currentStart });
+  }
+
+  return states.map((state, index) => {
+    const endedAt = states[index + 1]?.startedAt ?? null;
+    return { ...state, endedAt, durationMs: Math.max(0, (endedAt ?? now).getTime() - state.startedAt.getTime()) };
+  });
 }
 
 function markdownItems(items: any[], more: boolean, truncated: Set<string>, path: string) {
@@ -85,14 +125,16 @@ export async function getTaskContext(projectId: string, taskId: string, includeA
   ]);
   if (!task || !project) return null;
 
-  const [feature, repositoryRecord, messages, dependencyTasks, executions, taskDocs, featureDocs] = await Promise.all([
+  const [feature, repositoryRecord, messages, dependencyTasks, executions, taskDocs, featureDocs, statusEvents] = await Promise.all([
     task.featureId ? Feature.findOne({ _id: task.featureId, projectId }).select('_id version name objective context acceptance').lean() : Promise.resolve(null),
     task.repositoryId ? Project.findOne({ _id: projectId, 'repositories.id': task.repositoryId }).select({ 'repositories.$': 1 }).lean() : Promise.resolve(null),
     TaskMessage.find({ projectId, $or: [{ taskId }, { relatedTaskId: taskId }] }).select('_id taskId relatedTaskId author authorType clientName type message references createdAt conversationId replyTo').sort({ createdAt: -1, _id: -1 }).limit(11).lean(),
     task.dependencies?.length ? Task.find({ _id: { $in: task.dependencies }, projectId }).select('_id name status area type executionId').lean() : Promise.resolve([]),
     Execution.find({ projectId, taskId }).select('_id status startedAt endedAt impediments result.summary result.evidence').sort({ startedAt: -1, _id: -1 }).limit(6).lean(),
     MarkdownDocument.find({ projectId, targetKind: 'task', targetId: taskId }).select('_id targetKind targetId name summary revision size createdAt').sort({ _id: 1 }).limit(11).lean(),
-    task.featureId ? MarkdownDocument.find({ projectId, targetKind: 'feature', targetId: task.featureId }).select('_id targetKind targetId name summary revision size createdAt').sort({ _id: 1 }).limit(11).lean() : Promise.resolve([])
+    task.featureId ? MarkdownDocument.find({ projectId, targetKind: 'feature', targetId: task.featureId }).select('_id targetKind targetId name summary revision size createdAt').sort({ _id: 1 }).limit(11).lean() : Promise.resolve([]),
+    Event.find({ projectId, entityId: taskId, $or: [{ action: 'create_task' }, { 'data.task.status': { $exists: true } }] })
+      .select('_id action at data.status data.task.status data.task.version').sort({ at: 1, _id: 1 }).lean()
   ]);
 
   const messageEvents = messages.length ? await Event.find({ projectId, action: 'task_message', entityId: { $in: messages.map(message => message._id) } }).select('entityId actor').lean() : [];
@@ -148,6 +190,7 @@ export async function getTaskContext(projectId: string, taskId: string, includeA
       instructions: text(task.instructions, 5000, 'task.instructions', truncated), acceptance, acceptanceProgress,
       acceptanceEvidence, priority: task.priority ?? 0, area: task.area ?? 'outro', type: task.type ?? 'feature',
       repositoryId: task.repositoryId ?? '', dependencies: [...dependencyIds], status: task.status ?? 'pendente',
+      statusHistory: buildStatusHistory(statusEvents, { status: task.status ?? 'pendente', createdAt: task.createdAt!, updatedAt: task.updatedAt! }),
       executionId: task.executionId ?? null, responsible: task.responsible ? text(task.responsible, 160, 'task.responsible', truncated) : null,
       checked: task.checked ?? false,
       ...(includeAdministrativeDetails ? { leaseUntil: task.leaseUntil ?? null } : {}),

@@ -14,6 +14,7 @@ import { deleteTaskCascade, TaskDeletionConflict } from './services/task-deletio
 import { ConversationService } from './services/conversation-service.js';
 import { exportProject } from './services/project-export-service.js';
 import { importProject, ProjectImportError } from './services/project-import-service.js';
+import { eventOrigin } from './event-origin.js';
 import { areasForProject } from './area-catalog.js';
 import { tools, adminSchema, approveActionProposalSchema, approveTasksSchema, changeTaskStatusSchema, setTaskAcceptanceCriterionSchema, setTaskCheckedSchema, projectData, featureData, taskData, states, userId as userIdSchema } from './schema.js';
 
@@ -63,7 +64,7 @@ export async function bootstrap(userId: string) {
     await Bootstrap.create([{ _id: 'initial-admin' }], { session: s });
     const credentialId = randomUUID();
     await Credential.create([{ _id: credentialId, userId, hash: hash(token), scope: 'human', systemAdmin: true }], { session: s });
-    await Event.create([{ _id: randomUUID(), entityId: credentialId, action: 'bootstrap', author: userId, at: new Date() }], { session: s });
+    await Event.create([{ _id: randomUUID(), entityId: credentialId, action: 'bootstrap', author: userId, origin: 'Bootstrap do sistema', at: new Date() }], { session: s });
   });
   return token;
 }
@@ -76,7 +77,7 @@ export async function recoverHumanToken(userId: string) {
     await Credential.updateMany({ _id: { $in: credentials.map(c => c._id) } }, { $set: { revoked: true }, $inc: { fence: 1 } }, { session: s });
     const credentialId = randomUUID();
     await Credential.create([{ _id: credentialId, userId, hash: hash(token), scope: 'human', systemAdmin: credentials.some(c => c.systemAdmin) }], { session: s });
-    await Event.create([{ _id: randomUUID(), entityId: credentialId, action: 'recover', author: userId, at: new Date() }], { session: s });
+    await Event.create([{ _id: randomUUID(), entityId: credentialId, action: 'recover', author: userId, origin: 'Recuperação de credencial', at: new Date() }], { session: s });
   });
   return token;
 }
@@ -87,7 +88,7 @@ export async function restoreSystemAdminToken(userId: string) {
     requireThat(!await Credential.exists({ scope: 'human', systemAdmin: true, revoked: false }).session(s), 'An active system administrator already exists', 409);
     const credentialId = randomUUID();
     await Credential.create([{ _id: credentialId, userId, hash: hash(token), scope: 'human', systemAdmin: true }], { session: s });
-    await Event.create([{ _id: randomUUID(), entityId: credentialId, action: 'restore_system_admin', author: userId, at: new Date() }], { session: s });
+    await Event.create([{ _id: randomUUID(), entityId: credentialId, action: 'restore_system_admin', author: userId, origin: 'Recuperação administrativa', at: new Date() }], { session: s });
   });
   return token;
 }
@@ -231,7 +232,7 @@ export class Service {
       return await mongoose.connection.transaction(async session => {
         const credential = await Credential.updateOne({ _id: actor.id, scope: 'human', systemAdmin: true, revoked: false }, { $inc: { fence: 1 } }, { session });
         requireThat(credential.matchedCount === 1, 'System administrator credential required', 403);
-        return importProject(input, memberKey(actor.userId), actor.userId, session);
+        return importProject(input, memberKey(actor.userId), actor.userId, session, eventOrigin(actor));
       });
     } catch (error) {
       if (error instanceof ProjectImportError) throw new DomainError(error.message, error.status);
@@ -348,7 +349,7 @@ export class Service {
 
       let result: Awaited<ReturnType<typeof deleteProjectCascade>>;
       try {
-        result = await deleteProjectCascade(projectId, { id: actor.id, userId: actor.userId }, s);
+        result = await deleteProjectCascade(projectId, { id: actor.id, userId: actor.userId, origin: eventOrigin(actor) }, s);
       } catch (error) {
         if (error instanceof ProjectDeletionConflict) throw new DomainError(error.message, error.status);
         throw error;
@@ -383,7 +384,7 @@ export class Service {
       }
 
       let result;
-      try { result = await deleteTaskCascade(projectId, taskId, { id: actor.id, userId: actor.userId }, s); }
+      try { result = await deleteTaskCascade(projectId, taskId, { id: actor.id, userId: actor.userId, origin: eventOrigin(actor) }, s); }
       catch (error) {
         if (error instanceof TaskDeletionConflict) throw new DomainError(error.message, error.status);
         throw error;
@@ -406,9 +407,10 @@ export class Service {
     const kind = ({ create_task: 'task.created', create_feature: 'feature.created', create_project: 'project.created', task_message: 'task.message.created', create_conversation: 'conversation.created', open_task_conversation: 'conversation.created', update_conversation_title: 'conversation.title.updated', link_conversation_task: 'conversation.task.linked', delete_conversation: 'conversation.deleted', conversation_message: 'conversation.message.created', create_action_proposal: 'conversation.action_proposal.created', approve_action_proposal: 'conversation.action_proposal.approved', save_markdown: 'body.updated', update_markdown: 'body.updated', record_task_diff: 'task.diff.published', submit_task: 'task.submitted', claim_task: 'task.claimed', record_progress: 'task.progressed', set_acceptance_criterion: 'task.acceptance.progressed', block_task: 'task.blocked', approve: 'task.approved', set_task_status: 'task.status.changed', manual_status_change: 'task.status.changed', set_task_checked: 'task.check.changed', transfer_task: 'task.transferred' } as Record<string, string>)[action] ?? `project.${action}`;
     const summary = ({ 'task.created': 'Tarefa criada', 'feature.created': 'Feature criada', 'project.created': 'Projeto criado', 'task.message.created': 'Mensagem adicionada à tarefa', 'conversation.created': 'Conversa criada', 'conversation.title.updated': 'Título da conversa atualizado', 'conversation.message.created': data?.summary ?? 'Nova mensagem na conversa', 'conversation.action_proposal.created': 'Proposta de execução aguardando aprovação', 'conversation.action_proposal.approved': 'Proposta aprovada e execução autorizada', 'body.updated': 'Documento Markdown atualizado', 'task.diff.published': 'Diff de código publicado', 'task.submitted': 'Tarefa enviada para revisão', 'task.claimed': 'Tarefa assumida', 'task.progressed': 'Progresso registrado', 'task.acceptance.progressed': 'Critério de aceite atualizado', 'task.blocked': 'Tarefa bloqueada', 'task.approved': 'Tarefa aprovada', 'task.status.changed': 'Status da tarefa alterado', 'task.check.changed': 'Conferência da tarefa alterada', 'task.transferred': 'Tarefa transferida' } as Record<string, string>)[kind] ?? action;
     const agent = data?.agent ?? actor.clientName;
+    const origin = eventOrigin(actor);
     const actorData = { userId: actor.userId, credentialId: actor.id, ...(agent ? { agent } : {}) };
     const git = data?.repositoryId ? { repositoryId: data.repositoryId, ...(data?.branch ? { branch: data.branch } : {}), ...(data?.commit ? { commit: data.commit } : {}) } : undefined;
-    await Event.create([{ _id: eventId, projectId, entityId, action, kind, summary, actor: actorData, git, author: actor.userId, credentialId: actor.id, at, data }], { session: s });
+    await Event.create([{ _id: eventId, projectId, entityId, action, kind, summary, actor: actorData, git, author: actor.userId, origin, credentialId: actor.id, at, data }], { session: s });
     if (!projectId) return;
     const project = await Project.findByIdAndUpdate(projectId, { $inc: { eventSequence: 1 } }, { returnDocument: 'after', session: s });
     if (!project) return;
@@ -418,7 +420,7 @@ export class Service {
     if (data?.targetKind === 'feature' || await Feature.exists({ _id: entityId, projectId }).session(s)) {
       for (const task of await Task.find({ projectId, featureId: data?.targetKind === 'feature' ? data.targetId : entityId }).select('_id').session(s)) ids.add(task._id!);
     }
-    await DeliveryEvent.create([{ _id: eventId, projectId, sequence: project.eventSequence, taskIds: [...ids], action, kind, summary, author: actor.userId, credentialId: actor.id, entityId, entityVersion: data?.task?.version ?? data?.version, at }], { session: s });
+    await DeliveryEvent.create([{ _id: eventId, projectId, sequence: project.eventSequence, taskIds: [...ids], action, kind, summary, author: actor.userId, origin, credentialId: actor.id, entityId, entityVersion: data?.task?.version ?? data?.version, at }], { session: s });
   }
   async mutate(actor: Actor, name: string, a: any, run: (s: ClientSession) => Promise<any>, projectAdmin = name === 'admin', projectWrite = name !== 'mark_project_read' && name !== 'mark_task_read') {
     const key = `${actor.id}:${a.operationId}`;
@@ -811,7 +813,7 @@ export class Service {
   }
   private async read(actor: Actor, name: string, a: any) {
     if (a.projectId) await this.access(actor, a.projectId);
-    else requireThat((name === 'list_records' && a.kind === 'project') || name === 'resolve_project_context', 'Project required', 400);
+    else requireThat((name === 'list_records' && a.kind === 'project') || name === 'resolve_project_context' || name === 'get_global_activity', 'Project required', 400);
     if (name === 'preview_task_transfer') {
       const plan = await this.taskTransferPlan(actor, a);
       const { internal: _internal, ...preview } = plan;
@@ -839,6 +841,41 @@ export class Service {
     };
     if (name === 'get_automation_status') return this.automation.status(actor, a);
     if (name === 'get_project_sync_report') return this.projectSyncReport(actor, a);
+    if (name === 'get_global_activity') {
+      const capabilities = await this.adminCapabilities(actor);
+      requireThat(capabilities.systemAdmin, 'System administrator required', 403);
+      const startedAt = Date.now();
+      let page;
+      try { page = await pageByDate<any>(Event, {}, a.after, a.limit, 'at', false, -1); }
+      catch (error) { if (error instanceof PageCursorError) throw new DomainError(error.message, 400); throw error; }
+      const events = page.items;
+      const projectIds = [...new Set(events.map(item => item.projectId).filter((id): id is string => typeof id === 'string' && id.length > 0))];
+      const projects = projectIds.length ? await Project.find({ _id: { $in: projectIds } }).select('_id name').lean() : [];
+      const projectsById = new Map(projects.map(item => [item._id, item.name]));
+      const credentialIds = [...new Set(events.filter(item => !item.author?.trim()).map(item => item.credentialId).filter((id): id is string => typeof id === 'string' && id.length > 0))];
+      const credentials = credentialIds.length ? await Credential.find({ _id: { $in: credentialIds } }).select('_id userId').lean() : [];
+      const authorsByCredential = new Map(credentials.filter(item => item.userId).map(item => [String(item._id), item.userId!]));
+      logger.debug('global activity query completed', { rows: events.length, durationMs: Date.now() - startedAt });
+      return {
+        items: events.map(item => {
+          const taskId = typeof item.data?.taskId === 'string' ? item.data.taskId
+            : typeof item.data?.relatedTaskId === 'string' ? item.data.relatedTaskId
+              : item.kind?.startsWith('task.') ? item.entityId : null;
+          return {
+            _id: item._id,
+            projectId: item.projectId ?? null,
+            projectName: item.projectId ? projectsById.get(item.projectId) ?? 'Projeto indisponível' : 'Administração do sistema',
+            taskId,
+            kind: item.kind ?? `project.${item.action}`,
+            summary: item.summary ?? item.action,
+            author: item.author?.trim() || authorsByCredential.get(String(item.credentialId)) || 'Autor não identificado',
+            origin: item.origin?.trim() || 'Origem não identificada',
+            at: item.at
+          };
+        }),
+        next: page.next
+      };
+    }
     if (name === 'get_project_novelties') {
       const read = await DeliveryRead.findOne({ projectId: a.projectId, userId: actor.userId }).lean();
       const after = a.after ?? read?.lastSequence ?? 0;
@@ -854,7 +891,7 @@ export class Service {
         ? await Credential.find({ _id: { $in: credentialIds } }).select('_id userId').lean()
         : [];
       const authorsByCredential = new Map(credentials.filter(item => item.userId).map(item => [String(item._id), item.userId!]));
-      return { count: rows.length, cursor, hasMore: more, items: rows.map(item => ({ sequence: item.sequence, taskId: item.taskIds?.[0] ?? null, kind: item.kind ?? `project.${item.action}`, summary: item.summary ?? item.action, author: item.author?.trim() || authorsByCredential.get(String(item.credentialId)), at: item.at })), unreadTasks: await this.unreadTasks(actor, a.projectId, baseline) };
+      return { count: rows.length, cursor, hasMore: more, items: rows.map(item => ({ sequence: item.sequence, taskId: item.taskIds?.[0] ?? null, kind: item.kind ?? `project.${item.action}`, summary: item.summary ?? item.action, author: item.author?.trim() || authorsByCredential.get(String(item.credentialId)), origin: item.origin?.trim() || 'Origem não identificada', at: item.at })), unreadTasks: await this.unreadTasks(actor, a.projectId, baseline) };
     }
     if (name.endsWith('_project_events')) {
       if (name === 'unsubscribe_project_events') return { subscribed: false };

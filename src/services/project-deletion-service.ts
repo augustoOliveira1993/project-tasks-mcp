@@ -23,7 +23,7 @@ import {
   TaskRead
 } from '../db.js';
 
-type AuditActor = { id: string; userId: string };
+type AuditActor = { id: string; userId: string; origin?: string };
 
 export class ProjectDeletionConflict extends Error {
   readonly status = 409;
@@ -118,6 +118,7 @@ export async function deleteProjectCascade(projectId: string, actor: AuditActor,
     summary: 'Projeto excluído definitivamente',
     actor: { userId: actor.userId, credentialId: actor.id },
     author: actor.userId,
+    origin: actor.origin ?? 'Origem não identificada',
     credentialId: actor.id,
     at: new Date(),
     data: { removed }

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
 import mongoose from 'mongoose';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
+import { LEGACY_AREAS } from '../src/area-catalog.js';
 import { connect, Project, Task, Execution, AutomationJob, ActionProposal, Credential, MarkdownDocument } from '../src/db.js';
 import { authenticate, bootstrap, Service, type Actor } from '../src/service.js';
 import { projectExportCollections } from '../src/services/project-export-service.js';
@@ -81,6 +82,15 @@ test('real export imports atomically preserving IDs, history and content, disabl
   const roundTrip = await service.exportProject(admin, projectId);
   assert.deepEqual((roundTrip.data as any).markdownRevisions.map((r: any) => r.content), seed.data.markdownRevisions.map((r: any) => r.content));
   assert.doesNotMatch(JSON.stringify(roundTrip), /importReceipt/);
+});
+
+test('legacy import packages without project areas use the legacy area catalog', async () => {
+  const input = fixture();
+  delete input.data.project.areas;
+  const result = await service.importProject(admin, input);
+  const importedProject = await Project.findById(input.source.projectId).lean();
+  assert.equal(result.projectId, input.source.projectId);
+  assert.deepEqual(importedProject?.areas, LEGACY_AREAS);
 });
 
 test('invalid counts, references, cycles and schema versions leave no partial data', async () => {

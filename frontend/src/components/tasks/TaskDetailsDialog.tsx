@@ -17,8 +17,21 @@ type TaskDiff = { _id: string; commit?: string; branch?: string; files?: string[
 type TaskMarkdown = { _id: string; name: string; summary: string; revision: number };
 type TaskReadAttempt = { taskId: string; cursor: number; operationId: string };
 
+function formatDuration(durationMs: number) {
+  const totalSeconds = Math.floor(Math.max(0, durationMs) / 1000);
+  if (totalSeconds === 0) return 'Menos de 1 s';
+  const units = [
+    [Math.floor(totalSeconds / 86400), 'd'],
+    [Math.floor(totalSeconds % 86400 / 3600), 'h'],
+    [Math.floor(totalSeconds % 3600 / 60), 'min'],
+    [totalSeconds % 60, 's']
+  ] as const;
+  return units.filter(([value]) => value > 0).map(([value, label]) => `${value} ${label}`).slice(0, 2).join(' ');
+}
+
 export function TaskDetailsDialog({ token, nonce, projectId, project, tasks, task, initialAction = 'details', checking, notify, onToggleChecked, onOpenConversation, onRequestTransfer, close }: { token: string; nonce: string; projectId: string; project: Project; tasks: Task[]; task: Task; initialAction?: TaskDetailsAction; checking: boolean; notify: (message: string, kind?: string) => void; onToggleChecked: (task: Task) => void; onOpenConversation: (conversationId: string) => void; onRequestTransfer: (task: Task) => void; close: () => void }) {
   const [markdown, setMarkdown] = useState<{ name: string; content: string } | null>(null);
+  const [timelineNow, setTimelineNow] = useState(() => Date.now());
   const [editing, setEditing] = useState(initialAction === 'edit');
   const [view, setView] = useState<'details' | 'summary' | 'json'>(initialAction === 'summary' || initialAction === 'json' ? initialAction : 'details');
   const [criterionEvidence, setCriterionEvidence] = useState<Record<number, string>>({});
@@ -26,6 +39,10 @@ export function TaskDetailsDialog({ token, nonce, projectId, project, tasks, tas
   const [criterionFeedback, setCriterionFeedback] = useState<{ kind: 'success' | 'error'; message: string } | null>(null);
   const queryClient = useQueryClient();
   const readAttempt = useRef<TaskReadAttempt | null>(null);
+  useEffect(() => {
+    const timer = window.setInterval(() => setTimelineNow(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
   const context = useQuery({
     queryKey: ['task-context', nonce, projectId, task._id],
     queryFn: () => query<Record<string, any>>(token, 'get_task_context', { projectId, taskId: task._id })
@@ -80,6 +97,7 @@ export function TaskDetailsDialog({ token, nonce, projectId, project, tasks, tas
     }
   });
   const taskData = context.data?.task ?? task;
+  const statusHistory = taskData.statusHistory ?? [];
   const contextExecutions: Array<{ _id: string; impediments?: string[] }> = context.data?.executions ?? [];
   const blockedExecution = contextExecutions.find(execution => execution._id === taskData.executionId)
     ?? contextExecutions.find(execution => execution.impediments?.length);
@@ -155,6 +173,15 @@ export function TaskDetailsDialog({ token, nonce, projectId, project, tasks, tas
         {view === 'json' ? <pre className="markdown-content json-content">{JSON.stringify(context.data, null, 2)}</pre> : view === 'summary' ? <div className="detail-summary-layout"><TaskSummaryPanel token={token} nonce={nonce} projectId={projectId} taskId={task._id} onOpenConversation={onOpenConversation} /></div> : <div className="detail-columns">
           <div className="detail-main">
             <section className="detail-section task-description-section"><h3>Descrição</h3>{taskData.description || taskData.instructions ? <MarkdownView content={taskData.description || taskData.instructions} /> : <p className="muted-text">Sem descrição cadastrada.</p>}</section>
+            <section className="detail-section" aria-labelledby="task-status-history-title"><h3 id="task-status-history-title">Timeline de status</h3>{context.data?.contextMeta?.truncatedFields?.includes('task.statusHistory') && <p className="muted-text">Exibindo apenas os status mais recentes devido ao limite do contexto.</p>}{statusHistory.length ? <ol className="task-status-timeline">{statusHistory.map((entry: { status: string; startedAt: string; endedAt: string | null; durationMs: number }, index: number) => {
+              const startedAtMs = new Date(entry.startedAt).getTime();
+              const durationMs = entry.endedAt || !Number.isFinite(startedAtMs) ? entry.durationMs : Math.max(entry.durationMs, timelineNow - startedAtMs);
+              return <li className="task-status-timeline-item" key={`${entry.status}-${entry.startedAt}-${index}`}>
+              <span className="task-status-timeline-marker" aria-hidden="true" />
+              <div className="task-status-timeline-content"><div className="task-status-timeline-heading"><strong>{statusLabels[entry.status] ?? entry.status}</strong>{!entry.endedAt && <Badge tone={statusTone[entry.status] ?? 'muted'}>Status atual</Badge>}</div>
+                <div className="task-status-timeline-meta"><span>Início · {formatDate(entry.startedAt)}</span><span>{entry.endedAt ? `Fim · ${formatDate(entry.endedAt)}` : 'Em andamento'}</span></div>
+              </div><Badge tone="muted">{formatDuration(durationMs)}</Badge>
+            </li>})}</ol> : <p className="muted-text">Histórico de status indisponível para esta tarefa.</p>}</section>
             <section className="detail-section"><div className="criteria-heading"><h3>Critérios de aceite</h3>{acceptance.length > 0 && <span>{completedCriteria}/{acceptance.length} concluídos</span>}</div>
               {acceptance.length ? <>
                 <div className="criteria-progress" role="progressbar" aria-label="Critérios de aceite concluídos" aria-valuenow={completedCriteria} aria-valuemin={0} aria-valuemax={acceptance.length}><span style={{ width: `${Math.round(completedCriteria * 100 / acceptance.length)}%` }} /></div>

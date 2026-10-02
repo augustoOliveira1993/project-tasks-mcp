@@ -54,6 +54,7 @@ const MCP_TOOL_GUIDANCE: Record<string, string> = {
   record_task_diff: 'Registra evidência Git quando IDs e commits já foram obtidos. Se a bridge Git local estiver disponível, prefira publish_task_diff para derivar esses dados do checkout.',
   preview_task_transfer: 'Prévia somente leitura: mostre plano, contagens e bloqueios e aguarde confirmação humana desse plano exato. targetProjectId pode ser igual a projectId para mudar somente a feature.',
   transfer_task: 'Só execute após confirmação humana da prévia; reutilize planHash e versão sem alterações. Para a mesma feature, mantenha projeto e repositório.',
+  get_global_activity: 'Consulta somente leitura de atividades de todos os projetos; exige credencial humana de administrador de sistema.',
   subscribe_project_events: 'Assina eventos nesta conexão. Para aguardar atualizações existentes use wait_project_events; nenhuma das ferramentas acorda outra sessão de IA.'
 };
 
@@ -147,7 +148,7 @@ export function createApp(service: Service, origins: string[]) {
     if (existsSync(index)) { res.sendFile(index); return; }
     res.type('html').send(adminPage);
   };
-  app.get(['/admin', '/', '/projects', '/tasks', '/conversations', '/activity', '/catalogs', '/catalogs/projects', '/catalogs/features', '/catalogs/tasks', '/catalogs/areas', '/settings', '/help'], sendAdminApp);
+  app.get(['/admin', '/', '/projects', '/tasks', '/conversations', '/activity', '/activity/global', '/catalogs', '/catalogs/projects', '/catalogs/features', '/catalogs/tasks', '/catalogs/areas', '/settings', '/help'], sendAdminApp);
   app.post('/admin/query', async (req, res) => {
     const actor = await authenticate(token(req.headers.authorization), 'human');
     const body = z.object({ tool: z.string(), arguments: z.record(z.string(), z.unknown()) }).strict().parse(req.body);

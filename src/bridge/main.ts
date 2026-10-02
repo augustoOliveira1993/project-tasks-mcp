@@ -92,7 +92,7 @@ server.registerTool('publish_task_diff', { description: 'Publish a Git diff for 
   } catch (error) { return { isError: true, content: [{ type: 'text', text: (error as Error).message }] }; }
 });
 for (const [name, schema] of Object.entries(tools)) {
-  if (['get_session_context', 'record_task_diff', 'get_project_novelties', 'mark_project_read'].includes(name)) continue;
+  if (['get_session_context', 'record_task_diff', 'get_project_novelties', 'get_global_activity', 'mark_project_read'].includes(name)) continue;
   const shape: Record<string, z.ZodType> = { ...(schema as any).shape };
   const needsProject = 'projectId' in shape;
   if (needsProject) shape.projectId = id.optional();

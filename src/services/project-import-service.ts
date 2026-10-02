@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { ClientSession } from 'mongoose';
 import { z } from 'zod';
 import { ConversationMessage, DeliveryEvent, Event, MarkdownDocument, MarkdownRevision, Project, TaskDependency } from '../db.js';
+import { areasForProject } from '../area-catalog.js';
 import { projectExportCollections, redactExport } from './project-export-service.js';
 
 export class ProjectImportError extends Error {
@@ -27,11 +28,13 @@ export async function validateProjectImport(input: unknown) {
   check(project._id === bundle.source.projectId, 'O ID do projeto não corresponde à origem do pacote.');
   check(typeof project.name === 'string' && project.name.trim(), 'Projeto sem nome.');
   check(project.visibility === 'public' || project.visibility === 'private', 'Visibilidade do projeto inválida.');
+  if (project.areas == null || (Array.isArray(project.areas) && project.areas.length === 0)) project.areas = areasForProject(project);
   check(Array.isArray(project.repositories), 'Repositórios ausentes.');
   const projectFields = new Set(Object.keys(Project.schema.paths).map(path => path.split('.')[0]));
   check(Object.keys(project).every(key => projectFields.has(key)), 'Campo não suportado no projeto.');
   await new Project(project).validate().catch(() => { throw new ProjectImportError('Dados do projeto inválidos.'); });
   check(Array.isArray(project.areas) && project.areas.length && project.areas.every((area: unknown) => typeof area === 'string' && area.trim()), 'Áreas do projeto inválidas.');
+  data.project = project;
   const names = ['project', ...projectExportCollections.map(([name]) => name)];
   check(Object.keys(data).every(name => names.includes(name)), 'O pacote contém uma coleção não suportada.');
   check(bundle.counts.project === 1 && bundle.counts.repositories === project.repositories.length, 'Contagem do projeto/repositórios incorreta.');
@@ -134,7 +137,7 @@ export async function validateProjectImport(input: unknown) {
   return { bundle, data, acceptanceProgressRepairs, digest: hash(JSON.stringify(canonical(data))) };
 }
 
-export async function importProject(input: unknown, ownerKey: string, owner: string, session: ClientSession) {
+export async function importProject(input: unknown, ownerKey: string, owner: string, session: ClientSession, origin = 'Importação do projeto') {
   const { bundle, data, acceptanceProgressRepairs, digest } = await validateProjectImport(input);
   const projectId = bundle.source.projectId;
   const existing = await Project.findById(projectId).session(session).lean();
@@ -331,7 +334,7 @@ export async function importProject(input: unknown, ownerKey: string, owner: str
     importedCounts[name] = records.length;
   }
   const insertedRecords = Object.values(importedCounts).reduce((sum, count) => sum + count, 0);
-  if (insertedRecords > 0) await Event.create([{ _id: randomUUID(), projectId, entityId: projectId, action: 'import_project', author: owner, at: new Date(),
+  if (insertedRecords > 0) await Event.create([{ _id: randomUUID(), projectId, entityId: projectId, action: 'import_project', author: owner, origin, at: new Date(),
     summary: 'Projeto importado parcialmente quando necessário; itens existentes foram preservados.', data: { adjustments, acceptanceProgressRepairs, skippedCounts, skipped, digest, sourceProjectId: projectId } }], { session });
   return { projectId, name: target.name, reused: Boolean(existing), alreadyImported: false, importedCounts, skippedCounts, skipped,
     skippedDetailsTruncated: Object.values(skippedCounts).reduce((sum, count) => sum + count, 0) > skipped.length,

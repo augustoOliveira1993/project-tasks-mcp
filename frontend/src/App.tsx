@@ -1,13 +1,13 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { allRecords, ApiRequestError, listProjects, operationId, query, request } from './api';
 import type { AdminCapabilities, Project, ProjectSummary, Task } from './api';
 import { ProjectPickerDialog } from './components/projects/ProjectPickerDialog';
-import { Badge } from './components/ui/Badge';
 import type { HardDeleteTarget } from './components/ui/HardDeleteDialog';
-import { errorMessage, formatDate } from './lib/format';
+import { errorMessage } from './lib/format';
 import { openTaskConversation } from './features/tasks/task-conversation';
+import type { ActivityEvent } from './features/activity/ActivityPage';
 import { catalogSectionForRoute, conversationIdFromSearch, isCatalogRoute, projectIdFromSearch, routeForCatalogSection, routeForTab, routeFromPath, routeUrl, tabForRoute, taskIdFromSearch, type AppRoute, type AppTab } from './route-state';
 
 const AdminPanel = lazy(() => import('./components/admin/AdminPanel').then(module => ({ default: module.AdminPanel })));
@@ -22,6 +22,7 @@ const TransferTaskDialog = lazy(() => import('./features/tasks/TransferTaskDialo
 const ConversationPanel = lazy(() => import('./components/conversations/ConversationPanel').then(module => ({ default: module.ConversationPanel })));
 const HelpToolsPanel = lazy(() => import('./components/help/HelpToolsPanel').then(module => ({ default: module.HelpToolsPanel })));
 const CatalogsPage = lazy(() => import('./features/catalogs/CatalogsPage').then(module => ({ default: module.CatalogsPage })));
+const ActivityPage = lazy(() => import('./features/activity/ActivityPage').then(module => ({ default: module.ActivityPage })));
 
 const tokenKey = 'project-tasks.human-token';
 type TaskDetailsAction = 'details' | 'edit' | 'summary' | 'json';
@@ -34,6 +35,7 @@ function App() {
   const [activeRoute, setActiveRoute] = useState<AppRoute>(() => routeFromPath(window.location.pathname));
   const activeTab = tabForRoute(activeRoute);
   const catalogScreen = isCatalogRoute(activeRoute);
+  const globalActivityRoute = activeRoute === 'globalActivity';
   const [notice, setNotice] = useState<{ message: string; kind: string } | null>(null);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [selectedTaskAction, setSelectedTaskAction] = useState<TaskDetailsAction>('details');
@@ -190,8 +192,9 @@ function App() {
   const canHardDelete = capabilitiesQuery.data?.scope === 'human' && capabilitiesQuery.data.systemAdmin === true && capabilitiesQuery.data.canHardDelete === true;
   const projects = projectsQuery.data ?? [];
   useEffect(() => {
+    if (activeRoute === 'globalActivity') return;
     if (projects.length && !projects.some(item => item.project._id === activeProjectId)) setActiveProjectId(projects[0].project._id);
-  }, [projects, activeProjectId]);
+  }, [projects, activeProjectId, activeRoute]);
   const currentSummary = projects.find(item => item.project._id === activeProjectId);
   const project = currentSummary?.project;
   const tasksQuery = useQuery({
@@ -217,8 +220,16 @@ function App() {
   }, [activeRoute, requestedTaskId, tasks, tasksQuery.isPending]);
   const noveltiesQuery = useQuery({
     queryKey: ['project-novelties', nonce, activeProjectId],
-    enabled: Boolean(token && nonce && activeProjectId && activeTab === 'activity'),
-    queryFn: () => query<{ items: Array<{ _id?: string; kind?: string; summary?: string; action?: string; author?: string; at?: string }> }>(token, 'get_project_novelties', { projectId: activeProjectId, limit: 40 })
+    enabled: Boolean(token && nonce && activeProjectId && activeRoute === 'activity'),
+    queryFn: () => query<{ items: ActivityEvent[] }>(token, 'get_project_novelties', { projectId: activeProjectId, limit: 40 })
+  });
+  const globalActivityQuery = useInfiniteQuery({
+    queryKey: ['global-activity', nonce],
+    enabled: Boolean(token && nonce && globalActivityRoute && capabilitiesQuery.data?.systemAdmin === true),
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ pageParam }) => query<{ items: ActivityEvent[]; next: string | null }>(token, 'get_global_activity', { ...(pageParam ? { after: pageParam } : {}), limit: 40 }),
+    getNextPageParam: lastPage => lastPage.next ?? undefined,
+    retry: false
   });
   const projectSummaryQuery = useQuery({
     queryKey: ['project-area-summary', nonce, activeProjectId],
@@ -432,8 +443,8 @@ function App() {
   return <div className="app-shell min-h-screen bg-canvas text-ink">
     <aside className="sidebar">
       <a className="brand" href={routeUrl('tasks', window.location.search, activeProjectId)} onClick={event => { event.preventDefault(); navigateToRoute('tasks'); }}><span className="brand-mark">PT</span><span><strong>Project Tasks</strong><small>Workspace</small></span></a>
-      <div className="sidebar-label">VISÃO DO PROJETO</div>
-      <div className="project-picker">
+      <div className="sidebar-label">{globalActivityRoute ? 'VISÃO GLOBAL' : 'VISÃO DO PROJETO'}</div>
+      {!globalActivityRoute ? <div className="project-picker">
         <span className="project-picker-label">Projeto ativo</span>
         <div className="project-picker-control">
           <button id="active-project" type="button" className="project-picker-trigger" aria-haspopup="dialog" aria-controls="projects-dialog" disabled={projectsQuery.isPending || projects.length === 0} onClick={() => { setAllProjectsSearch(''); setProjectPage(1); (document.getElementById('projects-dialog') as HTMLDialogElement | null)?.showModal(); }}>
@@ -443,11 +454,12 @@ function App() {
           </button>
           {project && <button className="small-icon project-copy-button" onClick={() => void copyProjectId()} title="Copiar ID do projeto" aria-label="Copiar ID do projeto">{copiedProjectId ? '✓' : '⧉'}</button>}
         </div>
-      </div>
+      </div> : <div className="project-picker"><span className="project-picker-label">Escopo da atividade</span><div className="project-picker-trigger"><span className="project-avatar">⌘</span><span className="project-picker-copy"><strong>Todos os projetos</strong><small>Visão administrativa global</small></span></div></div>}
       <nav className="primary-nav" aria-label="Navegação principal">
         <button className={activeRoute === 'tasks' ? 'nav-item active' : 'nav-item'} onClick={() => navigateToRoute('tasks')}><span>▦</span> Tarefas <b>{tasks.length}</b></button>
         <button className={activeRoute === 'conversations' ? 'nav-item active' : 'nav-item'} onClick={() => navigateToRoute('conversations')}><span>✉</span> Conversas</button>
-        <button className={activeRoute === 'activity' ? 'nav-item active' : 'nav-item'} onClick={() => navigateToRoute('activity')}><span>◷</span> Novidades</button>
+        <button className={activeRoute === 'activity' || globalActivityRoute ? 'nav-item active' : 'nav-item'} onClick={() => navigateToRoute('activity')}><span>◷</span> Atividade</button>
+        {capabilitiesQuery.data?.systemAdmin === true && <button className={globalActivityRoute ? 'nav-item nav-item-sub active' : 'nav-item nav-item-sub'} onClick={() => navigateToRoute('globalActivity', '', false)}><span>◷</span> Atividade global</button>}
         <div className="sidebar-label nav-section-label">WORKSPACE</div>
         <button className={activeRoute === 'projects' ? 'nav-item active' : 'nav-item'} onClick={() => navigateToRoute('projects')}><span>▣</span> Projetos <b>{projects.length}</b></button>
         <button className={catalogScreen ? 'nav-item active' : 'nav-item'} onClick={() => navigateToRoute('catalogs')}><span>＋</span> Cadastros</button>
@@ -458,20 +470,22 @@ function App() {
       <div className="sidebar-footer"><span className="online-dot" /> Conectado ao MCP <button className="small-icon" onClick={signOut} title="Sair">↪</button></div>
     </aside>
     <main className="main-area min-h-screen">
-      <header className="topbar"><div className="breadcrumbs"><span>Workspace</span><span>/</span><strong>{activeRoute === 'projects' ? 'Projetos' : catalogScreen ? `Cadastros · ${{overview:'Visão geral',projects:'Projetos',features:'Features',tasks:'Tarefas',areas:'Áreas'}[catalogSectionForRoute(activeRoute)]}` : project?.name ?? 'Carregando projeto'}</strong></div><div className="topbar-actions"><span className="connection-pill"><span className="online-dot" /> Serviço ativo</span><button className="avatar-button" onClick={signOut} title="Sair">AU</button></div></header>
+      <header className="topbar"><div className="breadcrumbs"><span>Workspace</span><span>/</span><strong>{activeRoute === 'projects' ? 'Projetos' : globalActivityRoute ? 'Atividade global' : catalogScreen ? `Cadastros · ${{overview:'Visão geral',projects:'Projetos',features:'Features',tasks:'Tarefas',areas:'Áreas'}[catalogSectionForRoute(activeRoute)]}` : project?.name ?? 'Carregando projeto'}</strong></div><div className="topbar-actions"><span className="connection-pill"><span className="online-dot" /> Serviço ativo</span><button className="avatar-button" onClick={signOut} title="Sair">AU</button></div></header>
       <div className="content-wrap">
         {projectsQuery.isError && <div className="notice error">{errorMessage(projectsQuery.error)}</div>}
         <Suspense fallback={<div className="loading">Carregando tela…</div>}>
         {activeRoute === 'projects' && <ProjectsPage projects={currentProjectPage} isPending={projectsQuery.isPending} activeProjectId={activeProjectId} search={allProjectsSearch} currentPage={projectPage} pages={projectPages} total={filteredProjects.length} onSearchChange={value => { setAllProjectsSearch(value); setProjectPage(1); }} onPageChange={setProjectPage} onSelect={selectProject} />}
-        {activeRoute !== 'projects' && !catalogScreen && !projects.length && !projectsQuery.isPending && <div className="empty-state"><h2>Nenhum projeto disponível</h2><p>Esta credencial ainda não possui projetos acessíveis.</p><button className="button secondary" onClick={() => navigateToRoute('projects')}>Abrir projetos</button></div>}
+        {activeRoute !== 'projects' && !catalogScreen && !globalActivityRoute && !projects.length && !projectsQuery.isPending && <div className="empty-state"><h2>Nenhum projeto disponível</h2><p>Esta credencial ainda não possui projetos acessíveis.</p><button className="button secondary" onClick={() => navigateToRoute('projects')}>Abrir projetos</button></div>}
         {activeTab === 'admin' && !project && !projectsQuery.isPending && canHardDelete && <div className="project-import-first"><div className="page-heading"><div><p className="eyebrow">CONFIGURAÇÃO</p><h1>Administração</h1><p className="muted-text">Importe um projeto para começar neste MCP.</p></div></div><ProjectImportPanel token={token} canImport onImported={async result => { await projectsQuery.refetch(); setActiveProjectId(result.projectId); navigateToRoute('settings', result.projectId, false); }} /></div>}
         {catalogScreen && <CatalogsPage section={catalogSectionForRoute(activeRoute)} token={token} nonce={nonce} projects={projects.map(item => item.project)} project={project} tasks={tasks} notify={notify} onProjectCreated={async created => { await projectsQuery.refetch(); navigateToRoute(routeForCatalogSection('projects'), created._id, false); }} onSelectProject={projectId => navigateToRoute(activeRoute, projectId, false)} onNavigateSection={section => navigateToRoute(routeForCatalogSection(section))} onChanged={() => { void projectsQuery.refetch(); void tasksQuery.refetch(); }} />}
-        {activeRoute !== 'projects' && !catalogScreen && project && <>
-          <div className="page-heading"><div><p className="eyebrow">{activeTab === 'tasks' ? 'ACOMPANHAMENTO' : activeTab === 'chat' ? 'COLABORAÇÃO' : activeTab === 'activity' ? 'ATIVIDADE' : activeTab === 'admin' ? 'CONFIGURAÇÃO' : 'DOCUMENTAÇÃO'}</p><h1>{activeTab === 'tasks' ? 'Tarefas do projeto' : activeTab === 'chat' ? 'Conversas com IA' : activeTab === 'activity' ? 'Novidades do projeto' : activeTab === 'admin' ? 'Administração' : 'Ajuda do Project Tasks'}</h1><p className="muted-text">{activeTab === 'tasks' ? 'Acompanhe execução, revisão e conclusão do trabalho.' : activeTab === 'chat' ? 'Esclareça pedidos com a IA e autorize a execução quando a proposta estiver pronta.' : activeTab === 'activity' ? 'Acompanhe as mudanças compartilhadas neste projeto.' : activeTab === 'admin' ? 'Credenciais e configurações restritas do workspace.' : 'Referência rápida para os servidores e ferramentas MCP.'}</p></div>{activeTab === 'tasks' && <div className="button-row"><button className="button secondary" onClick={() => setSummaryOpen(true)}>Resumo</button><button className="button secondary" onClick={() => { void projectsQuery.refetch(); void tasksQuery.refetch(); }}>↻ Atualizar</button></div>}</div>
+        {activeRoute !== 'projects' && !catalogScreen && (project || globalActivityRoute) && <>
+          <div className="page-heading"><div><p className="eyebrow">{activeTab === 'tasks' ? 'ACOMPANHAMENTO' : activeTab === 'chat' ? 'COLABORAÇÃO' : activeTab === 'activity' ? 'ATIVIDADE' : activeTab === 'admin' ? 'CONFIGURAÇÃO' : 'DOCUMENTAÇÃO'}</p><h1>{globalActivityRoute ? 'Atividade global' : activeTab === 'tasks' ? 'Tarefas do projeto' : activeTab === 'chat' ? 'Conversas com IA' : activeTab === 'activity' ? 'Atividade do projeto' : activeTab === 'admin' ? 'Administração' : 'Ajuda do Project Tasks'}</h1><p className="muted-text">{globalActivityRoute ? 'Acompanhe atividades de todos os projetos do workspace.' : activeTab === 'tasks' ? 'Acompanhe execução, revisão e conclusão do trabalho.' : activeTab === 'chat' ? 'Esclareça pedidos com a IA e autorize a execução quando a proposta estiver pronta.' : activeTab === 'activity' ? 'Acompanhe eventos, mudanças e colaboração neste projeto.' : activeTab === 'admin' ? 'Credenciais e configurações restritas do workspace.' : 'Referência rápida para os servidores e ferramentas MCP.'}</p></div>{activeTab === 'tasks' && <div className="button-row"><button className="button secondary" onClick={() => setSummaryOpen(true)}>Resumo</button><button className="button secondary" onClick={() => { void projectsQuery.refetch(); void tasksQuery.refetch(); }}>↻ Atualizar</button></div>}</div>
           {activeTab === 'tasks' && <TaskWorkspace key={activeProjectId} token={token} nonce={nonce} projectId={activeProjectId} repositories={project?.repositories ?? []} projectAreas={project?.areas ?? ['backend', 'frontend', 'outro']} tasks={tasks} isPending={tasksQuery.isPending} isError={tasksQuery.isError} error={tasksQuery.error} saving={saving} canHardDelete={canHardDelete} onRefresh={() => { void tasksQuery.refetch(); }} onOpenTask={openTaskDetails} onOpenTaskConversation={openTaskConversationFromTable} onTransferTask={setTransferTask} onOpenQuestionChat={openQuestionChat} onChangeStatus={setStatusTask} onToggleChecked={toggleChecked} onRequestHardDeleteTask={requestTaskHardDelete} onArchiveTask={archiveTask} onApproveSelected={approveSelected} onSetTasksChecked={setTasksChecked} />}
           {activeTab === 'chat' && <ConversationPanel token={token} nonce={nonce} projectId={activeProjectId} tasks={tasks} requestedConversationId={conversationToOpen || undefined} onConversationSelected={rememberConversation} onOpenTask={openTaskFromConversation} onOpenAdmin={() => setActiveTab('admin')} />}
-          {activeTab === 'activity' && <section className="panel-card"><div className="section-heading"><div><h2>Eventos recentes</h2><p className="muted-text">Atualizações de tarefas e colaboração</p></div><button className="button secondary" onClick={() => void noveltiesQuery.refetch()}>↻ Atualizar</button></div>{noveltiesQuery.isPending ? <div className="loading">Carregando eventos…</div> : noveltiesQuery.isError ? <div className="notice error">{errorMessage(noveltiesQuery.error)}</div> : noveltiesQuery.data?.items?.length ? <div className="timeline">{noveltiesQuery.data.items.map((item, index) => <article className="timeline-item" key={item._id ?? index}><span className="timeline-dot" /><div><strong>{item.summary || item.kind || item.action || 'Atualização do projeto'}</strong><small>{item.author || 'Autor não identificado'} · {formatDate(item.at)}</small></div><Badge>{item.kind || item.action || 'evento'}</Badge></article>)}</div> : <div className="empty-state compact"><h3>Sem novidades recentes</h3><p>Eventos de colaboração aparecerão aqui.</p></div>}</section>}
-          {activeTab === 'admin' && <AdminPanel token={token} project={project} projects={projects.map(item => item.project)} onChanged={() => projectsQuery.refetch()} notify={notify} canHardDelete={canHardDelete} systemAdmin={capabilitiesQuery.data?.systemAdmin === true} actionPending={saving} onRequestHardDeleteProject={requestProjectHardDelete} onArchiveProject={() => { void archiveProject(); }} />}
+          {activeTab === 'activity' && (globalActivityRoute && capabilitiesQuery.data?.systemAdmin !== true
+            ? <div className="notice error" role="alert">{capabilitiesQuery.isPending ? 'Verificando acesso administrativo…' : capabilitiesQuery.isError ? errorMessage(capabilitiesQuery.error) : 'A atividade global é restrita a administradores do sistema.'}</div>
+            : <ActivityPage key={globalActivityRoute ? 'global' : activeProjectId} events={globalActivityRoute ? globalActivityQuery.data?.pages.flatMap(page => page.items) ?? [] : noveltiesQuery.data?.items ?? []} tasks={tasks} projects={projects.map(item => item.project)} isGlobal={globalActivityRoute} isPending={globalActivityRoute ? capabilitiesQuery.isPending || globalActivityQuery.isPending : noveltiesQuery.isPending} isError={globalActivityRoute ? globalActivityQuery.isError : noveltiesQuery.isError} error={globalActivityRoute ? globalActivityQuery.error : noveltiesQuery.error} hasMore={globalActivityRoute ? globalActivityQuery.hasNextPage : false} isLoadingMore={globalActivityRoute ? globalActivityQuery.isFetchingNextPage : false} onRefresh={() => { if (globalActivityRoute) void globalActivityQuery.refetch(); else void noveltiesQuery.refetch(); }} onLoadMore={globalActivityRoute ? () => { void globalActivityQuery.fetchNextPage(); } : undefined} />)}
+          {activeTab === 'admin' && project && <AdminPanel token={token} project={project} projects={projects.map(item => item.project)} onChanged={() => projectsQuery.refetch()} notify={notify} canHardDelete={canHardDelete} systemAdmin={capabilitiesQuery.data?.systemAdmin === true} actionPending={saving} onRequestHardDeleteProject={requestProjectHardDelete} onArchiveProject={() => { void archiveProject(); }} />}
           {activeTab === 'help' && <HelpToolsPanel search={toolSearch} onSearchChange={setToolSearch} />}
         </>}
         </Suspense>
