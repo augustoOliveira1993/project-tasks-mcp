@@ -48,6 +48,7 @@
 .transfer-skip-details summary { cursor: pointer; font-weight: 650; }
 .transfer-skip-details ul { display: grid; gap: 6px; max-height: 220px; overflow: auto; padding: 8px 0 0 18px; }
 .transfer-skip-details code { overflow-wrap: anywhere; }
+.project-import-result-dialog .project-transfer-body { padding: 22px 24px; overflow-wrap: anywhere; }
 .project-export-panel .button-row { flex-wrap: wrap; }
 .project-export-panel .stack-form textarea { font-family: ui-monospace, monospace; }
 @media (max-width: 1100px) { .project-transfer-grid { grid-template-columns: minmax(0, 1fr); } }

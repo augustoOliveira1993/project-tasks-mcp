@@ -107,18 +107,18 @@ export async function validateProjectImport(input: unknown) {
   for (const name of ['executions', 'taskMessages', 'taskDiffs', 'automationJobs']) for (const record of data[name]) ref(record.taskId, 'tasks', `${name}.taskId`, true);
   for (const execution of data.executions) ref(execution.managedJobId, 'automationJobs', 'execution.managedJobId');
   for (const conversation of data.conversations) ref(conversation.taskId, 'tasks', 'conversation.taskId');
-  for (const message of data.conversationMessages) ref(message.conversationId, 'conversations', 'message.conversationId', true);
+  // Conversation links are resolved during partial import so orphaned messages can be skipped.
   for (const message of data.taskMessages) {
     ref(message.relatedTaskId, 'tasks', 'message.relatedTaskId'); ref(message.executionId, 'executions', 'message.executionId');
-    ref(message.conversationId, 'conversations', 'message.conversationId'); ref(message.replyTo, 'taskMessages', 'message.replyTo');
+    ref(message.replyTo, 'taskMessages', 'message.replyTo');
   }
   for (const proposal of data.actionProposals) {
-    ref(proposal.taskId, 'tasks', 'proposal.taskId', true); ref(proposal.conversationId, 'conversations', 'proposal.conversationId', true);
+    ref(proposal.taskId, 'tasks', 'proposal.taskId', true);
     ref(proposal.jobId, 'automationJobs', 'proposal.jobId');
   }
   for (const job of data.automationJobs) {
     ref(job.repositoryId, 'repositories', 'job.repositoryId'); ref(job.executionId, 'executions', 'job.executionId');
-    ref(job.originJobId, 'automationJobs', 'job.originJobId'); ref(job.conversationId, 'conversations', 'job.conversationId');
+    ref(job.originJobId, 'automationJobs', 'job.originJobId');
     ref(job.triggerMessageId, 'taskMessages', 'job.triggerMessageId');
   }
   for (const diff of data.taskDiffs) ref(diff.repositoryId, 'repositories', 'diff.repositoryId');
@@ -167,7 +167,7 @@ export async function importProject(input: unknown, ownerKey: string, owner: str
   const areaNames = new Set(mergedAreas.map((area: string) => area.toLocaleLowerCase('pt-BR')));
   for (const area of data.project.areas) if (!areaNames.has(area.toLocaleLowerCase('pt-BR'))) { mergedAreas.push(area); areaNames.add(area.toLocaleLowerCase('pt-BR')); }
   for (const repository of data.project.repositories) {
-    const inTarget = (target.repositories ?? []).find((item: any) => item.id === repository.id);
+    const inTarget = (existing?.repositories ?? []).find((item: any) => item.id === repository.id);
     const anywhere = existingProjects.flatMap(item => (item.repositories ?? []).filter((repo: any) => repo.id === repository.id));
     if (inTarget) {
       if (sameRepository(inTarget, repository)) available.get('repositories')!.add(repository.id);
@@ -181,7 +181,7 @@ export async function importProject(input: unknown, ownerKey: string, owner: str
       available.get('repositories')!.add(repository.id);
     }
   }
-  for (const repository of target.repositories ?? []) if (!repositoryConflicts.has(repository.id)) available.get('repositories')!.add(repository.id);
+  for (const repository of existing?.repositories ?? []) if (typeof repository.id === 'string' && !repositoryConflicts.has(repository.id)) available.get('repositories')!.add(repository.id);
   const candidates = new Map<string, any[]>(projectExportCollections.map(([name]) => [name, [...data[name]]]));
   const idConflicts = new Map<string, Set<string>>();
   const existingTaskDependencies = new Map<string, Set<string>>();
@@ -239,17 +239,25 @@ export async function importProject(input: unknown, ownerKey: string, owner: str
     if (unique?.size) candidates.set(name, rows.filter(record => !unique.has(record._id)));
   }
 
+  const referenceErrors = new Map<string, string>();
   const referencesAvailable = (name: string, record: any) => {
     const has = (collection: string, id: unknown) => id == null || available.get(collection)?.has(String(id)) === true;
+    const requiresConversation = ['conversationMessages', 'actionProposals'].includes(name);
+    if (['conversationMessages', 'actionProposals', 'taskMessages', 'automationJobs'].includes(name) &&
+      (requiresConversation || record.conversationId != null) &&
+      (typeof record.conversationId !== 'string' || !available.get('conversations')?.has(record.conversationId))) {
+      referenceErrors.set(`${name}:${record._id}`, `Vínculo inválido: conversationId (${record.conversationId ?? 'ausente'}). A conversa não está disponível para este registro.`);
+      return false;
+    }
     const base: Record<string, Array<[string, unknown]>> = {
-      tasks: [['repositories', record.repositoryId], ['features', record.featureId], ['executions', record.executionId], ...record.dependencies.map((id: string) => ['tasks', id] as [string, unknown])],
+      tasks: [['repositories', record.repositoryId], ['features', record.featureId], ['executions', record.executionId], ...(record.dependencies ?? []).map((id: string) => ['tasks', id] as [string, unknown])],
       taskDependencies: [['tasks', record.taskId], ['tasks', record.dependencyId]],
       executions: [['tasks', record.taskId], ['automationJobs', record.managedJobId]],
       taskMessages: [['tasks', record.taskId], ['tasks', record.relatedTaskId], ['executions', record.executionId], ['conversations', record.conversationId], ['taskMessages', record.replyTo]],
       conversations: [['tasks', record.taskId]],
       conversationMessages: [['conversations', record.conversationId]],
       actionProposals: [['tasks', record.taskId], ['conversations', record.conversationId], ['automationJobs', record.jobId]],
-      deliveryEvents: record.taskIds.map((id: string) => ['tasks', id] as [string, unknown]),
+      deliveryEvents: (record.taskIds ?? []).map((id: string) => ['tasks', id] as [string, unknown]),
       taskDiffs: [['tasks', record.taskId], ['repositories', record.repositoryId]],
       automationJobs: [['tasks', record.taskId], ['repositories', record.repositoryId], ['executions', record.executionId], ['automationJobs', record.originJobId], ['conversations', record.conversationId], ['taskMessages', record.triggerMessageId]],
       markdownDocuments: [[record.targetKind === 'task' ? 'tasks' : 'features', record.targetId]],
@@ -267,7 +275,7 @@ export async function importProject(input: unknown, ownerKey: string, owner: str
       const keep: any[] = [];
       for (const record of rows) {
         if (referencesAvailable(name, record)) keep.push(record);
-        else { skip(name, record._id, 'Um registro vinculado foi ignorado ou não existe no projeto de destino.'); available.get(name)?.delete(record._id); changed = true; }
+        else { skip(name, record._id, referenceErrors.get(`${name}:${record._id}`) ?? 'Um registro vinculado foi ignorado ou não existe no projeto de destino.'); available.get(name)?.delete(record._id); changed = true; }
       }
       candidates.set(name, keep);
     }
@@ -298,7 +306,7 @@ export async function importProject(input: unknown, ownerKey: string, owner: str
   const incomingProject = existing ? null : { ...data.project, repositories: repositoriesToAdd, areas: [...new Set(data.project.areas)] };
   const repoIds = new Set((target.repositories ?? []).map((repository: any) => repository.id));
   const mergedRepositories = [...(target.repositories ?? []), ...repositoriesToAdd.filter(repository => !repoIds.has(repository.id))];
-  const addedRepositoryCount = existing ? repositoriesToAdd.filter(repository => !repoIds.has(repository.id)).length : data.project.repositories.length;
+  const addedRepositoryCount = existing ? repositoriesToAdd.filter(repository => !repoIds.has(repository.id)).length : repositoriesToAdd.length;
   const projectMetadataChanged = mergedAreas.length > (target.areas ?? []).length || mergedRepositories.length > (target.repositories ?? []).length;
   if (existing) skip('project', projectId, 'O projeto já existe; campos existentes foram preservados.');
   if (!existing && incomingProject) {

@@ -117,6 +117,29 @@ test('project and record conflicts preserve existing data while importing indepe
   assert.equal(partial.skippedCounts.tasks, 1);
 });
 
+test('missing conversation links are reported while valid messages and tasks are imported', async () => {
+  const input = fixture(), missingConversationId = randomUUID();
+  const orphan = { ...input.data.conversationMessages[0], _id: randomUUID(), operationId: randomUUID(), conversationId: missingConversationId };
+  const noConversation = { ...orphan, _id: randomUUID(), operationId: randomUUID(), conversationId: undefined };
+  input.data.conversationMessages.push(orphan, noConversation);
+  input.counts.conversationMessages = input.data.conversationMessages.length;
+  const taskMessage = { ...input.data.taskMessages[0], _id: randomUUID(), conversationId: missingConversationId };
+  input.data.taskMessages.push(taskMessage);
+  input.counts.taskMessages = input.data.taskMessages.length;
+
+  const result = await service.importProject(admin, input);
+  assert.equal(result.importedCounts.tasks, 2);
+  assert.equal(result.importedCounts.conversationMessages, 1);
+  assert.equal(result.importedCounts.taskMessages, 1);
+  assert.equal(result.skippedCounts.conversationMessages, 2);
+  assert.equal(result.skippedCounts.taskMessages, 1);
+  for (const id of [orphan._id, noConversation._id, taskMessage._id]) {
+    assert.match(result.skipped.find(item => item.id === id)!.reason, /conversationId/);
+  }
+  assert.match(result.skipped.find(item => item.id === orphan._id)!.reason, new RegExp(missingConversationId));
+  assert.equal((await Project.findById(input.source.projectId))!.repositories[0].id, input.data.project.repositories[0].id);
+});
+
 test('import endpoint accepts only human system admin and supports 201 followed by idempotent 200', async () => {
   const humanToken = randomBytes(32).toString('hex');
   await service.admin(admin, { action: 'issue', operationId: randomUUID(), userId: 'reader@example.com', scope: 'human', systemAdmin: false, token: humanToken });

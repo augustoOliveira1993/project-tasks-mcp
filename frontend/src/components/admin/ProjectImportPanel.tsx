@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { request } from '../../api';
 import { errorMessage } from '../../lib/format';
 import type { ProjectExport } from './ProjectExportPanel';
@@ -40,7 +40,15 @@ export function ProjectImportPanel({ token, canImport, onImported }: { token: st
   const [reading, setReading] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<ImportResult | null>(null);
+  const [resultOpen, setResultOpen] = useState(false);
+  const resultDialog = useRef<HTMLDialogElement>(null);
   const readVersion = useRef(0);
+  useEffect(() => {
+    const dialog = resultDialog.current;
+    if (resultOpen && dialog && !dialog.open) dialog.showModal();
+    if (!resultOpen && dialog?.open) dialog.close();
+    return () => { if (dialog?.open) dialog.close(); };
+  }, [resultOpen]);
   async function selectFile(file?: File) {
     const version = ++readVersion.current;
     setPreview(null); setError(''); setResult(null); setReading(Boolean(file));
@@ -60,7 +68,7 @@ export function ProjectImportPanel({ token, canImport, onImported }: { token: st
         ? 'A conexão foi interrompida antes de o servidor responder. Confirme se o servidor está atualizado e se o proxy aceita o envio deste arquivo; depois tente novamente.'
         : errorMessage(failure));
     }
-    finally { setBusy(false); }
+    finally { setBusy(false); setResultOpen(true); }
   }
   return <section className="panel-card project-transfer-card" aria-labelledby="project-import-title" aria-busy={busy || reading}>
     <header className="section-heading"><div><p className="eyebrow">RECEBER DADOS</p><h2 id="project-import-title">Importar projeto</h2><p className="muted-text">Restaure neste MCP um projeto exportado em outro ambiente.</p></div><span className="transfer-icon" aria-hidden="true">↑</span></header>
@@ -76,6 +84,12 @@ export function ProjectImportPanel({ token, canImport, onImported }: { token: st
       <p className="muted-text">A importação cria o projeto ou mescla itens ausentes quando o ID já existe. Acessos devem ser configurados novamente; execuções e automações antigas não são retomadas.</p>
       {!canImport && <p className="notice" role="note">Entre com uma credencial de administrador do sistema para importar projetos.</p>}
       {error && <div className="notice error" role="alert">{error}</div>}
+    </div>
+    <footer className="project-transfer-footer"><button type="button" className="button primary" disabled={!canImport || !preview || busy || reading} onClick={() => void importData()}>{busy ? 'Importando projeto…' : 'Importar projeto'}</button>{result && <button type="button" className="button secondary" onClick={() => setResultOpen(true)}>Ver resultado</button>}<span>Validação completa antes da gravação.</span></footer>
+    <dialog ref={resultDialog} className="create-task-dialog project-import-result-dialog" aria-labelledby="project-import-result-title" onCancel={event => { event.preventDefault(); setResultOpen(false); }} onClose={() => setResultOpen(false)}>
+      <header className="dialog-header"><div><p className="eyebrow">IMPORTAÇÃO DO PROJETO</p><h2 id="project-import-result-title">{error ? 'Erro na importação' : 'Resultado da importação'}</h2></div><button type="button" className="icon-button" aria-label="Fechar resultado da importação" onClick={() => setResultOpen(false)}>×</button></header>
+      <div className="project-transfer-body">
+      {error && <div className="notice error" role="alert">{error}</div>}
       {result && <div className="transfer-success" role="status">
         <strong>{result.alreadyImported ? 'Este pacote já tinha sido importado; nada foi duplicado.' : totalRecords(result.skippedCounts) > 0 ? 'Importação concluída com itens ignorados.' : 'Importação concluída.'}</strong>
         <p>{result.name} · {totalRecords(result.importedCounts)} importado(s) · {totalRecords(result.skippedCounts)} ignorado(s).</p>
@@ -84,11 +98,12 @@ export function ProjectImportPanel({ token, canImport, onImported }: { token: st
           {countDetails(result.importedCounts).length > 0 && <p><strong>Importados:</strong> {countDetails(result.importedCounts).map(([name, count]) => `${collectionLabels[name] ?? name}: ${count}`).join(' · ')}</p>}
           {countDetails(result.skippedCounts).length > 0 && <p><strong>Ignorados:</strong> {countDetails(result.skippedCounts).map(([name, count]) => `${collectionLabels[name] ?? name}: ${count}`).join(' · ')}</p>}
         </div>}
-        {result.skipped.length > 0 && <details className="transfer-skip-details"><summary>Ver conflitos e vínculos ignorados ({totalRecords(result.skippedCounts)})</summary><ul>{result.skipped.map(item => <li key={`${item.collection}:${item.id}`}><strong>{collectionLabels[item.collection] ?? item.collection}</strong> <code>{item.id}</code>: {item.reason}</li>)}</ul></details>}
+        {result.skipped.length > 0 && <details className="transfer-skip-details" open><summary>Conflitos e vínculos ignorados ({totalRecords(result.skippedCounts)})</summary><ul>{result.skipped.map(item => <li key={`${item.collection}:${item.id}`}><strong>{collectionLabels[item.collection] ?? item.collection}</strong> <code>{item.id}</code>: {item.reason}</li>)}</ul></details>}
         {result.skippedDetailsTruncated && <p>O resumo detalhado foi limitado; as contagens incluem todos os itens ignorados.</p>}
         {result.warnings.map(warning => <p key={warning}>{warning}</p>)}
       </div>}
-    </div>
-    <footer className="project-transfer-footer"><button type="button" className="button primary" disabled={!canImport || !preview || busy || reading} onClick={() => void importData()}>{busy ? 'Importando projeto…' : 'Importar projeto'}</button><span>Validação completa antes da gravação.</span></footer>
+      </div>
+      <footer className="dialog-footer"><button type="button" className="button primary" autoFocus onClick={() => setResultOpen(false)}>Fechar</button></footer>
+    </dialog>
   </section>;
 }
