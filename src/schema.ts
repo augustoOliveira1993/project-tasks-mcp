@@ -70,6 +70,7 @@ export const tools = {
   get_task_context: z.object({ projectId: id, taskId: id }).strict().describe('Retorna contexto tipado e limitado da tarefa. Consulte get_record e as ferramentas de paginação para carregar detalhes truncados sob demanda.'),
   get_task_markdown_summary: z.object({ projectId: id, taskId: id }).strict(),
   get_history: z.object({ projectId: id, entityId: id.optional(), after: cursor.optional(), limit: z.number().int().min(1).max(100).default(25) }).strict(),
+  list_project_activity: z.object({ projectId: id, taskId: id.optional(), search: z.string().trim().min(1).max(160).optional(), after: cursor.optional(), limit: z.number().int().min(1).max(100).default(25) }).strict(),
   get_global_activity: z.object({ after: cursor.optional(), limit: z.number().int().min(1).max(100).default(25) }).strict().describe('Consulta atividades globais recentes; somente administradores de sistema.'),
   get_summary: z.object({ projectId: id, featureId: id.optional() }).strict(),
   get_project_area_summary: z.object({ projectId: id, featureId: id.optional() }).strict(),

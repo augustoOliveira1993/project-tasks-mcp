@@ -1,13 +1,13 @@
-import { useEffect, useState, type FormEvent, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { allRecords, operationId, query, request } from '../../api';
 import { errorMessage, formatDate } from '../../lib/format';
 import { routeUrl } from '../../route-state';
 import { Badge } from '../ui/Badge';
 import { MarkdownView } from '../ui/MarkdownView';
-import { confirmConversationDeletion, createProjectConversation, deleteProjectConversation, historyAfterConversationDeletion, historyAfterConversationTitleUpdate, linkConversationTask, scheduleTaskSearch, searchProjectTasks, updateConversationTitle } from './conversation-actions';
+import { confirmConversationDeletion, createProjectConversation, deleteProjectConversation, historyAfterConversationDeletion, historyAfterConversationTitleUpdate, linkConversationTask, markConversationRead, nextConversationReadAttempt, scheduleTaskSearch, searchProjectTasks, updateConversationTitle, type ConversationReadAttempt } from './conversation-actions';
 
-type Conversation = { _id: string; projectId: string; taskId: string | null; title: string; status: string; version: number; updatedAt?: string; lastMessageAt?: string | null };
+type Conversation = { _id: string; projectId: string; taskId: string | null; title: string; status: string; version: number; updatedAt?: string; lastMessageAt?: string | null; unread?: { count: number; cursor: string | null } };
 type Message = { _id: string; author: string; authorType: 'human' | 'agent'; clientName?: string | null; content: string; createdAt: string };
 type Proposal = {
   _id: string; taskId: string; expectedTaskVersion: number; title: string; summary: string;
@@ -47,6 +47,10 @@ function HumanAuthorIcon() {
 
 function UnknownAuthorIcon() {
   return <svg className="conversation-author-icon unknown" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" strokeWidth="1.8" /><path d="M9.5 9a2.6 2.6 0 1 1 4.35 1.9c-1.1.95-1.85 1.25-1.85 2.6m0 3h.01" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" /></svg>;
+}
+
+export function ConversationReadFailure({ error, retry, retrying = false }: { error: unknown; retry: () => void; retrying?: boolean }) {
+  return <div className="notice error" role="alert">{errorMessage(error)} <button type="button" className="text-button" onClick={retry} disabled={retrying}>{retrying ? 'Tentando…' : 'Tentar novamente'}</button></div>;
 }
 
 function TaskMessageAuthor({ message }: { message: TaskActivity['messages'][number] }) {
@@ -146,6 +150,21 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
     refetchInterval: 4000
   });
   const latest = detail.data;
+  const readAttempt = useRef<ConversationReadAttempt | null>(null);
+  const markRead = useMutation({
+    mutationFn: (attempt: ConversationReadAttempt) => markConversationRead(token, projectId, attempt),
+    onSuccess: async (_result, attempt) => Promise.all([
+      client.invalidateQueries({ queryKey: ['conversations', nonce, projectId] }),
+      client.invalidateQueries({ queryKey: ['conversation', nonce, projectId, attempt.conversationId] })
+    ])
+  });
+  useEffect(() => {
+    if (latest?.conversation._id !== selectedId) return;
+    const attempt = nextConversationReadAttempt(readAttempt.current, selectedId, latest.conversation.unread);
+    if (!attempt) return;
+    readAttempt.current = attempt;
+    markRead.mutate(attempt);
+  }, [latest?.conversation._id, latest?.conversation.unread?.count, latest?.conversation.unread?.cursor, selectedId, markRead.mutate]);
   const taskForId = (taskId: string) => latest?.task?._id === taskId ? latest.task : tasks.find(task => task._id === taskId);
   const featureNameForTask = (taskId: string) => {
     const featureId = taskForId(taskId)?.featureId;
@@ -309,7 +328,7 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
       <button className="button primary conversation-new-button" onClick={() => create.mutate()} disabled={create.isPending}>{create.isPending ? 'Criando…' : 'Nova conversa'}</button>
       {conversations.isPending ? <div className="loading">Carregando conversas…</div> : conversations.isError ? <div className="notice error">{errorMessage(conversations.error)}</div> : uniqueConversationItems.length ? <><div className="conversation-list">{uniqueConversationItems.map(item => {
         const task = item.taskId ? taskForId(item.taskId) : undefined;
-        return <button key={item._id} aria-current={selectedId === item._id ? 'true' : undefined} className={'conversation-list-item' + (selectedId === item._id ? ' active' : '')} onClick={() => { setSelectedId(item._id); onConversationSelected?.(item._id); }}><strong>{item.title || 'Nova conversa'}</strong><small>{item.taskId ? 'Tarefa vinculada · ' + (task?.name ?? item.taskId.slice(0, 8)) : 'Escopo do projeto'} · {formatDate(item.lastMessageAt || item.updatedAt)}</small>{item.taskId && <div className="conversation-context-badges">{task && <Badge tone="blue">Área · {areaLabel(task.area)}</Badge>}{task && <Badge tone={statusTone(task.status)}>Status · {statusLabel(task.status)}</Badge>}<Badge tone="muted">Feature · {featureBadgeForTask(item.taskId)}</Badge></div>}</button>;
+        return <button key={item._id} aria-current={selectedId === item._id ? 'true' : undefined} className={'conversation-list-item' + (selectedId === item._id ? ' active' : '')} onClick={() => { setSelectedId(item._id); onConversationSelected?.(item._id); }}><strong>{item.title || 'Nova conversa'}</strong><small>{item.taskId ? 'Tarefa vinculada · ' + (task?.name ?? item.taskId.slice(0, 8)) : 'Escopo do projeto'} · {formatDate(item.lastMessageAt || item.updatedAt)}</small>{(item.unread?.count ?? 0) > 0 && <span className="conversation-unread-count" aria-label={`${item.unread!.count} mensagens não lidas`}><Badge tone="amber">{item.unread!.count} não lida(s)</Badge></span>}{item.taskId && <div className="conversation-context-badges">{task && <Badge tone="blue">Área · {areaLabel(task.area)}</Badge>}{task && <Badge tone={statusTone(task.status)}>Status · {statusLabel(task.status)}</Badge>}<Badge tone="muted">Feature · {featureBadgeForTask(item.taskId)}</Badge></div>}</button>;
       })}</div>{(olderConversationPages.at(-1)?.next ?? conversations.data?.next) && <button className="button ghost" disabled={loadingOlder} onClick={() => void loadOlderConversations()}>{loadingOlder ? 'Carregando…' : 'Carregar conversas anteriores'}</button>}</> : <div className="empty-state compact"><h3>Comece uma conversa</h3><p>Crie uma conversa geral e vincule uma tarefa pelo cabeçalho do chat.</p></div>}
     </aside>
     <div className="panel-card conversation-main">
@@ -318,6 +337,7 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
         {linkTaskOpen && latest && !latest.conversation.taskId && <ConversationTaskSearch value={taskSearch} debouncedValue={debouncedTaskSearch} isFetching={taskSearchResults.isFetching} isError={taskSearchResults.isError} error={taskSearchResults.error} tasks={taskSearchResults.data?.items ?? []} onChange={setTaskSearch} onSelect={taskId => linkTask.mutate(taskId)} disabled={linkTask.isPending} featureLabel={task => task.featureId ? features.data?.find(feature => feature._id === task.featureId)?.name ?? 'Carregando…' : 'Sem feature'} />}
         {latest?.task && <section className="conversation-task-progress"><div className="proposal-heading"><div><strong>{latest.task.name}</strong><small>Versão {taskContext.data?.task.version ?? latest.task.version}</small></div><div className="conversation-context-badges">{latest.task.area && <Badge tone="blue">Área · {areaLabel(latest.task.area)}</Badge>}<Badge tone={statusTone(latest.task.status)}>Status · {statusLabel(latest.task.status)}</Badge></div></div>{latest.jobs.map(job => <div className="conversation-job-state" key={job._id}><Badge tone={job.failed ? 'amber' : job.status === 'completed' ? 'green' : 'blue'}>{job.failed ? 'Falha na execução' : job.status === 'waiting_human' ? 'Aguardando autorização' : job.status === 'completed' ? 'Enviado para revisão' : job.status === 'queued' ? 'Na fila' : job.status === 'running' || job.status === 'reserved' ? 'Em execução' : job.status === 'blocked' ? 'Bloqueado' : job.status}</Badge>{job.permissionTitle && <small>{job.permissionTitle}</small>}{job.status === 'waiting_human' && <button className="button ghost" onClick={onOpenAdmin}>Abrir automações</button>}</div>)}{taskContext.isPending ? <small>Carregando acompanhamento…</small> : taskContext.isError ? <div className="notice error">{errorMessage(taskContext.error)}</div> : <><div className="conversation-acceptance">{taskContext.data?.task.acceptance.map((criterion, index) => <div key={index}><Badge tone={taskContext.data?.task.acceptanceProgress[index] ? 'green' : 'blue'}>{taskContext.data?.task.acceptanceProgress[index] ? 'Atendido' : 'Pendente'}</Badge><MarkdownView content={criterion} />{taskContext.data?.task.acceptanceEvidence[index] && <small>Evidência: {taskContext.data.task.acceptanceEvidence[index]}</small>}</div>)}</div>{taskContext.data?.messages.length ? <div className="conversation-task-messages"><strong>Progresso e decisões recentes</strong>{taskContext.data.messages.slice(0, 5).map(message => <article key={message._id}><div className="conversation-task-message-meta"><TaskMessageAuthor message={message} /><div className="conversation-task-message-state"><Badge tone={message.type === 'resposta' ? 'green' : 'blue'}>{taskMessageTypeLabel(message.type)}</Badge><small>{formatDate(message.createdAt)}</small></div></div><MarkdownView content={message.message} /></article>)}</div> : null}{taskContext.data?.executions[0] && <div className="conversation-execution"><Badge>{taskContext.data.executions[0].status}</Badge><small>Execução iniciada em {formatDate(taskContext.data.executions[0].startedAt)}</small>{taskContext.data.executions[0].result?.summary && <MarkdownView content={taskContext.data.executions[0].result.summary} />}</div>}</>}</section>}
         {notice && <div className="notice">{notice}</div>}
+        {markRead.isError && readAttempt.current?.conversationId === selectedId && <ConversationReadFailure error={markRead.error} retrying={markRead.isPending} retry={() => { if (readAttempt.current) markRead.mutate(readAttempt.current); }} />}
         {detail.isPending ? <div className="loading">Carregando mensagens…</div> : detail.isError ? <div className="notice error">{errorMessage(detail.error)}</div> : <>
           {(olderMessagePages.at(-1)?.next ?? latest?.next) && <button className="button ghost" disabled={loadingOlder} onClick={() => void loadOlderMessages()}>{loadingOlder ? 'Carregando…' : 'Carregar mensagens anteriores'}</button>}
           <div className="conversation-messages" aria-live="polite">{orderedMessages.length ? orderedMessages.map(message => <article key={message._id} className={`conversation-message ${message.authorType}`}><div className="conversation-message-meta"><strong className={message.authorType === 'agent' ? 'conversation-agent-identity' : undefined}>{message.authorType === 'agent' ? <><AgentClientIcon clientName={message.clientName} /><span>{message.clientName?.trim() || 'IA'} ({authorDisplayName(message.author)})</span></> : `Pessoa (${authorDisplayName(message.author)})`}</strong><small>{formatDate(message.createdAt)}</small></div><MarkdownView content={message.content} /></article>) : <div className="empty-state compact"><h3>Sem mensagens</h3><p>Envie o objetivo e os detalhes conhecidos para iniciar.</p></div>}</div>

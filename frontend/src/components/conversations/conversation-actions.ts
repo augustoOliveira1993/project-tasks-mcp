@@ -20,6 +20,24 @@ export function deleteProjectConversation<T>(token: string, conversationId: stri
   });
 }
 
+export type ConversationReadAttempt = { conversationId: string; cursor: string; operationId: string };
+
+export function nextConversationReadAttempt(
+  previous: ConversationReadAttempt | null,
+  conversationId: string,
+  unread?: { count: number; cursor: string | null }
+): ConversationReadAttempt | null {
+  if (!unread || unread.count <= 0 || !unread.cursor) return null;
+  if (previous?.conversationId === conversationId && previous.cursor === unread.cursor) return null;
+  return { conversationId, cursor: unread.cursor, operationId: operationId() };
+}
+
+export function markConversationRead<T>(token: string, projectId: string, attempt: ConversationReadAttempt) {
+  return request<T>(token, `/admin/conversations/${attempt.conversationId}/read`, {
+    body: { projectId, cursor: attempt.cursor, operationId: attempt.operationId }
+  });
+}
+
 export function updateConversationTitle<T>(token: string, conversationId: string, projectId: string, title: string, version: number) {
   return request<T>(token, `/admin/conversations/${conversationId}/title`, {
     method: 'PATCH', body: { projectId, title, version, operationId: operationId() }

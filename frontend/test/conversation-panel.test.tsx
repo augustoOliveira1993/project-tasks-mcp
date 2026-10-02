@@ -7,7 +7,7 @@ import { resolve } from 'node:path';
 import { createServer } from 'vite';
 
 const vite = await createServer({ configFile: resolve(process.cwd(), 'frontend/vite.config.ts'), server: { middlewareMode: true }, appType: 'custom' });
-const { ConversationPanel, ConversationTaskSearch, ConversationTitleEditor } = await vite.ssrLoadModule('/src/components/conversations/ConversationPanel.tsx');
+const { ConversationPanel, ConversationReadFailure, ConversationTaskSearch, ConversationTitleEditor } = await vite.ssrLoadModule('/src/components/conversations/ConversationPanel.tsx');
 const conversationActions = await vite.ssrLoadModule('/src/components/conversations/conversation-actions.ts');
 after(async () => { await vite.close(); });
 
@@ -61,6 +61,32 @@ test('painel apresenta erro de sessão retornado pela API', () => {
 
   assert.match(html, /notice error/);
   assert.match(html, /Sessão expirada/);
+});
+
+test('lista mostra a contagem não lida e só agenda leitura para cada novo cursor observado', () => {
+  const html = renderPanel([
+    { _id: 'conversation-unread', projectId: 'project-id', taskId: null, title: 'Conversa pendente', status: 'open', unread: { count: 3, cursor: 'message-3' } }
+  ]);
+  assert.match(html, /3 não lida\(s\)/);
+  assert.match(html, /aria-label="3 mensagens não lidas"/);
+
+  const first = conversationActions.nextConversationReadAttempt(null, 'conversation-1', { count: 2, cursor: 'message-2' });
+  assert.equal(first?.cursor, 'message-2');
+  assert.match(first?.operationId ?? '', /^[0-9a-f-]{36}$/i);
+  assert.equal(conversationActions.nextConversationReadAttempt(first, 'conversation-1', { count: 2, cursor: 'message-2' }), null);
+  const later = conversationActions.nextConversationReadAttempt(first, 'conversation-1', { count: 1, cursor: 'message-3' });
+  assert.equal(later?.cursor, 'message-3');
+  assert.notEqual(later?.operationId, first?.operationId);
+  assert.equal(conversationActions.nextConversationReadAttempt(first, 'conversation-1', { count: 0, cursor: null }), null);
+});
+
+test('falha ao marcar leitura oferece alerta acessível e retry', () => {
+  const html = renderToStaticMarkup(createElement(ConversationReadFailure, {
+    error: new Error('Falha de rede'), retry() {}
+  }));
+  assert.match(html, /role="alert"/);
+  assert.match(html, /Falha de rede/);
+  assert.match(html, /<button type="button" class="text-button">Tentar novamente<\/button>/);
 });
 
 test('conversa vazia mantém criação geral e conversa sem vínculo oferece vincular tarefa', () => {
@@ -205,6 +231,44 @@ test('erro de validação ou conflito do backend fica legível para a edição d
   const html = renderTitleEditor({ editing: true, draft: 'Título digitado', error: new Error('Conversation version conflict') });
   assert.match(html, /value="Título digitado"/);
   assert.match(html, /Conversation version conflict/);
+});
+
+test('ação de marcação usa a conversa, o cursor observado e o mesmo operationId', async () => {
+  const originalFetch = globalThis.fetch;
+  let url = '';
+  let init: RequestInit | undefined;
+  globalThis.fetch = async (input, options) => {
+    url = String(input); init = options;
+    return new Response(JSON.stringify({ conversationId: 'conversation-id', cursor: 'message-7' }), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  try {
+    await conversationActions.markConversationRead('token', 'project-id', {
+      conversationId: 'conversation-id', cursor: 'message-7', operationId: '19e8787b-9ff2-4b86-9d14-a13d78e6a634'
+    });
+    assert.match(url, /\/admin\/conversations\/conversation-id\/read$/);
+    assert.deepEqual(JSON.parse(String(init?.body)), {
+      projectId: 'project-id', cursor: 'message-7', operationId: '19e8787b-9ff2-4b86-9d14-a13d78e6a634'
+    });
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('retry de marcação reutiliza a operação após uma falha temporária', async () => {
+  const originalFetch = globalThis.fetch;
+  const bodies: string[] = [];
+  let shouldFail = true;
+  globalThis.fetch = async (_input, init) => {
+    bodies.push(String(init?.body));
+    return shouldFail
+      ? new Response(JSON.stringify({ reason: 'Falha temporária' }), { status: 503, headers: { 'content-type': 'application/json' } })
+      : new Response(JSON.stringify({ cursor: 'message-7' }), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  const attempt = { conversationId: 'conversation-id', cursor: 'message-7', operationId: 'a40b4bdd-488c-4e14-8434-3f9ba7d1dc30' };
+  try {
+    await assert.rejects(conversationActions.markConversationRead('token', 'project-id', attempt), /Falha temporária/);
+    shouldFail = false;
+    await conversationActions.markConversationRead('token', 'project-id', attempt);
+    assert.deepEqual(bodies[0], bodies[1]);
+  } finally { globalThis.fetch = originalFetch; }
 });
 
 test('excluir exige confirmação e atualiza o histórico e a seleção', () => {

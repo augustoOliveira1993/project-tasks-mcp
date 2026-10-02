@@ -156,6 +156,8 @@ h1, h2, h3, p { margin-top: 0; }
 .task-id { display: block; margin-top: 4px; color: #a1a9b5; font: 9px ui-monospace, SFMono-Regular, Menlo, monospace; }
 .task-sync-flags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
 .task-sync-flags .badge { padding: 3px 7px; font-size: 9px; }
+.task-unread-link { display: inline-flex; padding: 0; border: 0; border-radius: 999px; background: transparent; cursor: pointer; }
+.task-unread-link:focus-visible { outline: 2px solid #b7791f; outline-offset: 2px; }
 .task-question-link { text-decoration: none; }
 .task-question-link:hover { text-decoration: underline; }
 .checked-label { display: block; margin-top: 4px; color: #288160; font-size: 9px; }
@@ -380,24 +382,29 @@ h1, h2, h3, p { margin-top: 0; }
 .credential-issue-card .stack-form > label:not(.confirm-line) { gap: 7px; color: #465368; font-size: 11px; }
 .credential-issue-card .stack-form input[type='email'] { min-height: 40px; font-size: 12px; }
 .credential-issue-card .stack-form > .button { justify-self: start; }
-.credential-inventory { min-width: 0; }
+.credential-inventory { min-width: 0; padding: 20px; }
+.credential-inventory > .eyebrow { font-size: 11px; }
+.credential-inventory > .muted-text { margin: 0; font-size: 12px; line-height: 1.55; }
 .credential-filters { display: grid; grid-template-columns: minmax(180px, 1.7fr) repeat(4, minmax(115px, 1fr)); gap: 9px; margin: 15px 0 10px; }
-.credential-filters label { display: grid; gap: 5px; color: #566275; font-size: 9px; font-weight: 650; }
-.credential-filters input, .credential-filters select { min-width: 0; width: 100%; min-height: 34px; border: 1px solid #e1e5ed; border-radius: 7px; padding: 7px 9px; background: #fff; color: #344054; outline: none; font-size: 10px; }
+.credential-filters label { display: grid; gap: 5px; color: #566275; font-size: 11px; font-weight: 650; }
+.credential-filters input, .credential-filters select { min-width: 0; width: 100%; min-height: 38px; border: 1px solid #e1e5ed; border-radius: 7px; padding: 7px 9px; background: #fff; color: #344054; outline: none; font-size: 12px; }
 .credential-filters select:disabled { background: #f5f6f9; color: #9aa3b1; }
-.credential-hint { margin: 0 0 10px; color: #758093; font-size: 9px; }
-.credential-table { width: 100%; min-width: 730px; border-collapse: collapse; text-align: left; }
-.credential-table th { padding: 9px 10px; border-top: 1px solid #edf0f5; border-bottom: 1px solid #edf0f5; background: #f8f9fc; color: #909aaa; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
-.credential-table td { padding: 10px; border-bottom: 1px solid #edf0f5; color: #596576; font-size: 9px; vertical-align: middle; }
+.credential-hint { margin: 0 0 10px; color: #758093; font-size: 11px; }
+.credential-table { width: 100%; min-width: 900px; border-collapse: collapse; text-align: left; }
+.credential-table th { padding: 10px 12px; border-top: 1px solid #edf0f5; border-bottom: 1px solid #edf0f5; background: #f8f9fc; color: #697589; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
+.credential-table td { padding: 9px 12px; border-bottom: 1px solid #edf0f5; color: #596576; font-size: 12px; vertical-align: middle; }
 .credential-table tbody tr:hover { background: #fcfcff; }
-.credential-email { overflow-wrap: anywhere; color: #394558; font-weight: 650; }
-.credential-id { display: block; max-width: 190px; overflow-wrap: anywhere; color: #8a95a5; font-size: 8px; }
-.credential-role, .credential-date { display: block; margin-top: 4px; color: #929baa; font-size: 8px; }
+.credential-email { overflow-wrap: anywhere; color: #394558; font-size: 12px; font-weight: 650; }
+.credential-id { display: block; max-width: 220px; overflow-wrap: anywhere; color: #657184; font-size: 11px; }
+.credential-role, .credential-date { display: block; margin-top: 4px; color: #6f7b8c; font-size: 11px; }
 .credential-project-list { display: block; max-width: 280px; overflow-wrap: anywhere; }
-.credential-actions { display: grid; min-width: 150px; gap: 6px; }
-.credential-actions select { min-width: 0; width: 100%; min-height: 30px; border: 1px solid #e1e5ed; border-radius: 7px; padding: 5px 7px; background: #fff; color: #344054; font-size: 9px; }
+.credential-table .badge { min-height: 24px; padding: 4px 9px; font-size: 11px; }
+.credential-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); min-width: 210px; gap: 6px; }
+.credential-actions > select { grid-column: 1 / -1; min-width: 0; width: 100%; min-height: 34px; border: 1px solid #e1e5ed; border-radius: 7px; padding: 5px 7px; background: #fff; color: #344054; font-size: 11px; }
+.credential-actions > :only-child { grid-column: 1 / -1; }
+.credential-actions > .button { min-width: 0; min-height: 34px; padding: 0 8px; font-size: 11px; line-height: 1.2; white-space: normal; }
 .credential-actions select:disabled { background: #f5f6f9; color: #9aa3b1; }
-.credential-pagination { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-top: 12px; color: #8792a2; font-size: 9px; }
+.credential-pagination { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-top: 12px; color: #687487; font-size: 11px; }
 .admin-form-grid { display: grid; grid-template-columns: 1fr 1.4fr 1.2fr auto; gap: 10px; align-items: end; }
 .area-add-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: end; }
 .area-add-form label { display: grid; gap: 6px; color: #566275; font-size: 10px; font-weight: 600; }
@@ -776,6 +783,7 @@ dialog.projects-dialog::backdrop { background: #16203370; backdrop-filter: blur(
   .credential-issue-grid { grid-template-columns: minmax(0, 1fr); }
   .credential-issue-card { padding: 14px; }
   .credential-issue-card .stack-form > .button { width: 100%; }
+  .credential-inventory { padding: 12px; }
   .credential-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .credential-filters .credential-search { grid-column: 1 / -1; }
   .credential-inventory .table-scroll { overflow-x: auto; }
@@ -822,6 +830,7 @@ dialog.projects-dialog::backdrop { background: #16203370; backdrop-filter: blur(
 .conversation-list-item.active { border-color: #cdd3ff; background: #f1f2ff; }
 .conversation-list-item strong { color: #3f4b60; font-size: 11px; line-height: 1.45; overflow-wrap: anywhere; }
 .conversation-list-item small { color: #8791a1; font-size: 9px; line-height: 1.45; overflow-wrap: anywhere; }
+.conversation-unread-count { justify-self: start; }
 .conversation-main { display: flex; flex-direction: column; gap: 14px; }
 .conversation-header, .conversation-composer-footer, .proposal-heading { display: flex; justify-content: space-between; gap: 12px; }
 .conversation-header { align-items: flex-start; flex-wrap: wrap; }

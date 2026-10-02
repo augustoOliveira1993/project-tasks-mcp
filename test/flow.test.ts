@@ -6,7 +6,7 @@ import mongoose from 'mongoose';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { connect, Project, Task, Event, Execution, Credential, TaskMessage, MarkdownDocument, MarkdownRevision, Conversation, ConversationMessage, ActionProposal } from '../src/db.js';
+import { connect, Project, Task, Event, Execution, Credential, TaskMessage, MarkdownDocument, MarkdownRevision, Conversation, ConversationMessage, ConversationRead, ActionProposal } from '../src/db.js';
 import { DomainError, Service, authenticate, bootstrap, recoverHumanToken, trustedLocal, type Actor } from '../src/service.js';
 import { createApp, mcpError } from '../src/http.js';
 
@@ -453,6 +453,49 @@ test('task conversation open reuses, is idempotent, project-scoped, and appears 
   const transcript = await service.query(human, 'get_conversation', { projectId: source.p._id, conversationId: opened.conversation._id, limit: 20 });
   assert.equal(transcript.messages.length, 4, 'full conversation history remains available');
 });
+test('conversation unread cursors are isolated by identity and conversation and advance monotonically', async () => {
+  const { p } = await fixture();
+  const conversation = await service.call(human, 'create_conversation', { operationId: op(), projectId: p._id });
+  const otherConversation = await service.call(human, 'create_conversation', { operationId: op(), projectId: p._id });
+  const anotherIdentity = trustedLocal('chat-reader@ferroeste.com.br');
+  const base = Date.now();
+  const saveMessage = (conversationId: string, author: string, offset: number) => ConversationMessage.create({
+    _id: op(), projectId: p._id, conversationId, author, authorType: author === human.userId ? 'human' : 'agent',
+    senderId: 'test', operationId: op(), content: 'message', createdAt: new Date(base + offset * 1000)
+  });
+  const read = (who: Actor, conversationId: string, cursor: string, operationId = op()) => service.call(who, 'mark_conversation_read', {
+    operationId, projectId: p._id, conversationId, cursor
+  });
+  const detail = (who: Actor, conversationId: string) => service.query(who, 'get_conversation', {
+    projectId: p._id, conversationId, limit: 50
+  });
+
+  const ownMessage = await saveMessage(conversation._id, human.userId, 1);
+  assert.equal((await detail(human, conversation._id)).conversation.unread.count, 0, 'own messages are not unread');
+  assert.equal((await detail(anotherIdentity, conversation._id)).conversation.unread.count, 1, 'another identity has an independent unread state');
+  await read(anotherIdentity, conversation._id, ownMessage._id);
+  assert.equal((await detail(anotherIdentity, conversation._id)).conversation.unread.count, 0);
+
+  const incoming = await saveMessage(conversation._id, anotherIdentity.userId, 2);
+  assert.deepEqual((await detail(human, conversation._id)).conversation.unread, { count: 1, cursor: incoming._id });
+  const staleOperationId = op();
+  const staleReceipt = await read(human, conversation._id, ownMessage._id, staleOperationId);
+  assert.equal((await detail(human, conversation._id)).conversation.unread.count, 1, 'a stale cursor leaves newer messages unread');
+  const laterIncoming = await saveMessage(conversation._id, anotherIdentity.userId, 3);
+  assert.deepEqual(await read(human, conversation._id, ownMessage._id, staleOperationId), staleReceipt, 'retries return the original receipt');
+  assert.equal((await detail(human, conversation._id)).conversation.unread.count, 2, 'idempotent retry does not advance the cursor');
+  await read(human, conversation._id, laterIncoming._id);
+  assert.equal((await detail(human, conversation._id)).conversation.unread.count, 0);
+
+  const ownReply = await saveMessage(conversation._id, human.userId, 4);
+  assert.equal((await detail(anotherIdentity, conversation._id)).conversation.unread.cursor, ownReply._id);
+  const separateMessage = await saveMessage(otherConversation._id, anotherIdentity.userId, 5);
+  const listing = await service.query(human, 'list_conversations', { projectId: p._id, limit: 20 });
+  assert.equal(listing.items.find((item: any) => item._id === otherConversation._id).unread.cursor, separateMessage._id);
+  await read(human, conversation._id, ownReply._id);
+  assert.equal((await detail(human, otherConversation._id)).conversation.unread.count, 1, 'reading one conversation does not mark another read');
+  await assert.rejects(read(human, conversation._id, separateMessage._id), /Conversation message cursor not found/i);
+});
 test('human feature creation and task conversation HTTP routes retain project access', async () => {
   const { p, create } = await fixture(); const task = await create('HTTP conversation task');
   const server = createApp(service, []).listen(0, '127.0.0.1');
@@ -481,6 +524,12 @@ test('human feature creation and task conversation HTTP routes retain project ac
     assert.equal(renamedResponse.status, 200);
     assert.equal((await renamedResponse.json() as any).title, 'Renamed through HTTP');
     assert.equal((await service.query(human, 'list_conversations', { projectId: p._id, limit: 20 })).items[0].title, 'Renamed through HTTP');
+    const httpMessageId = op();
+    await ConversationMessage.create({ _id: httpMessageId, projectId: p._id, conversationId: opened.conversation._id, author: 'other-user', authorType: 'agent', senderId: 'http-test', operationId: op(), content: 'Unread through HTTP', createdAt: new Date() });
+    const readResponse = await fetch(`${root}/admin/conversations/${opened.conversation._id}/read`, { method: 'POST', headers, body: JSON.stringify({ operationId: op(), projectId: p._id, cursor: httpMessageId }) });
+    assert.equal(readResponse.status, 200);
+    assert.equal((await readResponse.json() as any).cursor, httpMessageId);
+    assert.equal((await service.query(human, 'get_conversation', { projectId: p._id, conversationId: opened.conversation._id, limit: 20 })).conversation.unread.count, 0);
     const reusedResponse = await fetch(`${root}/admin/tasks/${task._id}/conversation`, { method: 'POST', headers, body: JSON.stringify({ ...conversationInput, operationId: op() }) });
     assert.equal(reusedResponse.status, 200);
     assert.equal((await reusedResponse.json() as any).created, false);
@@ -725,6 +774,7 @@ test('task transfer previews without writes and moves task history atomically on
   let task = await source.create('Transfer with history');
   const conversation = await service.call(agent, 'create_conversation', { operationId: op(), projectId: source.p._id, title: 'Transfer chat history' });
   const conversationMessage = await service.call(agent, 'send_conversation_message', { operationId: op(), projectId: source.p._id, conversationId: conversation._id, content: 'Shared conversation history' });
+  await service.call(human, 'mark_conversation_read', { operationId: op(), projectId: source.p._id, conversationId: conversation._id, cursor: conversationMessage._id });
   const proposal = await service.call(agent, 'create_action_proposal', { operationId: op(), projectId: source.p._id, conversationId: conversation._id, taskId: task._id, expectedTaskVersion: task.version, title: 'Prepare task', summary: 'Drafted task instructions', instructions: 'Updated instructions' });
   const markdown = await service.call(agent, 'save_markdown', { operationId: op(), projectId: source.p._id, targetKind: 'task', targetId: task._id, name: 'plan.md', summary: 'Plan', content: '# Transfer plan' });
   task = await claim(source.p, task);
@@ -741,6 +791,7 @@ test('task transfer previews without writes and moves task history atomically on
   assert.equal(preview.moveCounts.executions, 1);
   assert.equal(preview.moveCounts.conversations, 1);
   assert.equal(preview.moveCounts.conversationMessages, 1);
+  assert.equal(preview.moveCounts.conversationReads, 1);
   assert.equal(preview.moveCounts.actionProposals, 1);
   assert.ok(preview.moveCounts.historyEvents > 0);
   assert.equal((await Task.findById(task._id))!.projectId, source.p._id, 'preview must not mutate the task');
@@ -760,6 +811,8 @@ test('task transfer previews without writes and moves task history atomically on
   assert.equal((await TaskMessage.findById(message._id))!.projectId, destination.p._id);
   assert.equal((await Conversation.findById(conversation._id))!.projectId, destination.p._id);
   assert.equal((await ConversationMessage.findById(conversationMessage._id))!.projectId, destination.p._id);
+  assert.ok(await ConversationRead.exists({ projectId: destination.p._id, conversationId: conversation._id, userId: human.userId }));
+  assert.equal(await ConversationRead.exists({ projectId: source.p._id, conversationId: conversation._id }), null);
   assert.equal((await ActionProposal.findById(proposal._id))!.projectId, destination.p._id);
   const resumed = await service.call(agent, 'get_conversation', { projectId: destination.p._id, conversationId: conversation._id, limit: 50 });
   assert.equal(resumed.conversation.taskId, null, 'an unapproved proposal does not persist the task link');

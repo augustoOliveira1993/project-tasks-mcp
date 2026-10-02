@@ -21,7 +21,7 @@ function messageCursor(message: any) {
   return `${new Date(message.createdAt).toISOString()}|${message._id}`;
 }
 
-function cursorPoint(value?: string) {
+function cursorPoint(value?: string | null) {
   if (!value) return null;
   const separator = value.indexOf('|');
   if (separator < 0) return null;

@@ -31,6 +31,8 @@ type ActivityPageProps = {
   tasks: Task[];
   projects: Array<{ _id: string; name: string }>;
   isGlobal?: boolean;
+  canViewGlobal?: boolean;
+  onScopeChange?: (isGlobal: boolean) => void;
   isPending: boolean;
   isError: boolean;
   error: unknown;
@@ -94,7 +96,7 @@ function isWithinDateRange(value: string | undefined, from: string, to: string) 
   return true;
 }
 
-export function ActivityPage({ events, tasks, projects, isGlobal = false, isPending, isError, error, hasMore = false, isLoadingMore = false, onRefresh, onLoadMore }: ActivityPageProps) {
+export function ActivityPage({ events, tasks, projects, isGlobal = false, canViewGlobal = false, onScopeChange, isPending, isError, error, hasMore = false, isLoadingMore = false, onRefresh, onLoadMore }: ActivityPageProps) {
   const [filters, setFilters] = useState<ActivityFilters>(emptyFilters);
   const tasksById = useMemo(() => new Map(tasks.map(task => [task._id, task])), [tasks]);
   const kindOptions = useMemo(() => [...new Set(events.map(event => event.kind).filter((kind): kind is string => Boolean(kind)))].sort((a, b) => kindLabel(a).localeCompare(kindLabel(b), 'pt-BR')), [events]);
@@ -137,6 +139,7 @@ export function ActivityPage({ events, tasks, projects, isGlobal = false, isPend
     <div className="activity-filter-panel">
       <div className="activity-filter-heading"><div><strong>Filtros avançados</strong><span>{filteredEvents.length} de {events.length} eventos carregados</span></div><button className="text-button" onClick={() => setFilters(emptyFilters)} disabled={!hasFilters}>Limpar filtros</button></div>
       <div className="activity-filter-grid">
+        {canViewGlobal && onScopeChange && <label>Escopo da atividade<select aria-label="Escopo da atividade" value={isGlobal ? 'global' : 'project'} onChange={event => onScopeChange(event.target.value === 'global')}><option value="project">Projeto atual</option><option value="global">Todos os projetos</option></select></label>}
         <label>Buscar no evento<input type="search" value={filters.search} onChange={event => updateFilter('search', event.target.value)} placeholder="Resumo, autor ou tarefa" /></label>
         <label>Tipo de evento<select value={filters.kind} onChange={event => updateFilter('kind', event.target.value)}><option value="">Todos os tipos</option>{kindOptions.map(kind => <option key={kind} value={kind}>{kindLabel(kind)}</option>)}</select></label>
         <label>Autor<select value={filters.author} onChange={event => updateFilter('author', event.target.value)}><option value="">Todos os autores</option>{authorOptions.map(author => <option key={author} value={author}>{author === '__unknown__' ? 'Autor não identificado' : author}</option>)}</select></label>

@@ -49,6 +49,7 @@ test('renderiza a página pedida e os controles de paginação', () => {
     assert.match(html, /Perguntas abertas/);
     assert.match(html, /1 pergunta\(s\)/);
     assert.match(html, /2 não lida\(s\)/);
+    assert.match(html, /<button type="button" class="task-unread-link" aria-label="Abrir detalhes de Task 21, 2 atividades não lidas">/);
     assert.match(html, /Diff Git/);
   } finally {
     if (originalWindow) Object.defineProperty(globalThis, 'window', originalWindow);
