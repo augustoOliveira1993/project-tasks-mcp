@@ -8,7 +8,8 @@ const git = new Schema({ canonicalRemoteUrl: String, rootCommit: String, boundAt
 const repository = new Schema({ id: String, name: String, url: String, instructions: String, git }, { _id: false });
 
 export const Project = mongoose.model('Project', new Schema({ ...base, eventSequence: { type: Number, default: 0 }, fence: { type: Number, default: 0 }, name: String, description: String, instructions: String,
-  visibility: { type: String, default: 'public' }, accessTokenHash: String, members: { type: Map, of: String }, repositories: [repository], areas: { type: [String], default: () => [...LEGACY_AREAS] } }, options));
+  visibility: { type: String, default: 'public' }, accessTokenHash: String, members: { type: Map, of: String }, repositories: [repository], areas: { type: [String], default: () => [...LEGACY_AREAS] },
+  importReceipt: { digest: String, importedAt: Date, importedBy: String } }, options));
 Project.schema.index({ archived: 1, createdAt: 1, _id: 1 });
 export const Feature = mongoose.model('Feature', new Schema({ ...base, projectId: { type: String, index: true }, name: String, objective: String, context: String, acceptance: [String] }, options));
 export const Task = mongoose.model('Task', new Schema({ ...base, projectId: { type: String, index: true }, featureId: String, name: String,

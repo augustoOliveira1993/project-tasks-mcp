@@ -6,6 +6,9 @@ import { Badge } from '../ui/Badge';
 import { ProjectAreasManager } from '../projects/ProjectAreasManager';
 import { errorMessage } from '../../lib/format';
 import { makeToken } from '../../lib/token';
+import { ProjectExportPanel } from './ProjectExportPanel';
+import { ProjectImportPanel } from './ProjectImportPanel';
+import './admin-panels.css';
 
 export function repositoryGitFields(project: Project, repositoryId: string) {
   const repository = project.repositories?.find(item => item.id === repositoryId);
@@ -17,6 +20,7 @@ export function repositoryGitFields(project: Project, repositoryId: string) {
 
 export function AdminPanel({ project, projects, onChanged, notify, token, canHardDelete, actionPending, onRequestHardDeleteProject, onArchiveProject }: { token: string; project: Project; projects: Project[]; onChanged: () => void; notify: (message: string, kind?: string) => void; canHardDelete: boolean; actionPending: boolean; onRequestHardDeleteProject: (project: Project) => void; onArchiveProject: () => void }) {
   const queryClient = useQueryClient();
+  const [activePanel, setActivePanel] = useState<'tools' | 'export'>('tools');
   const [agentEmail, setAgentEmail] = useState('');
   const [memberEmail, setMemberEmail] = useState('');
   const [repositoryId, setRepositoryId] = useState(project.repositories?.[0]?.id ?? '');
@@ -117,13 +121,20 @@ export function AdminPanel({ project, projects, onChanged, notify, token, canHar
     catch { notify('Não foi possível copiar automaticamente. Selecione e copie o token.', 'error'); }
   }
 
-  return <details className="admin-disclosure">
-    <summary className="admin-disclosure-summary">
-      <span className="admin-disclosure-icon" aria-hidden="true">⌑</span>
-      <span className="admin-disclosure-copy"><strong>Ferramentas administrativas restritas</strong><small>Emissão de credenciais, acesso ao projeto e vínculo Git</small></span>
-      <Badge tone="amber">Ações sensíveis</Badge>
-      <span className="admin-disclosure-chevron" aria-hidden="true">⌄</span>
-    </summary>
+  return <div className="admin-panels">
+    <div className="admin-panel-tabs" role="tablist" aria-label="Administração do projeto">
+      {([{ id: 'tools', label: 'Ferramentas administrativas' }, { id: 'export', label: 'Exportar/Importar Projeto' }] as const).map(tab => <button
+        key={tab.id} id={`admin-tab-${tab.id}`} type="button" role="tab" aria-selected={activePanel === tab.id}
+        aria-controls={`admin-panel-${tab.id}`} tabIndex={activePanel === tab.id ? 0 : -1}
+        onClick={() => setActivePanel(tab.id)} onKeyDown={event => {
+          if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+          event.preventDefault();
+          const next = event.key === 'Home' ? 'tools' : event.key === 'End' ? 'export' : activePanel === 'tools' ? 'export' : 'tools';
+          setActivePanel(next);
+          document.getElementById(`admin-tab-${next}`)?.focus();
+        }}>{tab.label}</button>)}
+    </div>
+    <div id="admin-panel-tools" role="tabpanel" aria-labelledby="admin-tab-tools" hidden={activePanel !== 'tools'} tabIndex={0}>
     <div className="admin-disclosure-content"><div className="admin-grid">
     <section className="panel-card"><div className="section-heading"><div><p className="eyebrow">CREDENCIAIS</p><h2>Emitir credencial de agente</h2></div><span className="lock-mark">⌑</span></div><p className="muted-text">O token é gerado no navegador e mostrado uma única vez após a emissão.</p><form className="stack-form" onSubmit={event => { event.preventDefault(); void issue('agent'); }}><label>E-mail do agente<input type="email" value={agentEmail} onChange={event => setAgentEmail(event.target.value)} required placeholder="pessoa@empresa.com" /></label><label className="confirm-line"><input type="checkbox" required />Confirmo a emissão da credencial de agente para este endereço.</label><button className="button primary" disabled={busy}>Emitir credencial</button></form>
     </section>
@@ -162,5 +173,12 @@ export function AdminPanel({ project, projects, onChanged, notify, token, canHar
       <div className="repository-list">{(project.repositories ?? []).map(repository => <div className="resource-row static-row" key={repository.id}><span><strong>{repository.name}</strong><small>{repository.git?.canonicalRemoteUrl ?? repository.url}</small></span><Badge>{repository.git ? 'vinculado' : 'sem vínculo'}</Badge></div>)}</div>
     </section>
     </div></div>
-  </details>;
+    </div>
+    <div id="admin-panel-export" role="tabpanel" aria-labelledby="admin-tab-export" hidden={activePanel !== 'export'} tabIndex={0}>
+      <div className="project-transfer-grid">
+        <ProjectExportPanel key={project._id + token} project={project} token={token} />
+        <ProjectImportPanel key={token} token={token} canImport={canHardDelete} onImported={onChanged} />
+      </div>
+    </div>
+  </div>;
 }

@@ -114,6 +114,19 @@ export function createApp(service: Service, origins: string[]) {
     if (req.headers.origin && !origins.includes(req.headers.origin)) { res.status(403).json({ error: 'Origin denied' }); return; }
     next();
   });
+  app.post('/admin/projects/import', async (req, res, next) => {
+    try {
+      const value = req.headers.authorization;
+      const actor = await authenticate(value?.startsWith('Bearer ') ? value.slice(7) : '', 'human');
+      if (!actor.systemAdmin) throw new DomainError('System administrator required', 403);
+      res.locals.importActor = actor;
+      next();
+    } catch (error) { next(error); }
+  }, express.json({ limit: '25mb' }), async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const result = await service.importProject(res.locals.importActor, req.body);
+    res.status(result.reused ? 200 : 201).json(result);
+  });
   app.use(express.json({ limit: '1mb' }));
   app.get('/health', async (_req, res) => {
     try { await mongoose.connection.db!.admin().ping(); res.json({ status: 'ok' }); }
@@ -132,6 +145,12 @@ export function createApp(service: Service, origins: string[]) {
     const actor = await authenticate(token(req.headers.authorization), 'human');
     const body = z.object({ tool: z.string(), arguments: z.record(z.string(), z.unknown()) }).strict().parse(req.body);
     res.json(await service.query(actor, body.tool, body.arguments));
+  });
+  app.post('/admin/projects/export', async (req, res) => {
+    const actor = await authenticate(token(req.headers.authorization), 'human');
+    const { projectId } = z.object({ projectId: z.uuid() }).strict().parse(req.body);
+    res.set('Cache-Control', 'no-store');
+    res.json(await service.exportProject(actor, projectId));
   });
   app.post('/admin/tasks/read', async (req, res) => {
     const actor = await authenticate(token(req.headers.authorization), 'human');
@@ -451,7 +470,7 @@ export function createApp(service: Service, origins: string[]) {
     const actor = await authenticateMcp(req); if (actor.id !== session.actor.id) throw new DomainError('MCP session belongs to another identity', 403);
     await session.transport.handleRequest(req, res); sessions.delete(id);
   });  app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-    const status = err instanceof DomainError ? err.status : err instanceof ZodError || err instanceof SyntaxError ? 400 : 500;
+    const status = err instanceof DomainError ? err.status : (err as { type?: string }).type === 'entity.too.large' ? 413 : err instanceof ZodError || err instanceof SyntaxError ? 400 : 500;
     res.status(status).json({ error: status === 500 ? 'Internal service error' : (err as Error).message });
   });
   return app;

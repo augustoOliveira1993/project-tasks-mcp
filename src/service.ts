@@ -11,6 +11,8 @@ import { Automation } from './services/automation-service.js';
 import { deleteProjectCascade, ProjectDeletionConflict } from './services/project-deletion-service.js';
 import { deleteTaskCascade, TaskDeletionConflict } from './services/task-deletion-service.js';
 import { ConversationService } from './services/conversation-service.js';
+import { exportProject } from './services/project-export-service.js';
+import { importProject, ProjectImportError } from './services/project-import-service.js';
 import { areasForProject } from './area-catalog.js';
 import { tools, adminSchema, approveActionProposalSchema, approveTasksSchema, changeTaskStatusSchema, setTaskAcceptanceCriterionSchema, setTaskCheckedSchema, projectData, featureData, taskData, states, userId as userIdSchema } from './schema.js';
 
@@ -214,6 +216,29 @@ export class Service {
       tasks: reportTasks
     };
   }
+  async exportProject(actor: Actor, projectId: string) {
+    requireThat(actor.scope === 'human', 'Human credential required', 403);
+    return mongoose.connection.transaction(async session => {
+      await this.access(actor, projectId, false, true, session);
+      return exportProject(projectId, session);
+    }, { readConcern: { level: 'snapshot' } });
+  }
+
+  async importProject(actor: Actor, input: unknown) {
+    requireThat(actor.scope === 'human' && actor.systemAdmin, 'System administrator required', 403);
+    try {
+      return await mongoose.connection.transaction(async session => {
+        const credential = await Credential.updateOne({ _id: actor.id, scope: 'human', systemAdmin: true, revoked: false }, { $inc: { fence: 1 } }, { session });
+        requireThat(credential.matchedCount === 1, 'System administrator credential required', 403);
+        return importProject(input, memberKey(actor.userId), actor.userId, session);
+      });
+    } catch (error) {
+      if (error instanceof ProjectImportError) throw new DomainError(error.message, error.status);
+      if ((error as { code?: number }).code === 11000) throw new DomainError('Conflito de IDs ou vínculos duplicados; nenhum dado foi importado.', 409);
+      throw error;
+    }
+  }
+
   async access(actor: Actor, projectId: string, write = false, admin = false, session?: ClientSession) {
     if (actor.scope !== 'trusted_local' && actor.scope !== 'system') requireThat(await Credential.exists({ _id: actor.id, revoked: false, scope: actor.scope }).session(session ?? null), 'Credential revoked', 401);
     const p = await Project.findById(projectId).session(session ?? null);
