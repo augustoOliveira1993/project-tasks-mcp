@@ -5,8 +5,21 @@ import type { ProjectExport } from './ProjectExportPanel';
 import './admin-panels.css';
 
 const maxFileSize = 25 * 1024 * 1024;
-export type ImportResult = { projectId: string; name: string; reused: boolean; counts: Record<string, number>; warnings: string[] };
+const collectionLabels: Record<string, string> = {
+  project: 'Projeto', repositories: 'Repositórios', features: 'Funcionalidades', tasks: 'Tarefas', taskDependencies: 'Dependências',
+  executions: 'Execuções', events: 'Históricos', taskMessages: 'Mensagens de tarefas', conversations: 'Conversas',
+  conversationMessages: 'Mensagens de conversas', actionProposals: 'Propostas', deliveryEvents: 'Eventos', taskDiffs: 'Diffs',
+  automationJobs: 'Automações', markdownDocuments: 'Documentos', markdownRevisions: 'Revisões de documentos'
+};
+export type ImportResult = {
+  projectId: string; name: string; reused: boolean; alreadyImported?: boolean;
+  importedCounts: Record<string, number>; skippedCounts: Record<string, number>;
+  skipped: Array<{ collection: string; id: string; reason: string }>; skippedDetailsTruncated?: boolean; warnings: string[];
+};
 type ImportPreview = { package: ProjectExport; name: string; fileName: string; fileSize: number };
+
+const totalRecords = (counts: Record<string, number> = {}) => Object.values(counts).reduce((total, count) => total + count, 0);
+const countDetails = (counts: Record<string, number> = {}) => Object.entries(counts).filter(([, count]) => count > 0);
 
 export async function readProjectImport(file: Pick<File, 'size' | 'name' | 'text'>): Promise<ImportPreview> {
   if (file.size > maxFileSize) throw new Error('O arquivo deve ter no máximo 25 MB.');
@@ -59,11 +72,22 @@ export function ProjectImportPanel({ token, canImport, onImported }: { token: st
       </div>
       {reading && <p role="status">Lendo arquivo…</p>}
       {preview && <div className="transfer-file-preview"><strong>{preview.name}</strong><span>{preview.fileName} · {preview.fileSize < 1024 * 1024 ? `${Math.ceil(preview.fileSize / 1024)} KB` : `${(preview.fileSize / (1024 * 1024)).toFixed(1)} MB`}</span><dl className="transfer-counts"><div><dt>Tarefas</dt><dd>{preview.package.counts.tasks ?? 0}</dd></div><div><dt>Documentos</dt><dd>{preview.package.counts.markdownDocuments ?? 0}</dd></div><div><dt>Conversas</dt><dd>{preview.package.counts.conversations ?? 0}</dd></div></dl></div>}
-      <div className="transfer-note"><strong>Importação sem sobrescrita</strong><p>Os IDs e vínculos são preservados. Reenviar o mesmo pacote não duplica os registros; conflitos são informados antes de salvar.</p></div>
-      <p className="muted-text">A importação cria o projeto do arquivo. Acessos devem ser configurados novamente; execuções e automações antigas não são retomadas.</p>
+      <div className="transfer-note"><strong>Importação sem sobrescrita</strong><p>Os IDs e vínculos são preservados. Itens existentes ou com conflito são pulados; os demais seguem na importação. Reenviar o mesmo pacote não duplica os registros.</p></div>
+      <p className="muted-text">A importação cria o projeto ou mescla itens ausentes quando o ID já existe. Acessos devem ser configurados novamente; execuções e automações antigas não são retomadas.</p>
       {!canImport && <p className="notice" role="note">Entre com uma credencial de administrador do sistema para importar projetos.</p>}
       {error && <div className="notice error" role="alert">{error}</div>}
-      {result && <div className="transfer-success" role="status"><strong>{result.reused ? 'Este pacote já foi importado.' : 'Projeto importado com sucesso.'}</strong><p>{result.name} · {result.counts.tasks ?? 0} tarefas. A lista de projetos foi atualizada.</p>{result.warnings.map(warning => <p key={warning}>{warning}</p>)}</div>}
+      {result && <div className="transfer-success" role="status">
+        <strong>{result.alreadyImported ? 'Este pacote já tinha sido importado; nada foi duplicado.' : totalRecords(result.skippedCounts) > 0 ? 'Importação concluída com itens ignorados.' : 'Importação concluída.'}</strong>
+        <p>{result.name} · {totalRecords(result.importedCounts)} importado(s) · {totalRecords(result.skippedCounts)} ignorado(s).</p>
+        <dl className="transfer-counts"><div><dt>Importados</dt><dd>{totalRecords(result.importedCounts)}</dd></div><div><dt>Ignorados</dt><dd>{totalRecords(result.skippedCounts)}</dd></div></dl>
+        {(countDetails(result.importedCounts).length > 0 || countDetails(result.skippedCounts).length > 0) && <div className="transfer-result-breakdown">
+          {countDetails(result.importedCounts).length > 0 && <p><strong>Importados:</strong> {countDetails(result.importedCounts).map(([name, count]) => `${collectionLabels[name] ?? name}: ${count}`).join(' · ')}</p>}
+          {countDetails(result.skippedCounts).length > 0 && <p><strong>Ignorados:</strong> {countDetails(result.skippedCounts).map(([name, count]) => `${collectionLabels[name] ?? name}: ${count}`).join(' · ')}</p>}
+        </div>}
+        {result.skipped.length > 0 && <details className="transfer-skip-details"><summary>Ver conflitos e vínculos ignorados ({totalRecords(result.skippedCounts)})</summary><ul>{result.skipped.map(item => <li key={`${item.collection}:${item.id}`}><strong>{collectionLabels[item.collection] ?? item.collection}</strong> <code>{item.id}</code>: {item.reason}</li>)}</ul></details>}
+        {result.skippedDetailsTruncated && <p>O resumo detalhado foi limitado; as contagens incluem todos os itens ignorados.</p>}
+        {result.warnings.map(warning => <p key={warning}>{warning}</p>)}
+      </div>}
     </div>
     <footer className="project-transfer-footer"><button type="button" className="button primary" disabled={!canImport || !preview || busy || reading} onClick={() => void importData()}>{busy ? 'Importando projeto…' : 'Importar projeto'}</button><span>Validação completa antes da gravação.</span></footer>
   </section>;

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
 import mongoose from 'mongoose';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
-import { connect, Project, Task, Execution, AutomationJob, ActionProposal, Credential } from '../src/db.js';
+import { connect, Project, Task, Execution, AutomationJob, ActionProposal, Credential, MarkdownDocument } from '../src/db.js';
 import { authenticate, bootstrap, Service, type Actor } from '../src/service.js';
 import { projectExportCollections } from '../src/services/project-export-service.js';
 import { createApp } from '../src/http.js';
@@ -83,11 +83,10 @@ test('real export imports atomically preserving IDs, history and content, disabl
   assert.doesNotMatch(JSON.stringify(roundTrip), /importReceipt/);
 });
 
-test('invalid counts, references, cycles, schema version and late uniqueness errors leave no partial data', async () => {
+test('invalid counts, references, cycles and schema versions leave no partial data', async () => {
   const mutations = [
     (p: any) => { p.counts.tasks++; }, (p: any) => { p.data.tasks[0].repositoryId = randomUUID(); },
-    (p: any) => { p.data.tasks[1].dependencies = [p.data.tasks[0]._id]; }, (p: any) => { p.schemaVersion = 2; },
-    (p: any) => { p.data.markdownRevisions.push({ ...p.data.markdownRevisions[0], _id: randomUUID() }); p.counts.markdownRevisions++; }
+    (p: any) => { p.data.tasks[1].dependencies = [p.data.tasks[0]._id]; }, (p: any) => { p.schemaVersion = 2; }
   ];
   for (const mutate of mutations) {
     const input = fixture(); mutate(input);
@@ -97,15 +96,25 @@ test('invalid counts, references, cycles, schema version and late uniqueness err
   }
 });
 
-test('existing project or entity ID is never overwritten', async () => {
+test('project and record conflicts preserve existing data while importing independent records', async () => {
   const input = fixture();
   await Project.create({ ...input.data.project, name: 'Original' });
-  await assert.rejects(() => service.importProject(admin, input), /não sobrescreve/);
+  await MarkdownDocument.create({ ...input.data.markdownDocuments[0], _id: randomUUID() });
+  const merged = await service.importProject(admin, input);
+  assert.equal(merged.reused, true);
   assert.equal((await Project.findById(input.source.projectId))?.name, 'Original');
+  assert.equal(await Task.countDocuments({ projectId: input.source.projectId }), 2);
+  assert.equal(await MarkdownDocument.countDocuments({ projectId: input.source.projectId }), 1);
+  assert.equal(merged.skippedCounts.markdownDocuments, 1);
+  assert.equal(merged.skippedCounts.markdownRevisions, 1);
   const other = fixture();
   await Task.create({ _id: other.data.tasks[0]._id, projectId: randomUUID(), name: 'Existing task' });
-  await assert.rejects(() => service.importProject(admin, other), /Conflito de IDs/);
-  assert.equal(await Project.exists({ _id: other.source.projectId }), null);
+  const partial = await service.importProject(admin, other);
+  assert.ok(await Project.exists({ _id: other.source.projectId }));
+  assert.equal((await Task.findById(other.data.tasks[0]._id))?.name, 'Existing task');
+  assert.equal(await Task.countDocuments({ projectId: other.source.projectId }), 1);
+  assert.equal(partial.importedCounts.tasks, 1);
+  assert.equal(partial.skippedCounts.tasks, 1);
 });
 
 test('import endpoint accepts only human system admin and supports 201 followed by idempotent 200', async () => {

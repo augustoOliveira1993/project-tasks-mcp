@@ -35,6 +35,19 @@ export async function validateProjectImport(input: unknown) {
   const names = ['project', ...projectExportCollections.map(([name]) => name)];
   check(Object.keys(data).every(name => names.includes(name)), 'O pacote contém uma coleção não suportada.');
   check(bundle.counts.project === 1 && bundle.counts.repositories === project.repositories.length, 'Contagem do projeto/repositórios incorreta.');
+  check(Array.isArray(data.tasks) && bundle.counts.tasks === data.tasks.length, 'Tarefas ou contagem inválidas.');
+  const taskRows = data.tasks.map((task: unknown) => row.parse(task) as any);
+  const acceptanceProgressRepairs: Array<{ taskId: string; criterionCount: number; savedProgressCount: number }> = [];
+  for (const task of taskRows) {
+    check(Array.isArray(task.acceptance) && task.acceptance.every((item: unknown) => typeof item === 'string'), 'Critérios inválidos.');
+    const savedProgress = Array.isArray(task.acceptanceProgress) ? task.acceptanceProgress : [];
+    const acceptanceProgress = task.acceptance.map((_criterion: string, index: number) => savedProgress[index] === true);
+    if (!Array.isArray(task.acceptanceProgress) || savedProgress.length !== acceptanceProgress.length || savedProgress.some((item: unknown) => typeof item !== 'boolean')) {
+      acceptanceProgressRepairs.push({ taskId: task._id, criterionCount: acceptanceProgress.length, savedProgressCount: savedProgress.length });
+    }
+    task.acceptanceProgress = acceptanceProgress;
+  }
+  data.tasks = taskRows;
   const ids = new Map<string, Set<string>>();
   ids.set('repositories', new Set());
   for (const repository of project.repositories) {
@@ -69,8 +82,6 @@ export async function validateProjectImport(input: unknown) {
     ref(task.executionId, 'executions', 'task.executionId');
     check(['pendente', 'em_execucao', 'bloqueada', 'em_revisao', 'concluida', 'cancelada'].includes(task.status), 'Status de tarefa inválido.');
     check(project.areas.includes(task.area), 'Área de tarefa não cadastrada.');
-    check(Array.isArray(task.acceptance) && task.acceptance.every((item: unknown) => typeof item === 'string'), 'Critérios inválidos.');
-    check(Array.isArray(task.acceptanceProgress) && task.acceptanceProgress.length <= task.acceptance.length && task.acceptanceProgress.every((item: unknown) => typeof item === 'boolean'), 'Progresso dos critérios inválido.');
     check(Array.isArray(task.dependencies) && new Set(task.dependencies).size === task.dependencies.length, 'Dependências inválidas ou duplicadas.');
     for (const dependency of task.dependencies) ref(dependency, 'tasks', 'task.dependencies', true);
   }
@@ -120,54 +131,205 @@ export async function validateProjectImport(input: unknown) {
     ref(revision.documentId, 'markdownDocuments', 'revision.documentId', true);
     check(typeof revision.content === 'string' && Number.isInteger(revision.revision) && revision.revision > 0, 'Revisão de documento inválida.');
   }
-  return { bundle, data, digest: hash(JSON.stringify(canonical(data))) };
+  return { bundle, data, acceptanceProgressRepairs, digest: hash(JSON.stringify(canonical(data))) };
 }
 
 export async function importProject(input: unknown, ownerKey: string, owner: string, session: ClientSession) {
-  const { bundle, data, digest } = await validateProjectImport(input);
+  const { bundle, data, acceptanceProgressRepairs, digest } = await validateProjectImport(input);
   const projectId = bundle.source.projectId;
   const existing = await Project.findById(projectId).session(session).lean();
-  if (existing) {
-    check(existing.importReceipt?.digest === digest, 'Já existe um projeto com este ID. A importação não sobrescreve dados existentes.', 409);
-    return { projectId, name: existing.name, reused: true, counts: bundle.counts, warnings: [] };
+  const existingCounts = Object.fromEntries(projectExportCollections.map(([name]) => [name, 0]));
+  if (existing?.importReceipt?.digest === digest) return {
+    projectId, name: existing.name, reused: true, importedCounts: existingCounts,
+    alreadyImported: true, skippedCounts: {}, skipped: [], warnings: ['Este pacote já foi processado; nenhum registro foi duplicado.']
+  };
+
+  const skippedCounts: Record<string, number> = {};
+  const importedCounts: Record<string, number> = {};
+  const skipped: Array<{ collection: string; id: string; reason: string }> = [];
+  const skippedIds = new Map<string, string>();
+  const skip = (collection: string, id: string, reason: string) => {
+    const key = `${collection}:${id}`;
+    if (skippedIds.has(key)) return;
+    skippedIds.set(key, reason);
+    skippedCounts[collection] = (skippedCounts[collection] ?? 0) + 1;
+    if (skipped.length < 100) skipped.push({ collection, id, reason });
+  };
+  const target = existing ?? data.project;
+  const normalizeUrl = (value: unknown) => typeof value === 'string' ? value.trim().replace(/\/$/, '').toLocaleLowerCase('en-US') : '';
+  const sameRepository = (left: any, right: any) => normalizeUrl(left?.git?.canonicalRemoteUrl ?? left?.url) === normalizeUrl(right?.git?.canonicalRemoteUrl ?? right?.url);
+  const existingProjects = await Project.find({ 'repositories.id': { $in: data.project.repositories.map((repository: any) => repository.id) } })
+    .select('_id repositories').session(session).lean();
+  const repositoriesToAdd: any[] = [];
+  const available = new Map<string, Set<string>>([['repositories', new Set<string>()]]);
+  const repositoryConflicts = new Set<string>();
+  const mergedAreas = [...(target.areas ?? [])];
+  const areaNames = new Set(mergedAreas.map((area: string) => area.toLocaleLowerCase('pt-BR')));
+  for (const area of data.project.areas) if (!areaNames.has(area.toLocaleLowerCase('pt-BR'))) { mergedAreas.push(area); areaNames.add(area.toLocaleLowerCase('pt-BR')); }
+  for (const repository of data.project.repositories) {
+    const inTarget = (target.repositories ?? []).find((item: any) => item.id === repository.id);
+    const anywhere = existingProjects.flatMap(item => (item.repositories ?? []).filter((repo: any) => repo.id === repository.id));
+    if (inTarget) {
+      if (sameRepository(inTarget, repository)) available.get('repositories')!.add(repository.id);
+      else { repositoryConflicts.add(repository.id); skip('repositories', repository.id, 'O ID já existe com uma URL de repositório diferente; vínculo preservado.'); }
+      skip('repositories', repository.id, 'O repositório já existe no projeto; configuração preservada.');
+    } else if (anywhere.some(item => !sameRepository(item, repository))) {
+      repositoryConflicts.add(repository.id);
+      skip('repositories', repository.id, 'O ID já pertence a outro repositório; vínculo pulado.');
+    } else {
+      repositoriesToAdd.push(repository);
+      available.get('repositories')!.add(repository.id);
+    }
   }
+  for (const repository of target.repositories ?? []) if (!repositoryConflicts.has(repository.id)) available.get('repositories')!.add(repository.id);
+  const candidates = new Map<string, any[]>(projectExportCollections.map(([name]) => [name, [...data[name]]]));
+  const idConflicts = new Map<string, Set<string>>();
+  const existingTaskDependencies = new Map<string, Set<string>>();
   for (const [name, model] of projectExportCollections) {
-    check(!await model.exists({ _id: { $in: data[name].map((record: any) => record._id) } }).session(session), `Conflito de IDs em ${name}; nenhum dado foi importado.`, 409);
+    const sourceIds = data[name].map((record: any) => record._id);
+    const rows = sourceIds.length ? await model.find({ _id: { $in: sourceIds } }).select(name === 'tasks' ? '_id projectId dependencies' : '_id projectId').session(session).lean() : [];
+    const availableIds = new Set<string>();
+    const conflicts = new Set<string>();
+    for (const row of rows) {
+      conflicts.add(row._id);
+      if (row.projectId === projectId) {
+        availableIds.add(row._id);
+        if (name === 'tasks') existingTaskDependencies.set(row._id, new Set(row.dependencies ?? []));
+      }
+      skip(name, row._id, row.projectId === projectId ? 'O ID já existe no projeto; registro preservado.' : 'O ID já pertence a outro projeto; registro pulado.');
+    }
+    for (const sourceId of sourceIds) if (!conflicts.has(sourceId)) availableIds.add(sourceId);
+    available.set(name, availableIds);
+    idConflicts.set(name, conflicts);
+    candidates.set(name, data[name].filter((record: any) => !conflicts.has(record._id)));
   }
-  check(!await Project.exists({ 'repositories.id': { $in: data.project.repositories.map((repository: any) => repository.id) } }).session(session), 'Repositório já cadastrado em outro projeto.', 409);
+
+  for (const taskMessage of data.conversationMessages) { taskMessage.senderId = 'import'; taskMessage.operationId ??= taskMessage._id; }
+  const uniqueConflicts = new Map<string, Set<string>>();
+  const markUniqueConflict = (name: string, ids: string[], reason: string) => {
+    if (!uniqueConflicts.has(name)) uniqueConflicts.set(name, new Set());
+    for (const id of ids) {
+      uniqueConflicts.get(name)!.add(id);
+      if (!idConflicts.get(name)?.has(id)) available.get(name)?.delete(id);
+      skip(name, id, reason);
+    }
+  };
+  const [existingEdges, existingDocs, existingRevisions, existingMessages, existingDeliveries] = await Promise.all([
+    TaskDependency.find({ projectId, taskId: { $in: data.taskDependencies.map((item: any) => item.taskId) } }).select('taskId dependencyId').session(session).lean(),
+    MarkdownDocument.find({ projectId }).select('_id targetKind targetId name').session(session).lean(),
+    MarkdownRevision.find({ documentId: { $in: data.markdownDocuments.map((item: any) => item._id) } }).select('documentId revision').session(session).lean(),
+    ConversationMessage.find({ conversationId: { $in: data.conversationMessages.map((item: any) => item.conversationId) }, senderId: 'import', operationId: { $in: data.conversationMessages.map((item: any) => item.operationId) } }).select('conversationId operationId').session(session).lean(),
+    DeliveryEvent.find({ projectId, sequence: { $in: data.deliveryEvents.map((item: any) => item.sequence) } }).select('sequence').session(session).lean()
+  ]);
+  const edgeKeys = new Set(existingEdges.map(item => `${item.taskId}:${item.dependencyId}`));
+  for (const edge of data.taskDependencies) { const key = `${edge.taskId}:${edge.dependencyId}`; if (edgeKeys.has(key)) markUniqueConflict('taskDependencies', [edge._id], 'A dependência já existe; registro preservado.'); else edgeKeys.add(key); }
+  for (const edge of data.taskDependencies) if (idConflicts.get('tasks')?.has(edge.taskId) && !existingTaskDependencies.get(edge.taskId)?.has(edge.dependencyId)) {
+    markUniqueConflict('taskDependencies', [edge._id], 'A tarefa existente não contém esta dependência; estado preservado.');
+  }
+  const docKeys = new Set(existingDocs.map(item => `${item.targetKind}:${item.targetId}:${item.name}`));
+  for (const doc of data.markdownDocuments) { const key = `${doc.targetKind}:${doc.targetId}:${doc.name}`; if (docKeys.has(key)) markUniqueConflict('markdownDocuments', [doc._id], 'Já existe um documento com este destino e nome; documento preservado.'); else docKeys.add(key); }
+  const revisionKeys = new Set(existingRevisions.map(item => `${item.documentId}:${item.revision}`));
+  for (const revision of data.markdownRevisions) { const key = `${revision.documentId}:${revision.revision}`; if (revisionKeys.has(key)) markUniqueConflict('markdownRevisions', [revision._id], 'A revisão já existe; registro preservado.'); else revisionKeys.add(key); }
+  const messageKeys = new Set(existingMessages.map(item => `${item.conversationId}:${item.operationId}`));
+  for (const message of data.conversationMessages) { const key = `${message.conversationId}:${message.operationId}`; if (messageKeys.has(key)) markUniqueConflict('conversationMessages', [message._id], 'A mensagem com esta operação já existe; registro preservado.'); else messageKeys.add(key); }
+  const deliveryKeys = new Set(existingDeliveries.map(item => String(item.sequence)));
+  for (const event of data.deliveryEvents) { const key = String(event.sequence); if (deliveryKeys.has(key)) markUniqueConflict('deliveryEvents', [event._id], 'A sequência do evento já existe; evento preservado.'); else deliveryKeys.add(key); }
+  for (const [name, rows] of candidates) {
+    const unique = uniqueConflicts.get(name);
+    if (unique?.size) candidates.set(name, rows.filter(record => !unique.has(record._id)));
+  }
+
+  const referencesAvailable = (name: string, record: any) => {
+    const has = (collection: string, id: unknown) => id == null || available.get(collection)?.has(String(id)) === true;
+    const base: Record<string, Array<[string, unknown]>> = {
+      tasks: [['repositories', record.repositoryId], ['features', record.featureId], ['executions', record.executionId], ...record.dependencies.map((id: string) => ['tasks', id] as [string, unknown])],
+      taskDependencies: [['tasks', record.taskId], ['tasks', record.dependencyId]],
+      executions: [['tasks', record.taskId], ['automationJobs', record.managedJobId]],
+      taskMessages: [['tasks', record.taskId], ['tasks', record.relatedTaskId], ['executions', record.executionId], ['conversations', record.conversationId], ['taskMessages', record.replyTo]],
+      conversations: [['tasks', record.taskId]],
+      conversationMessages: [['conversations', record.conversationId]],
+      actionProposals: [['tasks', record.taskId], ['conversations', record.conversationId], ['automationJobs', record.jobId]],
+      deliveryEvents: record.taskIds.map((id: string) => ['tasks', id] as [string, unknown]),
+      taskDiffs: [['tasks', record.taskId], ['repositories', record.repositoryId]],
+      automationJobs: [['tasks', record.taskId], ['repositories', record.repositoryId], ['executions', record.executionId], ['automationJobs', record.originJobId], ['conversations', record.conversationId], ['taskMessages', record.triggerMessageId]],
+      markdownDocuments: [[record.targetKind === 'task' ? 'tasks' : 'features', record.targetId]],
+      markdownRevisions: [['markdownDocuments', record.documentId]]
+    };
+    if (!(base[name] ?? []).every(([collection, id]) => has(collection, id))) return false;
+    if (name === 'tasks' && !areaNames.has(record.area.toLocaleLowerCase('pt-BR'))) return false;
+    if (name === 'markdownDocuments') return available.get('markdownRevisions')?.has(String(data.markdownRevisions.find((revision: any) => revision.documentId === record._id && revision.revision === record.revision)?._id)) === true;
+    return true;
+  };
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const [name, rows] of candidates) {
+      const keep: any[] = [];
+      for (const record of rows) {
+        if (referencesAvailable(name, record)) keep.push(record);
+        else { skip(name, record._id, 'Um registro vinculado foi ignorado ou não existe no projeto de destino.'); available.get(name)?.delete(record._id); changed = true; }
+      }
+      candidates.set(name, keep);
+    }
+  }
   const adjustments: Array<{ collection: string; id: string; status: string }> = [];
-  for (const name of ['tasks', 'executions']) for (const record of data[name]) if (record.status === 'em_execucao') {
+  for (const name of ['tasks', 'executions']) for (const record of candidates.get(name) ?? []) if (record.status === 'em_execucao') {
     adjustments.push({ collection: name, id: record._id, status: record.status }); record.status = 'bloqueada';
     if (name === 'executions') record.endedAt = bundle.exportedAt;
   }
-  for (const job of data.automationJobs) {
+  for (const job of candidates.get('automationJobs') ?? []) {
     if (!['completed', 'failed', 'cancelled'].includes(job.status)) {
       adjustments.push({ collection: 'automationJobs', id: job._id, status: job.status }); job.status = 'cancelled';
     }
     job.authorizationValid = false; job.turnInFlight = false;
     delete job.runnerId; delete job.preferredRunnerId; delete job.cwd;
   }
-  for (const proposal of data.actionProposals) if (proposal.status === 'pending') {
+  for (const proposal of candidates.get('actionProposals') ?? []) if (proposal.status === 'pending') {
     adjustments.push({ collection: 'actionProposals', id: proposal._id, status: proposal.status }); proposal.status = 'rejected';
   }
-  for (const message of data.conversationMessages) { message.senderId = 'import'; message.operationId ??= message._id; }
-  for (const revision of data.markdownRevisions) {
+  for (const revision of candidates.get('markdownRevisions') ?? []) {
     revision.size = Buffer.byteLength(revision.content, 'utf8'); revision.sha256 = hash(revision.content);
   }
-  for (const doc of data.markdownDocuments) {
+  for (const doc of candidates.get('markdownDocuments') ?? []) {
     const revision = data.markdownRevisions.find((item: any) => item.documentId === doc._id && item.revision === doc.revision);
     doc.size = revision.size; doc.sha256 = revision.sha256;
   }
-  for (const diff of data.taskDiffs) if (typeof diff.patch === 'string') diff.patchSha256 = hash(diff.patch);
-  const maxSequence = data.deliveryEvents.reduce((max: number, event: any) => Math.max(max, Number(event.sequence) || 0), 0);
-  data.project.eventSequence = Math.max(Number(data.project.eventSequence) || 0, maxSequence);
-  data.project.members = { [ownerKey]: 'administrador' };
-  data.project.importReceipt = { digest, importedAt: new Date(), importedBy: owner };
-  await Project.insertMany([data.project], { session, timestamps: false });
-  for (const [name, model] of projectExportCollections) if (data[name].length) await model.insertMany(data[name], { session, timestamps: false });
-  await Event.create([{ _id: randomUUID(), projectId, entityId: projectId, action: 'import_project', author: owner, at: new Date(),
-    summary: 'Projeto importado; acessos recriados e estados ativos desativados.', data: { adjustments, digest, sourceProjectId: projectId } }], { session });
-  return { projectId, name: data.project.name, reused: false, counts: bundle.counts,
-    warnings: ['Acessos devem ser configurados novamente. Execuções ativas foram bloqueadas; automações e propostas pendentes não serão retomadas.',
+  for (const diff of candidates.get('taskDiffs') ?? []) if (typeof diff.patch === 'string') diff.patchSha256 = hash(diff.patch);
+  const incomingProject = existing ? null : { ...data.project, repositories: repositoriesToAdd, areas: [...new Set(data.project.areas)] };
+  const repoIds = new Set((target.repositories ?? []).map((repository: any) => repository.id));
+  const mergedRepositories = [...(target.repositories ?? []), ...repositoriesToAdd.filter(repository => !repoIds.has(repository.id))];
+  const addedRepositoryCount = existing ? repositoriesToAdd.filter(repository => !repoIds.has(repository.id)).length : data.project.repositories.length;
+  const projectMetadataChanged = mergedAreas.length > (target.areas ?? []).length || mergedRepositories.length > (target.repositories ?? []).length;
+  if (existing) skip('project', projectId, 'O projeto já existe; campos existentes foram preservados.');
+  if (!existing && incomingProject) {
+    const maxSequence = data.deliveryEvents.reduce((max: number, event: any) => Math.max(max, Number(event.sequence) || 0), 0);
+    incomingProject.eventSequence = Math.max(Number(incomingProject.eventSequence) || 0, maxSequence);
+    incomingProject.members = { [ownerKey]: 'administrador' };
+    incomingProject.importReceipt = { digest, importedAt: new Date(), importedBy: owner };
+    await Project.insertMany([incomingProject], { session, timestamps: false });
+    importedCounts.project = 1;
+  } else if (existing) {
+    await Project.updateOne({ _id: projectId }, { $set: { repositories: mergedRepositories, areas: mergedAreas,
+      importReceipt: { digest, importedAt: new Date(), importedBy: owner } },
+      $max: { eventSequence: Math.max(Number(data.project.eventSequence) || 0,
+        (candidates.get('deliveryEvents') ?? []).reduce((max: number, event: any) => Math.max(max, Number(event.sequence) || 0), 0)) },
+      $inc: { version: 1 } }, { session });
+  }
+  importedCounts.project = existing ? Number(projectMetadataChanged) : 1;
+  importedCounts.repositories = addedRepositoryCount;
+  for (const [name, model] of projectExportCollections) {
+    const records = candidates.get(name) ?? [];
+    if (records.length) await model.insertMany(records, { session, timestamps: false });
+    importedCounts[name] = records.length;
+  }
+  const insertedRecords = Object.values(importedCounts).reduce((sum, count) => sum + count, 0);
+  if (insertedRecords > 0) await Event.create([{ _id: randomUUID(), projectId, entityId: projectId, action: 'import_project', author: owner, at: new Date(),
+    summary: 'Projeto importado parcialmente quando necessário; itens existentes foram preservados.', data: { adjustments, acceptanceProgressRepairs, skippedCounts, skipped, digest, sourceProjectId: projectId } }], { session });
+  return { projectId, name: target.name, reused: Boolean(existing), alreadyImported: false, importedCounts, skippedCounts, skipped,
+    skippedDetailsTruncated: Object.values(skippedCounts).reduce((sum, count) => sum + count, 0) > skipped.length,
+    warnings: [
+      ...(insertedRecords ? ['Acessos devem ser configurados novamente. Execuções ativas foram bloqueadas; automações e propostas pendentes não serão retomadas.'] : []),
+      ...(acceptanceProgressRepairs.length ? [`O progresso dos critérios foi ajustado em ${acceptanceProgressRepairs.length} tarefa(s); os critérios correspondentes marcados como concluídos foram preservados.`] : []),
+      ...(existing ? ['Os dados do projeto e registros que já existiam foram preservados.'] : []),
       ...(data.project.archived ? ['O projeto está arquivado e permanece arquivado após a importação.'] : [])] };
 }
