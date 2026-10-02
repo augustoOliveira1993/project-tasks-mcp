@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { ClientSession } from 'mongoose';
 import { z } from 'zod';
-import { AutomationJob, AutomationPolicy, Runner, Task, Feature, Project, Execution, TaskMessage, MarkdownDocument } from '../db.js';
+import { AutomationJob, AutomationPolicy, Runner, Task, Feature, Project, Execution, TaskMessage, MarkdownDocument, Conversation, ConversationMessage } from '../db.js';
 import { DomainError, type Actor, type Service } from '../service.js';
 import { id, provider, tools } from '../schema.js';
 import { areasForProject } from '../area-catalog.js';
@@ -16,9 +16,10 @@ export const runnerSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('reserve'), ...mutation, projectId: id, runnerId: id }).strict(),
   z.object({ action: z.literal('heartbeat'), ...mutation, runnerId: id }).strict(),
   z.object({ action: z.literal('inspect'), ...jobTarget }).strict(),
+  z.object({ action: z.literal('conversation_messages'), ...jobTarget, limit: z.number().int().min(1).max(50).default(20) }).strict(),
   z.object({ action: z.literal('recover'), runnerId: id }).strict(),
   z.object({ action: z.literal('events'), projectId: id, cursor: z.string().max(2048).optional(), timeoutMs: z.number().int().min(0).max(30000).default(25000) }).strict(),
-  z.object({ action: z.literal('checkpoint'), ...mutation, ...jobTarget, turnCompleted: z.boolean().optional(), providerSessionId: z.string().max(255).optional(), cwd: z.string().max(2048).optional(), lastCursor: z.string().max(2048).optional(), deliveredMessageIds: z.array(id).max(100).optional(), usage: z.object({ inputTokens: z.number().nonnegative().nullable(), outputTokens: z.number().nonnegative().nullable(), costUsd: z.number().nonnegative().nullable() }).strict().optional() }).strict(),
+  z.object({ action: z.literal('checkpoint'), ...mutation, ...jobTarget, turnCompleted: z.boolean().optional(), providerSessionId: z.string().max(255).optional(), cwd: z.string().max(2048).optional(), lastCursor: z.string().max(2048).optional(), conversationId: id.optional(), conversationMessageCursor: id.optional(), deliveredMessageIds: z.array(id).max(100).optional(), usage: z.object({ inputTokens: z.number().nonnegative().nullable(), outputTokens: z.number().nonnegative().nullable(), costUsd: z.number().nonnegative().nullable() }).strict().optional() }).strict(),
   z.object({ action: z.literal('turn'), ...mutation, ...jobTarget }).strict(),
   z.object({ action: z.literal('permission'), ...mutation, ...jobTarget, request: z.object({ id: z.string().max(255), title: z.string().max(500), detail: z.string().max(4000) }).strict() }).strict(),
   z.object({ action: z.literal('finish'), ...mutation, ...jobTarget, outcome: z.enum(['completed', 'blocked', 'failed']), error: z.string().max(4000).optional() }).strict(),
@@ -131,7 +132,7 @@ export class Automation {
       const postSubmissionApproval = name === 'set_task_status' && a.status === 'concluida';
       const job = await this.owned(actor, { ...a, jobId: actor.jobId, runnerId: actor.runnerId }, s, postSubmissionApproval);
       const consultationReply = name === 'send_collaboration_message' && job.mode === 'consultation';
-      ensure((['claim_task', 'heartbeat_task', 'record_progress', 'set_acceptance_criterion', 'block_task', 'submit_task', 'send_task_message'].includes(name) || name === 'send_collaboration_message' && ['work', 'consultation'].includes(job.mode) || postSubmissionApproval) && job.taskId === a.taskId, 'Operation outside authorized job', 403);
+      ensure((['claim_task', 'heartbeat_task', 'record_progress', 'set_acceptance_criterion', 'block_task', 'submit_task', 'send_task_message'].includes(name) || name === 'send_collaboration_message' && ['work', 'consultation'].includes(job.mode) || name === 'send_conversation_message' && job.mode === 'work' || postSubmissionApproval) && job.taskId === a.taskId, 'Operation outside authorized job', 403);
       ensure(job.mode === 'work' || consultationReply, 'Consultation is read-only', 403);
       const policy = await AutomationPolicy.findById(a.projectId).session(s);
       const task = await Task.findById(a.taskId).session(s);
@@ -168,6 +169,29 @@ export class Automation {
     ensure(actor.scope === 'agent', 'Runner requires bearer agent credential', 403);
     const a = runnerSchema.parse(input);
     if (a.action === 'events') return this.service.query(actor, a.cursor ? 'wait_project_events' : 'subscribe_project_events', { projectId: a.projectId, ...(a.cursor ? { cursor: a.cursor, timeoutMs: a.timeoutMs } : {}) });
+    if (a.action === 'conversation_messages') {
+      await this.service.access(actor, a.projectId);
+      const job = await this.owned(actor, a, undefined, true);
+      ensure(job.mode === 'work' && job.status === 'running', 'Conversation messages require an active work job');
+      const task = await Task.findOne({ _id: job.taskId, projectId: a.projectId, archived: false }).select('_id status executionId').lean();
+      ensure(task?.status === 'em_execucao' && task.executionId === job.executionId, 'Task is no longer active');
+      const policy = await AutomationPolicy.findById(a.projectId).select('enabled').lean();
+      ensure(policy?.enabled && job.authorizationValid && job.fingerprint === await this.fingerprint(task), 'Automation suspended or task scope changed');
+      const conversation = job.conversationId
+        ? await Conversation.findOne({ _id: job.conversationId, projectId: a.projectId, taskId: job.taskId, status: 'open' }).lean()
+        : await Conversation.findOne({ projectId: a.projectId, taskId: job.taskId, status: 'open' }).sort({ lastMessageAt: -1, createdAt: -1, _id: -1 }).lean();
+      if (!conversation) return { conversationId: null, items: [], cursor: job.conversationMessageCursor ?? null, hasMore: false };
+      const filter: Record<string, any> = { projectId: a.projectId, conversationId: conversation._id, authorType: 'human' };
+      if (job.conversationMessageCursor) {
+        const cursor = await ConversationMessage.findOne({ _id: job.conversationMessageCursor, projectId: a.projectId, conversationId: conversation._id, authorType: 'human' }).select('createdAt').lean();
+        ensure(cursor, 'Conversation message cursor is invalid', 400);
+        filter.$or = [{ createdAt: { $gt: cursor.createdAt } }, { createdAt: cursor.createdAt, _id: { $gt: job.conversationMessageCursor } }];
+      } else filter.createdAt = { $gte: job.startedAt ?? job.createdAt ?? new Date(0) };
+      const rows = await ConversationMessage.find(filter).select('_id conversationId author authorType clientName content createdAt').sort({ createdAt: 1, _id: 1 }).limit(a.limit + 1).lean();
+      const hasMore = rows.length > a.limit;
+      if (hasMore) rows.pop();
+      return { conversationId: conversation._id, items: rows, cursor: rows.at(-1)?._id ?? job.conversationMessageCursor ?? null, hasMore };
+    }
     if (a.action === 'recover') {
       await this.runnerOwner(actor, a.runnerId);
       const jobs = await AutomationJob.find({ runnerId: a.runnerId, status: { $in: active } }).limit(10).lean();
@@ -189,7 +213,7 @@ export class Automation {
       const args: any = schema.parse(a.arguments);
       ensure(args.projectId === a.projectId, 'Project outside job', 403);
       if (args.taskId) ensure(args.taskId === job.taskId, 'Task outside job', 403);
-      const who = { ...actor, jobId: job._id!, runnerId: a.runnerId };
+      const who = { ...actor, clientName: job.provider === 'codex' ? 'Codex' : 'Claude', jobId: job._id!, runnerId: a.runnerId };
       if ('operationId' in args) return this.service.call(who, a.tool, args);
       return this.service.query(who, a.tool, args);
     }
@@ -231,6 +255,18 @@ export class Automation {
         if (job.cwd && a.cwd) ensure(job.cwd === a.cwd, 'Cannot resume on another checkout');
         if (job.providerSessionId && a.providerSessionId) ensure(job.providerSessionId === a.providerSessionId, 'Cannot replace provider session');
         for (const key of ['cwd', 'providerSessionId', 'lastCursor'] as const) if (a[key] !== undefined) (job as any)[key] = a[key];
+        if (a.conversationId !== undefined) {
+          ensure(!job.conversationId || job.conversationId === a.conversationId, 'Cannot change the task conversation');
+          const conversation = await Conversation.findOne({ _id: a.conversationId, projectId: job.projectId, taskId: job.taskId }).select('_id').session(s).lean();
+          ensure(conversation, 'Conversation does not belong to the task', 403);
+          job.conversationId = a.conversationId;
+        }
+        if (a.conversationMessageCursor !== undefined) {
+          ensure(job.conversationId, 'Conversation cursor requires a linked conversation');
+          const cursor = await ConversationMessage.findOne({ _id: a.conversationMessageCursor, projectId: job.projectId, conversationId: job.conversationId, authorType: 'human' }).select('_id').session(s).lean();
+          ensure(cursor, 'Conversation message cursor is invalid', 400);
+          job.conversationMessageCursor = a.conversationMessageCursor;
+        }
         if (a.usage) {
           ensure(a.turnCompleted && job.turnInFlight, 'Usage requires completion of an outstanding turn');
           const usage: Record<string, number | null> = {};

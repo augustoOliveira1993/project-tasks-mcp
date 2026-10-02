@@ -1,6 +1,6 @@
 import mongoose, { type ClientSession, type Model } from 'mongoose';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { ActionProposal, AutomationPolicy, Project, Feature, Task, Execution, Event, TaskMessage, Conversation, ConversationMessage, DeliveryEvent, DeliveryRead, TaskRead, TaskDiff, AutomationJob, MarkdownDocument, MarkdownRevision, Operation, Credential, Bootstrap } from './db.js';
+import { ActionProposal, AutomationPolicy, Project, Feature, Task, Execution, Event, TaskMessage, Conversation, ConversationMessage, ConversationRead, DeliveryEvent, DeliveryRead, TaskRead, TaskDiff, AutomationJob, MarkdownDocument, MarkdownRevision, Operation, Credential, Bootstrap } from './db.js';
 import type { TaskContextDto } from './contracts.js';
 import { pageByCreatedAt, pageByDate, PageCursorError } from './pagination.js';
 import { EventHub, readEvents } from './events.js';
@@ -422,7 +422,7 @@ export class Service {
     }
     await DeliveryEvent.create([{ _id: eventId, projectId, sequence: project.eventSequence, taskIds: [...ids], action, kind, summary, author: actor.userId, origin, credentialId: actor.id, entityId, entityVersion: data?.task?.version ?? data?.version, at }], { session: s });
   }
-  async mutate(actor: Actor, name: string, a: any, run: (s: ClientSession) => Promise<any>, projectAdmin = name === 'admin', projectWrite = name !== 'mark_project_read' && name !== 'mark_task_read') {
+  async mutate(actor: Actor, name: string, a: any, run: (s: ClientSession) => Promise<any>, projectAdmin = name === 'admin', projectWrite = name !== 'mark_project_read' && name !== 'mark_task_read' && name !== 'mark_conversation_read') {
     const key = `${actor.id}:${a.operationId}`;
     const fingerprint = hash(JSON.stringify({ name, a }));
     const startedAt = Date.now();
@@ -506,6 +506,7 @@ export class Service {
     }).select('_id').session(s ?? null).lean();
     const conversationIds = conversations.map(item => item._id);
     const conversationMessages: any[] = await ConversationMessage.find({ projectId: a.projectId, conversationId: { $in: conversationIds } }).select('_id conversationId').session(s ?? null).lean();
+    const conversationReads: any[] = await ConversationRead.find({ projectId: a.projectId, conversationId: { $in: conversationIds } }).select('_id conversationId userId').session(s ?? null).lean();
 
     const executions: any[] = await Execution.find({ $or: [{ projectId: a.projectId, taskId: a.taskId }, ...(task.executionId ? [{ _id: task.executionId }] : [])] }).select('_id').session(s ?? null).lean();
     const activeExecution = task.status === 'em_execucao' || !!(task.leaseUntil && task.leaseUntil > new Date()) || !!await Execution.exists({ status: 'em_execucao', $or: [{ projectId: a.projectId, taskId: a.taskId }, ...(task.executionId ? [{ _id: task.executionId }] : [])] }).session(s ?? null);
@@ -530,7 +531,7 @@ export class Service {
     const ids = (items: any[]) => items.map(item => item._id).sort();
     const recordIds = {
       messages: ids(messages), documents: ids(documents), diffs: ids(diffs), jobs: ids(jobs),
-      executions: ids(executions), conversations: ids(conversations), conversationMessages: ids(conversationMessages),
+      executions: ids(executions), conversations: ids(conversations), conversationMessages: ids(conversationMessages), conversationReads: ids(conversationReads),
       actionProposals: ids(proposals), events: ids(events), dependents: ids(dependents)
     };
     const planInput = {
@@ -548,12 +549,12 @@ export class Service {
       source: { projectId: source._id, name: source.name },
       destination: { projectId: destination._id, name: destination.name },
       task: { taskId: task._id, name: task.name, version: task.version, status: task.status, repositoryId: task.repositoryId, featureId: task.featureId ?? null },
-      moveCounts: { messages: messages.length, documents: documents.length, diffs: diffs.length, jobs: jobs.length, executions: executions.length, conversations: conversations.length, conversationMessages: conversationMessages.length, actionProposals: proposals.length, historyEvents: events.length },
-      internal: { task, messages, documents, diffs, jobs, executions, conversations, conversationMessages, actionProposals: proposals, events }
+      moveCounts: { messages: messages.length, documents: documents.length, diffs: diffs.length, jobs: jobs.length, executions: executions.length, conversations: conversations.length, conversationMessages: conversationMessages.length, conversationReads: conversationReads.length, actionProposals: proposals.length, historyEvents: events.length },
+      internal: { task, messages, documents, diffs, jobs, executions, conversations, conversationMessages, conversationReads, actionProposals: proposals, events }
     };
   }
   async call(actor: Actor, name: string, input: unknown): Promise<any> {
-    const conversationTools = new Set(['create_conversation', 'open_task_conversation', 'update_conversation_title', 'link_conversation_task', 'delete_conversation', 'send_conversation_message', 'send_collaboration_message']);
+    const conversationTools = new Set(['create_conversation', 'open_task_conversation', 'update_conversation_title', 'link_conversation_task', 'delete_conversation', 'send_conversation_message', 'send_collaboration_message', 'mark_conversation_read']);
     requireThat(['agent', 'trusted_local'].includes(actor.scope) || (actor.scope === 'human' && (name === 'archive_record' || name === 'edit_record' || name === 'create_project' || name === 'create_task' || name === 'create_feature' || name === 'preview_task_transfer' || name === 'transfer_task' || name === 'mark_task_read' || conversationTools.has(name))), 'Agent scope required', 403);
     const schema = tools[name as keyof typeof tools];
     requireThat(schema, 'Unknown tool', 404);
@@ -566,6 +567,7 @@ export class Service {
     if (name === 'link_conversation_task') return this.conversations.linkTask(actor, a);
     if (name === 'delete_conversation') return this.conversations.delete(actor, a);
     if (name === 'send_conversation_message') return this.conversations.sendMessage(actor, a);
+    if (name === 'mark_conversation_read') return this.conversations.markRead(actor, a);
     if (name === 'create_action_proposal') return this.conversations.createProposal(actor, a);
     const result = await this.mutate(actor, name, a, async s => {
       await this.automation.guard(actor, name, a, s);
@@ -695,6 +697,7 @@ export class Service {
           if (plan.internal.messages.length) await updateScope(TaskMessage, { ...sourceFilter, _id: { $in: plan.internal.messages.map((item: any) => item._id) } }, plan.internal.messages.length);
           if (plan.internal.conversations.length) await updateScope(Conversation, { ...sourceFilter, _id: { $in: plan.internal.conversations.map((item: any) => item._id) } }, plan.internal.conversations.length);
           if (plan.internal.conversationMessages.length) await updateScope(ConversationMessage, { ...sourceFilter, _id: { $in: plan.internal.conversationMessages.map((item: any) => item._id) } }, plan.internal.conversationMessages.length);
+          if (plan.internal.conversationReads.length) await updateScope(ConversationRead, { ...sourceFilter, _id: { $in: plan.internal.conversationReads.map((item: any) => item._id) } }, plan.internal.conversationReads.length);
           if (plan.internal.actionProposals.length) await updateScope(ActionProposal, { ...sourceFilter, _id: { $in: plan.internal.actionProposals.map((item: any) => item._id) } }, plan.internal.actionProposals.length);
           if (plan.internal.diffs.length) await updateScope(TaskDiff, { ...sourceFilter, _id: { $in: plan.internal.diffs.map((item: any) => item._id) } }, plan.internal.diffs.length);
           const documentIds = plan.internal.documents.map((document: any) => document._id);
@@ -826,8 +829,8 @@ export class Service {
       const unread = await DeliveryEvent.exists({ projectId: a.projectId, taskIds: a.taskId, sequence: { $gt: readCursor }, author: { $ne: actor.userId } });
       return { ...context, task: { ...context.task, readCursor, unread: !!unread } };
     }
-    if (name === 'list_conversations') return this.conversations.list(a);
-    if (name === 'get_conversation') return this.conversations.get(a);
+    if (name === 'list_conversations') return this.conversations.list(actor, a);
+    if (name === 'get_conversation') return this.conversations.get(actor, a);
     const page = async (model: Model<any>, filter: any) => {
       const startedAt = Date.now();
       try {

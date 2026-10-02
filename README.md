@@ -8,6 +8,8 @@ Opcionalmente, `yarn bridge` inicia uma bridge MCP stdio local. Ela lê somente 
 
 ## Executar localmente
 
+Requer Node.js 24 ou superior. Para configurar o ambiente com perguntas interativas, execute `yarn setup` (ou `node scripts/setup-environment.mjs`) na raiz do projeto e escolha **local**. O assistente prepara `.env`, instala as dependências e pode iniciar `yarn dev`; o MongoDB Community precisa estar instalado para o helper local iniciar `mongod` (no Windows, ele tenta detectar o caminho padrão; informe `MONGOD_PATH` se necessário).
+
 ```powershell
 yarn install --frozen-lockfile
 yarn dev
@@ -24,6 +26,8 @@ Para trabalhar no painel React, mantenha o MCP local em execução e execute yar
 O build de produção gera os assets do frontend e os publica na rota administrativa do servidor.
 
 ## Produção
+
+No Ubuntu, execute `yarn setup` (ou `node scripts/setup-environment.mjs`) como o usuário que será dono do processo PM2, dentro do checkout. Escolha **produção** para configurar `.env`, MongoDB dedicado em Docker (com volume persistente e porta restrita ao loopback), MongoDB Community instalado no host ou uma URI existente; o assistente instala dependências e PM2, compila e inicia/salva o processo. O Docker Engine precisa estar instalado para a opção MongoDB dedicado. O startup do PM2 no systemd é configurado quando confirmado.
 
 ```powershell
 yarn install --frozen-lockfile --production=false

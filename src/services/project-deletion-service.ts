@@ -6,6 +6,7 @@ import {
   ActionProposal,
   Conversation,
   ConversationMessage,
+  ConversationRead,
   DeliveryEvent,
   DeliveryRead,
   Event,
@@ -86,6 +87,7 @@ export async function deleteProjectCascade(projectId: string, actor: AuditActor,
   await remove('taskMessages', TaskMessage.deleteMany({ $or: [{ projectId }, { taskId: { $in: taskIds } }, { relatedTaskId: { $in: taskIds } }] }, { session }));
   await remove('conversations', Conversation.deleteMany({ projectId }, { session }));
   await remove('conversationMessages', ConversationMessage.deleteMany({ projectId }, { session }));
+  await remove('conversationReads', ConversationRead.deleteMany({ projectId }, { session }));
   await remove('actionProposals', ActionProposal.deleteMany({ projectId }, { session }));
   await remove('deliveryEvents', DeliveryEvent.deleteMany({ projectId }, { session }));
   await remove('deliveryReads', DeliveryRead.deleteMany({ projectId }, { session }));

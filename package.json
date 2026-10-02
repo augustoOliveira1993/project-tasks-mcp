@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "setup": "node scripts/setup-environment.mjs",
     "start": "node --env-file-if-exists=.env --import tsx src/main.ts",
     "dev": "nodemon --signal SIGTERM --watch src --ext ts --exec node --env-file-if-exists=.env --import tsx src/dev.ts",
     "dev:frontend": "vite --config frontend/vite.config.ts",

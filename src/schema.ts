@@ -76,6 +76,7 @@ export const tools = {
   get_project_novelties: z.object({ projectId: id, after: z.number().int().nonnegative().optional(), limit: z.number().int().min(1).max(100).default(25) }).strict(),
   mark_project_read: z.object({ ...op, projectId: id, cursor: z.number().int().nonnegative() }).strict(),
   mark_task_read: z.object({ ...op, projectId: id, taskId: id, cursor: z.number().int().nonnegative() }).strict(),
+  mark_conversation_read: z.object({ ...op, projectId: id, conversationId: id, cursor: id }).strict(),
   get_project_sync_report: z.object({ projectId: id, featureId: id.optional() }).strict(),
   save_markdown: z.object({ ...op, projectId: id, targetKind: z.enum(['feature', 'task']), targetId: id, id: id.optional(), version: z.number().int().nonnegative().optional(), name: z.string().min(1).max(255).regex(/\.md$/i, 'Name must end in .md'), summary: markdownSummary, content: markdown }).strict(),
   list_markdowns: z.object({ projectId: id, targetKind: z.enum(['feature', 'task']), targetId: id, after: id.optional(), limit: z.number().int().min(1).max(100).default(25) }).strict(),

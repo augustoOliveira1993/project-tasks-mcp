@@ -40,6 +40,7 @@ export const toolDocs: readonly ToolDoc[] = [
   ['Conversas com IA', 'open_task_conversation', 'Abre ou cria uma conversa multi-turno vinculada à tarefa; use send_task_message para progresso pontual.', 'Gravação'],
   ['Conversas com IA', 'list_conversations', 'Retoma conversas compartilhadas do projeto.', 'Leitura'],
   ['Conversas com IA', 'get_conversation', 'Consulta mensagens e propostas de uma conversa.', 'Leitura'],
+  ['Conversas com IA', 'mark_conversation_read', 'Marca mensagens da conversa como lidas para a identidade atual até o cursor informado.', 'Gravação'],
   ['Conversas com IA', 'send_conversation_message', 'Envia uma mensagem para a conversa compartilhada.', 'Gravação'],
   ['Conversas com IA', 'create_action_proposal', 'Prepara proposta vinculada à tarefa e versão; a execução aguarda aprovação humana.', 'Gravação'],
   ['Colaboração', 'mark_project_read', 'Avança o cursor de novidades já lidas para a identidade atual.', 'Gravação'],

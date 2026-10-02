@@ -46,7 +46,8 @@ const MCP_TOOL_GUIDANCE: Record<string, string> = {
   send_collaboration_message: 'Use para perguntas/respostas/decisões entre tasks relacionadas. Uma pergunta com relatedTaskId pode enfileirar consulta apenas sem job ativo e com automação anterior concluída, ainda autorizada e no mesmo escopo; não é notificação genérica de outra IA.',
   open_task_conversation: 'Abre ou reutiliza o chat multi-turno ligado à task. Leia o histórico com get_conversation antes de responder. Use send_task_message para comunicação da execução ativa; isso não desperta outra sessão automaticamente (does not wake another agent session automatically).',
   update_conversation_title: 'Renomeia uma conversa aberta do projeto com título trimado de 1 a 255 caracteres; informe version atual e operationId novo.',
-  send_conversation_message: 'Grava mensagem na conversa compartilhada. A autoria usa identidade autenticada e nome do cliente MCP anunciado no initialize; envie apenas o conteúdo, sem simular outro autor. Não inicia nem desperta outra sessão Codex/Claude.',
+  send_conversation_message: 'Grava mensagem na conversa compartilhada. A autoria usa identidade autenticada e nome do cliente MCP anunciado no initialize; envie apenas o conteúdo, sem simular outro autor. Não inicia nem desperta outra sessão Codex/Claude; um runner já ativo numa task vinculada consulta novas mensagens no limite de cada turno.',
+  mark_conversation_read: 'Marca mensagens de uma conversa como lidas para a identidade autenticada até o cursor de mensagem observado; informe operationId novo.',
   create_action_proposal: 'Registra uma proposta vinculada à conversa e task; a mudança aguarda aprovação humana e rota de automação configurada.',
   update_markdown: 'Atualiza documento existente somente com baseRevision lida. Após conflito, leia a revisão nova antes de decidir.',
   save_markdown: 'Salva documento Markdown associado a feature/task; não use como substituto de update_markdown quando estiver atualizando revisão existente.',
@@ -323,6 +324,11 @@ export function createApp(service: Service, origins: string[]) {
   app.post('/admin/conversations/:conversationId/messages', async (req, res) => {
     const actor = await authenticate(token(req.headers.authorization), 'human');
     const result = await service.call(actor, 'send_conversation_message', { ...req.body, conversationId: req.params.conversationId });
+    res.json(result);
+  });
+  app.post('/admin/conversations/:conversationId/read', async (req, res) => {
+    const actor = await authenticate(token(req.headers.authorization), 'human');
+    const result = await service.call(actor, 'mark_conversation_read', { ...req.body, conversationId: req.params.conversationId });
     res.json(result);
   });
   app.post('/admin/conversations/approve-proposal', async (req, res) => {

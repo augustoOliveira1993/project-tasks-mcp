@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { ClientSession } from 'mongoose';
-import { ActionProposal, AutomationJob, Conversation, ConversationMessage, Task } from '../models.js';
+import { ActionProposal, AutomationJob, Conversation, ConversationMessage, ConversationRead, Task } from '../models.js';
 import { pageLatestByCreatedAt } from '../pagination.js';
 import { DomainError, type Actor, type Service } from '../service.js';
 
@@ -8,12 +8,26 @@ function ensure(condition: unknown, message: string, status = 409): asserts cond
   if (!condition) throw new DomainError(message, status);
 }
 
-function conversationDto(item: any) {
+function conversationDto(item: any, unread?: { count: number; cursor: string | null }) {
   return {
     _id: item._id, projectId: item.projectId, taskId: item.taskId ?? null, title: item.title,
     status: item.status, version: item.version, createdAt: item.createdAt,
-    updatedAt: item.updatedAt, lastMessageAt: item.lastMessageAt ?? null
+    updatedAt: item.updatedAt, lastMessageAt: item.lastMessageAt ?? null,
+    ...(unread ? { unread } : {})
   };
+}
+
+function messageCursor(message: any) {
+  return `${new Date(message.createdAt).toISOString()}|${message._id}`;
+}
+
+function cursorPoint(value?: string) {
+  if (!value) return null;
+  const separator = value.indexOf('|');
+  if (separator < 0) return null;
+  const createdAt = new Date(value.slice(0, separator));
+  const id = value.slice(separator + 1);
+  return Number.isFinite(createdAt.getTime()) && id ? { createdAt, id } : null;
 }
 
 function messageDto(item: any) {
@@ -34,6 +48,21 @@ function proposalDto(item: any, currentTaskVersion?: number) {
 
 export class ConversationService {
   constructor(private service: Service) {}
+
+  private async unreadState(projectId: string, conversationId: string, userId: string) {
+    const read = await ConversationRead.findOne({ projectId, conversationId, userId }).select('lastReadCursor').lean();
+    const point = cursorPoint(read?.lastReadCursor);
+    const filter: any = { projectId, conversationId, author: { $ne: userId } };
+    if (point) filter.$or = [
+      { createdAt: { $gt: point.createdAt } },
+      { createdAt: point.createdAt, _id: { $gt: point.id } }
+    ];
+    const [count, latest] = await Promise.all([
+      ConversationMessage.countDocuments(filter),
+      ConversationMessage.findOne(filter).select('_id').sort({ createdAt: -1, _id: -1 }).lean()
+    ]);
+    return { count, cursor: latest?._id ?? null };
+  }
 
   async create(actor: Actor, a: any) {
     return this.service.mutate(actor, 'create_conversation', a, async (session: ClientSession) => {
@@ -68,17 +97,20 @@ export class ConversationService {
     }, false, false);
   }
 
-  async list(a: any) {
+  async list(actor: Actor, a: any) {
     const page = await pageLatestByCreatedAt<any>(Conversation, { projectId: a.projectId, status: { $ne: 'deleted' } }, a.after, a.limit);
-    return { items: page.items.map(conversationDto), next: page.next };
+    const items = await Promise.all(page.items.map(async item =>
+      conversationDto(item, await this.unreadState(a.projectId, item._id, actor.userId))));
+    return { items, next: page.next };
   }
 
-  async get(a: any) {
+  async get(actor: Actor, a: any) {
     const conversation = await Conversation.findOne({ _id: a.conversationId, projectId: a.projectId, status: { $ne: 'deleted' } }).lean();
     ensure(conversation, 'Conversation not found', 404);
-    const [messagePage, proposals] = await Promise.all([
+    const [messagePage, proposals, unread] = await Promise.all([
       pageLatestByCreatedAt<any>(ConversationMessage, { projectId: a.projectId, conversationId: a.conversationId }, a.after, a.limit),
-      ActionProposal.find({ projectId: a.projectId, conversationId: a.conversationId }).sort({ createdAt: -1, _id: -1 }).limit(25).lean()
+      ActionProposal.find({ projectId: a.projectId, conversationId: a.conversationId }).sort({ createdAt: -1, _id: -1 }).limit(25).lean(),
+      this.unreadState(a.projectId, a.conversationId, actor.userId)
     ]);
     const taskId = conversation.taskId ?? proposals.find(proposal => proposal.status === 'pending')?.taskId;
     const jobIds = proposals.flatMap(proposal => typeof proposal.jobId === 'string' ? [proposal.jobId] : []);
@@ -87,13 +119,30 @@ export class ConversationService {
       jobIds.length ? AutomationJob.find({ projectId: a.projectId, _id: { $in: jobIds } }).select('_id status error request.title').lean() : Promise.resolve([])
     ]);
     return {
-      conversation: conversationDto(conversation),
+      conversation: conversationDto(conversation, unread),
       messages: messagePage.items.map(messageDto),
       next: messagePage.next,
       proposals: proposals.map(proposal => proposalDto(proposal, task?.version)),
       task: task ? { _id: task._id, version: task.version, status: task.status, name: task.name, area: task.area, featureId: task.featureId ?? null } : null,
       jobs: jobs.map(job => ({ _id: job._id, status: job.status, failed: job.status === 'failed' || Boolean(job.error), permissionTitle: job.status === 'waiting_human' ? job.request?.title ?? null : null }))
     };
+  }
+
+  async markRead(actor: Actor, a: any) {
+    return this.service.mutate(actor, 'mark_conversation_read', a, async (session: ClientSession) => {
+      const conversation = await Conversation.findOne({ _id: a.conversationId, projectId: a.projectId, status: { $ne: 'deleted' } })
+        .select('_id').session(session).lean();
+      ensure(conversation, 'Conversation not found', 404);
+      const message = await ConversationMessage.findOne({ _id: a.cursor, projectId: a.projectId, conversationId: a.conversationId })
+        .select('_id createdAt').session(session).lean();
+      ensure(message, 'Conversation message cursor not found', 404);
+      await ConversationRead.findOneAndUpdate(
+        { projectId: a.projectId, conversationId: a.conversationId, userId: actor.userId },
+        { $max: { lastReadCursor: messageCursor(message) } },
+        { upsert: true, returnDocument: 'after', session }
+      );
+      return { projectId: a.projectId, conversationId: a.conversationId, cursor: a.cursor };
+    }, false, false);
   }
 
   async linkTask(actor: Actor, a: any) {
@@ -151,6 +200,10 @@ export class ConversationService {
     return this.service.mutate(actor, 'send_conversation_message', a, async (session: ClientSession) => {
       const conversation = await Conversation.findOne({ _id: a.conversationId, projectId: a.projectId, status: 'open' }).session(session);
       ensure(conversation, 'Conversation not found or closed', 404);
+      if (actor.jobId) {
+        ensure(conversation.taskId, 'Runner replies require a task-linked conversation', 403);
+        await this.service.automation.guard(actor, 'send_conversation_message', { ...a, taskId: conversation.taskId }, session);
+      }
       const authorType = actor.scope === 'agent' ? 'agent' : 'human';
       const clientName = authorType === 'agent' && typeof actor.clientName === 'string' && actor.clientName.trim()
         ? actor.clientName.trim().slice(0, 100)

@@ -49,6 +49,10 @@ export const ConversationMessage = mongoose.model('ConversationMessage', new Sch
 }, { versionKey: false }));
 ConversationMessage.schema.index({ projectId: 1, conversationId: 1, createdAt: 1, _id: 1 });
 ConversationMessage.schema.index({ conversationId: 1, senderId: 1, operationId: 1 }, { unique: true });
+export const ConversationRead = mongoose.model('ConversationRead', new Schema({
+  projectId: String, userId: String, conversationId: String, lastReadCursor: String
+}, options));
+ConversationRead.schema.index({ projectId: 1, userId: 1, conversationId: 1 }, { unique: true });
 const proposedTaskPatch = new Schema({ instructions: String, acceptance: [String] }, { _id: false, strict: true });
 export const ActionProposal = mongoose.model('ActionProposal', new Schema({
   ...base, projectId: { type: String, index: true }, conversationId: String, taskId: String,
@@ -73,7 +77,7 @@ TaskDiff.schema.index({ projectId: 1, taskId: 1, createdAt: 1, _id: 1 });
 export const AutomationPolicy = mongoose.model('AutomationPolicy', new Schema({ _id: String, version: { type: Number, default: 0 }, enabled: { type: Boolean, default: false }, maxConcurrent: { type: Number, default: 10 }, routes: [{ repositoryId: String, area: String, provider: String, _id: false }] }, options));
 export const Runner = mongoose.model('Runner', new Schema({ _id: String, credentialId: String, machineId: String, providers: [String], repositories: [String], maxConcurrent: Number, lastSeen: Date, fence: { type: Number, default: 0 } }, options));
 Runner.schema.index({ credentialId: 1, machineId: 1 }, { unique: true });
-export const AutomationJob = mongoose.model('AutomationJob', new Schema({ _id: String, projectId: String, taskId: String, version: { type: Number, default: 0 }, mode: { type: String, default: 'work' }, authorizationValid: { type: Boolean, default: true }, originJobId: String, preferredRunnerId: String, triggerMessageId: String, conversationId: String, turnInFlight: { type: Boolean, default: false }, fingerprint: String, repositoryId: String, provider: String, authorizedBy: String, status: String, runnerId: String, credentialId: String, reservationUntil: Date, executionId: String, providerSessionId: String, cwd: String, attempts: { type: Number, default: 0 }, turns: { type: Number, default: 0 }, startedAt: Date, lastCursor: String, deliveredMessageIds: [String], usage: Schema.Types.Mixed, error: String, request: Schema.Types.Mixed }, options));
+export const AutomationJob = mongoose.model('AutomationJob', new Schema({ _id: String, projectId: String, taskId: String, version: { type: Number, default: 0 }, mode: { type: String, default: 'work' }, authorizationValid: { type: Boolean, default: true }, originJobId: String, preferredRunnerId: String, triggerMessageId: String, conversationId: String, conversationMessageCursor: String, turnInFlight: { type: Boolean, default: false }, fingerprint: String, repositoryId: String, provider: String, authorizedBy: String, status: String, runnerId: String, credentialId: String, reservationUntil: Date, executionId: String, providerSessionId: String, cwd: String, attempts: { type: Number, default: 0 }, turns: { type: Number, default: 0 }, startedAt: Date, lastCursor: String, deliveredMessageIds: [String], usage: Schema.Types.Mixed, error: String, request: Schema.Types.Mixed }, options));
 AutomationJob.schema.index({ projectId: 1, status: 1, createdAt: 1 });
 AutomationJob.schema.index({ runnerId: 1, status: 1 });
 AutomationJob.schema.index({ taskId: 1, createdAt: -1 });
