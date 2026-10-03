@@ -974,7 +974,10 @@ export class Service {
       const events = page.items;
       const projectIds = [...new Set(events.map(item => item.projectId).filter((id): id is string => typeof id === 'string' && id.length > 0))];
       const projects = projectIds.length ? await Project.find({ _id: { $in: projectIds } }).select('_id name').lean() : [];
-      const projectsById = new Map(projects.map(item => [item._id, item.name]));
+      const projectsById = new Map<string, string>();
+      for (const project of projects) {
+        if (typeof project._id === 'string' && typeof project.name === 'string') projectsById.set(project._id, project.name);
+      }
       logger.debug('global activity query completed', { rows: events.length, durationMs: Date.now() - startedAt });
       return { items: await this.activityDtos(events, projectsById), next: page.next };
     }
