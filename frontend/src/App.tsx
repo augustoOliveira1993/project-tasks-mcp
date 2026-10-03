@@ -34,6 +34,7 @@ function App() {
   const [activeProjectId, setActiveProjectId] = useState(() => projectIdFromSearch(window.location.search));
   const [activeRoute, setActiveRoute] = useState<AppRoute>(() => routeFromPath(window.location.pathname));
   const [activityScope, setActivityScope] = useState<'project' | 'global'>(() => routeFromPath(window.location.pathname) === 'globalActivity' || new URLSearchParams(window.location.search).get('activityScope') === 'global' ? 'global' : 'project');
+  const [activityTaskSearch, setActivityTaskSearch] = useState('');
   const activeTab = tabForRoute(activeRoute);
   const catalogScreen = isCatalogRoute(activeRoute);
   const globalActivityRoute = activeRoute === 'globalActivity' || activeRoute === 'activity' && activityScope === 'global';
@@ -226,10 +227,14 @@ function App() {
       notify('A tarefa deste link não está disponível na listagem do projeto.', 'error');
     }
   }, [activeRoute, requestedTaskId, tasks, tasksQuery.isPending]);
-  const noveltiesQuery = useQuery({
-    queryKey: ['project-novelties', nonce, activeProjectId],
+  useEffect(() => { setActivityTaskSearch(''); }, [activeProjectId, globalActivityRoute]);
+  const projectActivityQuery = useInfiniteQuery({
+    queryKey: ['project-activity', nonce, activeProjectId, activityTaskSearch.trim()],
     enabled: Boolean(token && nonce && activeProjectId && activeRoute === 'activity' && !globalActivityRoute),
-    queryFn: () => query<{ items: ActivityEvent[] }>(token, 'get_project_novelties', { projectId: activeProjectId, limit: 40 })
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ pageParam }) => query<{ items: ActivityEvent[]; next: string | null }>(token, 'list_project_activity', { projectId: activeProjectId, ...(activityTaskSearch.trim() ? { search: activityTaskSearch.trim() } : {}), ...(pageParam ? { after: pageParam } : {}), limit: 40 }),
+    getNextPageParam: lastPage => lastPage.next ?? undefined,
+    retry: false
   });
   const globalActivityQuery = useInfiniteQuery({
     queryKey: ['global-activity', nonce],
@@ -491,7 +496,24 @@ function App() {
           {activeTab === 'chat' && <ConversationPanel token={token} nonce={nonce} projectId={activeProjectId} tasks={tasks} requestedConversationId={conversationToOpen || undefined} onConversationSelected={rememberConversation} onOpenTask={openTaskFromConversation} onOpenAdmin={() => setActiveTab('admin')} />}
           {activeTab === 'activity' && (globalActivityRoute && capabilitiesQuery.data?.systemAdmin !== true
             ? <div className="notice error" role="alert">{capabilitiesQuery.isPending ? 'Verificando acesso administrativo…' : capabilitiesQuery.isError ? errorMessage(capabilitiesQuery.error) : 'A atividade global é restrita a administradores do sistema.'}</div>
-            : <ActivityPage key={globalActivityRoute ? 'global' : activeProjectId} events={globalActivityRoute ? globalActivityQuery.data?.pages.flatMap(page => page.items) ?? [] : noveltiesQuery.data?.items ?? []} tasks={tasks} projects={projects.map(item => item.project)} isGlobal={globalActivityRoute} canViewGlobal={capabilitiesQuery.data?.systemAdmin === true} onScopeChange={isGlobal => navigateToRoute(isGlobal ? 'globalActivity' : 'activity', activeProjectId, isGlobal)} isPending={globalActivityRoute ? capabilitiesQuery.isPending || globalActivityQuery.isPending : noveltiesQuery.isPending} isError={globalActivityRoute ? globalActivityQuery.isError : noveltiesQuery.isError} error={globalActivityRoute ? globalActivityQuery.error : noveltiesQuery.error} hasMore={globalActivityRoute ? globalActivityQuery.hasNextPage : false} isLoadingMore={globalActivityRoute ? globalActivityQuery.isFetchingNextPage : false} onRefresh={() => { if (globalActivityRoute) void globalActivityQuery.refetch(); else void noveltiesQuery.refetch(); }} onLoadMore={globalActivityRoute ? () => { void globalActivityQuery.fetchNextPage(); } : undefined} />)}
+            : <ActivityPage
+              key={globalActivityRoute ? 'global' : activeProjectId}
+              events={globalActivityRoute ? globalActivityQuery.data?.pages.flatMap(page => page.items) ?? [] : projectActivityQuery.data?.pages.flatMap(page => page.items) ?? []}
+              tasks={tasks}
+              projects={projects.map(item => item.project)}
+              isGlobal={globalActivityRoute}
+              canViewGlobal={capabilitiesQuery.data?.systemAdmin === true}
+              taskSearch={activityTaskSearch}
+              onTaskSearchChange={setActivityTaskSearch}
+              onScopeChange={isGlobal => navigateToRoute(isGlobal ? 'globalActivity' : 'activity', activeProjectId, isGlobal)}
+              isPending={globalActivityRoute ? capabilitiesQuery.isPending || globalActivityQuery.isPending : projectActivityQuery.isPending}
+              isError={globalActivityRoute ? globalActivityQuery.isError : projectActivityQuery.isError}
+              error={globalActivityRoute ? globalActivityQuery.error : projectActivityQuery.error}
+              hasMore={globalActivityRoute ? globalActivityQuery.hasNextPage : projectActivityQuery.hasNextPage}
+              isLoadingMore={globalActivityRoute ? globalActivityQuery.isFetchingNextPage : projectActivityQuery.isFetchingNextPage}
+              onRefresh={() => { if (globalActivityRoute) void globalActivityQuery.refetch(); else void projectActivityQuery.refetch(); }}
+              onLoadMore={() => { if (globalActivityRoute) void globalActivityQuery.fetchNextPage(); else void projectActivityQuery.fetchNextPage(); }}
+            />)}
           {activeTab === 'admin' && project && <AdminPanel token={token} project={project} projects={projects.map(item => item.project)} onChanged={() => projectsQuery.refetch()} notify={notify} canHardDelete={canHardDelete} systemAdmin={capabilitiesQuery.data?.systemAdmin === true} actionPending={saving} onRequestHardDeleteProject={requestProjectHardDelete} onArchiveProject={() => { void archiveProject(); }} />}
           {activeTab === 'help' && <HelpToolsPanel search={toolSearch} onSearchChange={setToolSearch} />}
         </>}

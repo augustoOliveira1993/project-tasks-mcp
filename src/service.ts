@@ -41,6 +41,14 @@ function normalizeGitRemote(value: string) {
   return value.trim().replace(/^git@([^:]+):/i, '$1/').replace(/^(?:https?|ssh):\/\//i, '').replace(/^git@/i, '').replace(/\.git\/?$/i, '').replace(/\/+$/, '').toLowerCase();
 }
 function requireThat(value: unknown, message: string, status = 409): asserts value { if (!value) throw new DomainError(message, status); }
+function redactActivityDetail(value: string) {
+  return value
+    .replace(/-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z0-9 ]*PRIVATE KEY-----/gi, '[DADO SENSÍVEL OCULTO]')
+    .replace(/\b([a-z][a-z0-9+.-]*:\/\/)[^/\s:@]+:[^/\s@]+@/gi, '$1[DADO SENSÍVEL OCULTO]@')
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi, 'Bearer [DADO SENSÍVEL OCULTO]')
+    .replace(/\b(?:sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b/g, '[DADO SENSÍVEL OCULTO]')
+    .replace(/\b(api[_-]?key|access[_-]?token|refresh[_-]?token|password|passwd|secret|client[_-]?secret|private[_-]?key|authorization)(\s*["']?\s*[:=]\s*["']?)([^\s"',;}\]]+)/gi, '$1$2[DADO SENSÍVEL OCULTO]');
+}
 const models: Record<string, Model<any>> = { project: Project, feature: Feature, task: Task };
 export async function authenticate(token: string, scope: string): Promise<Actor> {
   const c = await Credential.findOne({ hash: hash(token), revoked: false, scope }).lean();
@@ -404,13 +412,16 @@ export class Service {
   }
   async event(s: ClientSession, actor: Actor, action: string, projectId: string | undefined, entityId: string, data: any) {
     const eventId = randomUUID(); const at = new Date();
-    const kind = ({ create_task: 'task.created', create_feature: 'feature.created', create_project: 'project.created', task_message: 'task.message.created', create_conversation: 'conversation.created', open_task_conversation: 'conversation.created', update_conversation_title: 'conversation.title.updated', link_conversation_task: 'conversation.task.linked', delete_conversation: 'conversation.deleted', conversation_message: 'conversation.message.created', create_action_proposal: 'conversation.action_proposal.created', approve_action_proposal: 'conversation.action_proposal.approved', save_markdown: 'body.updated', update_markdown: 'body.updated', record_task_diff: 'task.diff.published', submit_task: 'task.submitted', claim_task: 'task.claimed', record_progress: 'task.progressed', set_acceptance_criterion: 'task.acceptance.progressed', block_task: 'task.blocked', approve: 'task.approved', set_task_status: 'task.status.changed', manual_status_change: 'task.status.changed', set_task_checked: 'task.check.changed', transfer_task: 'task.transferred' } as Record<string, string>)[action] ?? `project.${action}`;
-    const summary = ({ 'task.created': 'Tarefa criada', 'feature.created': 'Feature criada', 'project.created': 'Projeto criado', 'task.message.created': 'Mensagem adicionada à tarefa', 'conversation.created': 'Conversa criada', 'conversation.title.updated': 'Título da conversa atualizado', 'conversation.message.created': data?.summary ?? 'Nova mensagem na conversa', 'conversation.action_proposal.created': 'Proposta de execução aguardando aprovação', 'conversation.action_proposal.approved': 'Proposta aprovada e execução autorizada', 'body.updated': 'Documento Markdown atualizado', 'task.diff.published': 'Diff de código publicado', 'task.submitted': 'Tarefa enviada para revisão', 'task.claimed': 'Tarefa assumida', 'task.progressed': 'Progresso registrado', 'task.acceptance.progressed': 'Critério de aceite atualizado', 'task.blocked': 'Tarefa bloqueada', 'task.approved': 'Tarefa aprovada', 'task.status.changed': 'Status da tarefa alterado', 'task.check.changed': 'Conferência da tarefa alterada', 'task.transferred': 'Tarefa transferida' } as Record<string, string>)[kind] ?? action;
+    const kind = ({ create_task: 'task.created', create_feature: 'feature.created', create_project: 'project.created', task_message: 'task.message.created', create_conversation: 'conversation.created', open_task_conversation: 'conversation.created', update_conversation_title: 'conversation.title.updated', link_conversation_task: 'conversation.task.linked', delete_conversation: 'conversation.deleted', conversation_message: 'conversation.message.created', create_action_proposal: 'conversation.action_proposal.created', approve_action_proposal: 'conversation.action_proposal.approved', mcp_tool_call: 'mcp.tool.called', save_markdown: 'body.updated', update_markdown: 'body.updated', record_task_diff: 'task.diff.published', submit_task: 'task.submitted', claim_task: 'task.claimed', record_progress: 'task.progressed', set_acceptance_criterion: 'task.acceptance.progressed', block_task: 'task.blocked', approve: 'task.approved', set_task_status: 'task.status.changed', manual_status_change: 'task.status.changed', set_task_checked: 'task.check.changed', transfer_task: 'task.transferred' } as Record<string, string>)[action] ?? `project.${action}`;
+    const toolName = data?.toolName ?? ({ task_message: 'send_task_message', conversation_message: 'send_conversation_message' } as Record<string, string>)[action] ?? (Object.prototype.hasOwnProperty.call(tools, action) ? action : undefined);
+    const detail = action === 'record_progress' && typeof data?.message === 'string' ? redactActivityDetail(data.message) : typeof data?.detail === 'string' ? redactActivityDetail(data.detail) : undefined;
+    const conversationId = typeof data?.conversationId === 'string' ? data.conversationId : undefined;
+    const summary = ({ 'task.created': 'Tarefa criada', 'feature.created': 'Feature criada', 'project.created': 'Projeto criado', 'task.message.created': 'Mensagem adicionada à tarefa', 'conversation.created': 'Conversa criada', 'conversation.title.updated': 'Título da conversa atualizado', 'conversation.message.created': data?.summary ?? 'Nova mensagem na conversa', 'conversation.action_proposal.created': 'Proposta de execução aguardando aprovação', 'conversation.action_proposal.approved': 'Proposta aprovada e execução autorizada', 'mcp.tool.called': `Chamada MCP: ${toolName ?? 'ferramenta'}`, 'body.updated': 'Documento Markdown atualizado', 'task.diff.published': 'Diff de código publicado', 'task.submitted': 'Tarefa enviada para revisão', 'task.claimed': 'Tarefa assumida', 'task.progressed': 'Progresso registrado', 'task.acceptance.progressed': 'Critério de aceite atualizado', 'task.blocked': 'Tarefa bloqueada', 'task.approved': 'Tarefa aprovada', 'task.status.changed': 'Status da tarefa alterado', 'task.check.changed': 'Conferência da tarefa alterada', 'task.transferred': 'Tarefa transferida' } as Record<string, string>)[kind] ?? action;
     const agent = data?.agent ?? actor.clientName;
     const origin = eventOrigin(actor);
     const actorData = { userId: actor.userId, credentialId: actor.id, ...(agent ? { agent } : {}) };
     const git = data?.repositoryId ? { repositoryId: data.repositoryId, ...(data?.branch ? { branch: data.branch } : {}), ...(data?.commit ? { commit: data.commit } : {}) } : undefined;
-    await Event.create([{ _id: eventId, projectId, entityId, action, kind, summary, actor: actorData, git, author: actor.userId, origin, credentialId: actor.id, at, data }], { session: s });
+    await Event.create([{ _id: eventId, projectId, entityId, action, kind, toolName, summary, detail, conversationId, actor: actorData, git, author: actor.userId, origin, credentialId: actor.id, at, data }], { session: s });
     if (!projectId) return;
     const project = await Project.findByIdAndUpdate(projectId, { $inc: { eventSequence: 1 } }, { returnDocument: 'after', session: s });
     if (!project) return;
@@ -420,7 +431,84 @@ export class Service {
     if (data?.targetKind === 'feature' || await Feature.exists({ _id: entityId, projectId }).session(s)) {
       for (const task of await Task.find({ projectId, featureId: data?.targetKind === 'feature' ? data.targetId : entityId }).select('_id').session(s)) ids.add(task._id!);
     }
-    await DeliveryEvent.create([{ _id: eventId, projectId, sequence: project.eventSequence, taskIds: [...ids], action, kind, summary, author: actor.userId, origin, credentialId: actor.id, entityId, entityVersion: data?.task?.version ?? data?.version, at }], { session: s });
+    await DeliveryEvent.create([{ _id: eventId, projectId, sequence: project.eventSequence, taskIds: [...ids], action, kind, toolName, summary, detail, conversationId, author: actor.userId, origin, credentialId: actor.id, entityId, entityVersion: data?.task?.version ?? data?.version, at }], { session: s });
+  }
+  private async recordMcpToolCall(actor: Actor, name: string, a: any) {
+    const excluded = new Set(['get_history', 'get_project_novelties', 'get_global_activity', 'list_project_activity']);
+    if (!a.projectId || excluded.has(name) || name.startsWith('wait_') || name.startsWith('subscribe_')) return;
+    if (actor.scope === 'human' && !actor.clientName) return;
+    let taskId = typeof a.taskId === 'string' ? a.taskId
+      : a.targetKind === 'task' && typeof a.targetId === 'string' ? a.targetId
+        : a.kind === 'task' && typeof a.id === 'string' ? a.id
+          : Array.isArray(a.taskIds) && a.taskIds.length === 1 ? a.taskIds[0] : undefined;
+    const conversationId = typeof a.conversationId === 'string' ? a.conversationId : undefined;
+    if (conversationId && !taskId) {
+      const conversation = await Conversation.findOne({ _id: conversationId, projectId: a.projectId }).select('taskId').lean();
+      taskId = conversation?.taskId;
+    }
+    const eventId = randomUUID();
+    const data = { toolName: name, ...(taskId ? { taskId } : {}), ...(conversationId ? { conversationId } : {}) };
+    await Event.create([{
+      _id: eventId,
+      projectId: a.projectId,
+      entityId: taskId ?? conversationId ?? eventId,
+      action: 'mcp_tool_call',
+      kind: 'mcp.tool.called',
+      toolName: name,
+      summary: `Chamada MCP: ${name}`,
+      ...(conversationId ? { conversationId } : {}),
+      actor: { userId: actor.userId, credentialId: actor.id, ...(actor.clientName ? { agent: actor.clientName } : {}) },
+      author: actor.userId,
+      origin: eventOrigin(actor),
+      credentialId: actor.id,
+      at: new Date(),
+      data
+    }]);
+  }
+  private async activityDtos(items: any[], projectNames?: Map<string, string>) {
+    const taskIds = [...new Set(items.flatMap(item => {
+      const taskId = item.data?.taskId ?? item.data?.relatedTaskId ?? (item.data?.targetKind === 'task' ? item.data?.targetId : undefined);
+      return typeof taskId === 'string' ? [taskId] : item.kind?.startsWith('task.') && typeof item.entityId === 'string' ? [item.entityId] : [];
+    }))];
+    const messageIds = [...new Set(items.map(item => item.kind === 'conversation.message.created' ? item.data?.messageId : undefined).filter((id): id is string => typeof id === 'string'))];
+    const taskMessageIds = [...new Set(items.filter(item => item.kind === 'task.message.created').map(item => item.entityId).filter((id): id is string => typeof id === 'string'))];
+    const credentialIds = [...new Set(items.filter(item => !item.author?.trim()).map(item => item.credentialId).filter((id): id is string => typeof id === 'string'))];
+    const projectIds = [...new Set(items.map(item => item.projectId).filter((id): id is string => typeof id === 'string'))];
+    const [tasks, messages, taskMessages, credentials] = await Promise.all([
+      taskIds.length ? Task.find({ _id: { $in: taskIds } }).select('_id name').lean() : Promise.resolve([]),
+      messageIds.length ? ConversationMessage.find({ _id: { $in: messageIds }, projectId: { $in: projectIds } }).select('_id content').lean() : Promise.resolve([]),
+      taskMessageIds.length ? TaskMessage.find({ _id: { $in: taskMessageIds }, projectId: { $in: projectIds } }).select('_id message').lean() : Promise.resolve([]),
+      credentialIds.length ? Credential.find({ _id: { $in: credentialIds } }).select('_id userId').lean() : Promise.resolve([])
+    ]);
+    const tasksById = new Map(tasks.map(task => [String(task._id), task.name]));
+    const messagesById = new Map(messages.map(message => [String(message._id), message.content]));
+    const taskMessagesById = new Map(taskMessages.map(message => [String(message._id), message.message]));
+    const authorsByCredential = new Map(credentials.filter(item => item.userId).map(item => [String(item._id), item.userId!]));
+    const toolNameByAction: Record<string, string> = { task_message: 'send_task_message', conversation_message: 'send_conversation_message' };
+    return items.map(item => {
+      const taskId = item.data?.taskId ?? item.data?.relatedTaskId ?? (item.data?.targetKind === 'task' ? item.data?.targetId : undefined)
+        ?? (item.kind?.startsWith('task.') ? item.entityId : null);
+      const conversationId = item.conversationId ?? item.data?.conversationId ?? null;
+      const detail = item.detail ?? (item.action === 'record_progress' ? item.data?.message : undefined)
+        ?? (item.kind === 'conversation.message.created' ? messagesById.get(String(item.data?.messageId)) : undefined)
+        ?? (item.kind === 'task.message.created' ? taskMessagesById.get(String(item.entityId)) : undefined);
+      return {
+        _id: item._id,
+        projectId: item.projectId ?? null,
+        projectName: projectNames ? item.projectId ? projectNames.get(item.projectId) ?? 'Projeto indisponível' : 'Administração do sistema' : undefined,
+        taskId: taskId ?? null,
+        taskName: taskId ? tasksById.get(String(taskId)) ?? null : null,
+        conversationId,
+        channel: item.kind?.startsWith('conversation.') ? 'conversa' : item.kind === 'mcp.tool.called' || item.toolName ? 'mcp' : 'atividade',
+        kind: item.kind ?? `project.${item.action}`,
+        toolName: item.toolName ?? item.data?.toolName ?? toolNameByAction[item.action] ?? null,
+        summary: item.summary ?? item.action,
+        detail: typeof detail === 'string' ? redactActivityDetail(detail) : null,
+        author: item.author?.trim() || authorsByCredential.get(String(item.credentialId)) || 'Autor não identificado',
+        origin: item.origin?.trim() || 'Origem não identificada',
+        at: item.at
+      };
+    });
   }
   async mutate(actor: Actor, name: string, a: any, run: (s: ClientSession) => Promise<any>, projectAdmin = name === 'admin', projectWrite = name !== 'mark_project_read' && name !== 'mark_task_read' && name !== 'mark_conversation_read') {
     const key = `${actor.id}:${a.operationId}`;
@@ -559,7 +647,11 @@ export class Service {
     const schema = tools[name as keyof typeof tools];
     requireThat(schema, 'Unknown tool', 404);
     const a: any = schema.parse(input);
-    if (!('operationId' in a)) return this.read(actor, name, a);
+    if (!('operationId' in a)) {
+      const result = await this.read(actor, name, a);
+      await this.recordMcpToolCall(actor, name, a);
+      return result;
+    }
     if (name === 'send_collaboration_message') return this.automation.message(actor, a);
     if (name === 'create_conversation') return this.conversations.create(actor, a);
     if (name === 'open_task_conversation') return this.conversations.openTask(actor, a);
@@ -567,7 +659,11 @@ export class Service {
     if (name === 'link_conversation_task') return this.conversations.linkTask(actor, a);
     if (name === 'delete_conversation') return this.conversations.delete(actor, a);
     if (name === 'send_conversation_message') return this.conversations.sendMessage(actor, a);
-    if (name === 'mark_conversation_read') return this.conversations.markRead(actor, a);
+    if (name === 'mark_conversation_read') {
+      const result = await this.conversations.markRead(actor, a);
+      await this.recordMcpToolCall(actor, name, a);
+      return result;
+    }
     if (name === 'create_action_proposal') return this.conversations.createProposal(actor, a);
     const result = await this.mutate(actor, name, a, async s => {
       await this.automation.guard(actor, name, a, s);
@@ -803,6 +899,7 @@ export class Service {
       await this.automation.afterTaskMutation(actor, t, name, s);
       await this.event(s, actor, name, a.projectId, a.taskId, { ...a, task: plain(t), repositoryId: t.repositoryId, branch: a.result?.branch, commit: a.result?.commit, agent: a.agent }); return t;
     });
+    if (name === 'mark_project_read' || name === 'mark_task_read') await this.recordMcpToolCall(actor, name, a);
     if (['create_project', 'edit_record', 'archive_record'].includes(name) && (name === 'create_project' || a.kind === 'project')) return projectDto(result);
     return result;
   }
@@ -844,6 +941,29 @@ export class Service {
     };
     if (name === 'get_automation_status') return this.automation.status(actor, a);
     if (name === 'get_project_sync_report') return this.projectSyncReport(actor, a);
+    if (name === 'list_project_activity') {
+      let taskIds: Set<string> | undefined;
+      if (a.taskId) {
+        requireThat(await Task.exists({ _id: a.taskId, projectId: a.projectId }), 'Task not found', 404);
+        taskIds = new Set([a.taskId]);
+      }
+      if (a.search) {
+        const escaped = a.search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const matches = await Task.find({ projectId: a.projectId, $or: [{ _id: new RegExp(escaped, 'i') }, { name: new RegExp(escaped, 'i') }] }).select('_id').lean();
+        const matchingIds = new Set(matches.map(task => String(task._id)));
+        taskIds = taskIds ? new Set([...taskIds].filter(taskId => matchingIds.has(taskId))) : matchingIds;
+      }
+      const filter: Record<string, unknown> = { projectId: a.projectId };
+      if (taskIds) {
+        if (!taskIds.size) return { items: [], next: null };
+        const ids = [...taskIds].sort();
+        filter.$or = [{ entityId: { $in: ids } }, { 'data.taskId': { $in: ids } }, { 'data.relatedTaskId': { $in: ids } }, { 'data.targetId': { $in: ids } }];
+      }
+      let page;
+      try { page = await pageByDate<any>(Event, filter, a.after, a.limit, 'at', false, -1); }
+      catch (error) { if (error instanceof PageCursorError) throw new DomainError(error.message, 400); throw error; }
+      return { items: await this.activityDtos(page.items), next: page.next };
+    }
     if (name === 'get_global_activity') {
       const capabilities = await this.adminCapabilities(actor);
       requireThat(capabilities.systemAdmin, 'System administrator required', 403);
@@ -855,29 +975,8 @@ export class Service {
       const projectIds = [...new Set(events.map(item => item.projectId).filter((id): id is string => typeof id === 'string' && id.length > 0))];
       const projects = projectIds.length ? await Project.find({ _id: { $in: projectIds } }).select('_id name').lean() : [];
       const projectsById = new Map(projects.map(item => [item._id, item.name]));
-      const credentialIds = [...new Set(events.filter(item => !item.author?.trim()).map(item => item.credentialId).filter((id): id is string => typeof id === 'string' && id.length > 0))];
-      const credentials = credentialIds.length ? await Credential.find({ _id: { $in: credentialIds } }).select('_id userId').lean() : [];
-      const authorsByCredential = new Map(credentials.filter(item => item.userId).map(item => [String(item._id), item.userId!]));
       logger.debug('global activity query completed', { rows: events.length, durationMs: Date.now() - startedAt });
-      return {
-        items: events.map(item => {
-          const taskId = typeof item.data?.taskId === 'string' ? item.data.taskId
-            : typeof item.data?.relatedTaskId === 'string' ? item.data.relatedTaskId
-              : item.kind?.startsWith('task.') ? item.entityId : null;
-          return {
-            _id: item._id,
-            projectId: item.projectId ?? null,
-            projectName: item.projectId ? projectsById.get(item.projectId) ?? 'Projeto indisponível' : 'Administração do sistema',
-            taskId,
-            kind: item.kind ?? `project.${item.action}`,
-            summary: item.summary ?? item.action,
-            author: item.author?.trim() || authorsByCredential.get(String(item.credentialId)) || 'Autor não identificado',
-            origin: item.origin?.trim() || 'Origem não identificada',
-            at: item.at
-          };
-        }),
-        next: page.next
-      };
+      return { items: await this.activityDtos(events, projectsById), next: page.next };
     }
     if (name === 'get_project_novelties') {
       const read = await DeliveryRead.findOne({ projectId: a.projectId, userId: actor.userId }).lean();
@@ -894,7 +993,7 @@ export class Service {
         ? await Credential.find({ _id: { $in: credentialIds } }).select('_id userId').lean()
         : [];
       const authorsByCredential = new Map(credentials.filter(item => item.userId).map(item => [String(item._id), item.userId!]));
-      return { count: rows.length, cursor, hasMore: more, items: rows.map(item => ({ sequence: item.sequence, taskId: item.taskIds?.[0] ?? null, kind: item.kind ?? `project.${item.action}`, summary: item.summary ?? item.action, author: item.author?.trim() || authorsByCredential.get(String(item.credentialId)), origin: item.origin?.trim() || 'Origem não identificada', at: item.at })), unreadTasks: await this.unreadTasks(actor, a.projectId, baseline) };
+      return { count: rows.length, cursor, hasMore: more, items: rows.map(item => ({ sequence: item.sequence, taskId: item.taskIds?.[0] ?? null, kind: item.kind ?? `project.${item.action}`, toolName: item.toolName ?? null, summary: item.summary ?? item.action, detail: item.detail ?? null, conversationId: item.conversationId ?? null, author: item.author?.trim() || authorsByCredential.get(String(item.credentialId)), origin: item.origin?.trim() || 'Origem não identificada', at: item.at })), unreadTasks: await this.unreadTasks(actor, a.projectId, baseline) };
     }
     if (name.endsWith('_project_events')) {
       if (name === 'unsubscribe_project_events') return { subscribed: false };

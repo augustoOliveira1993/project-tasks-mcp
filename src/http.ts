@@ -55,6 +55,7 @@ const MCP_TOOL_GUIDANCE: Record<string, string> = {
   record_task_diff: 'Registra evidência Git quando IDs e commits já foram obtidos. Se a bridge Git local estiver disponível, prefira publish_task_diff para derivar esses dados do checkout.',
   preview_task_transfer: 'Prévia somente leitura: mostre plano, contagens e bloqueios e aguarde confirmação humana desse plano exato. targetProjectId pode ser igual a projectId para mudar somente a feature.',
   transfer_task: 'Só execute após confirmação humana da prévia; reutilize planHash e versão sem alterações. Para a mesma feature, mantenha projeto e repositório.',
+  list_project_activity: 'Consulta o histórico paginado de atividades do projeto. Use search para localizar eventos por nome ou ID da tarefa; não retorna argumentos ou resultados arbitrários das ferramentas.',
   get_global_activity: 'Consulta somente leitura de atividades de todos os projetos; exige credencial humana de administrador de sistema.',
   subscribe_project_events: 'Assina eventos nesta conexão. Para aguardar atualizações existentes use wait_project_events; nenhuma das ferramentas acorda outra sessão de IA.'
 };

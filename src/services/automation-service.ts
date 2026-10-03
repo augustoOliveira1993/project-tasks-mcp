@@ -110,7 +110,7 @@ export class Automation {
       await this.validateReply(a, s);
       const [message] = await TaskMessage.create([{ ...a, _id: randomUUID(), author: actor.userId, ...taskMessageAuthorMetadata(actor), credentialId: actor.id, createdAt: new Date() }], { session: s });
       await this.onMessage(message, s);
-      await this.service.event(s, actor, 'task_message', a.projectId, message._id!, { taskId: a.taskId, relatedTaskId: a.relatedTaskId, type: a.type });
+      await this.service.event(s, actor, 'task_message', a.projectId, message._id!, { taskId: a.taskId, relatedTaskId: a.relatedTaskId, type: a.type, toolName: 'send_collaboration_message' });
       return message;
     });
   }

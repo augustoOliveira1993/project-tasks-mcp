@@ -12,6 +12,7 @@ export const toolDocs: readonly ToolDoc[] = [
   ['Contexto e consulta', 'get_project_sync_report', 'Resume status, atividade Git, perguntas abertas e tasks não lidas; aceita filtro por feature.', 'Leitura'],
   ['Contexto e consulta', 'get_task_markdown_summary', 'Gera um resumo Markdown do contexto de uma tarefa.', 'Leitura'],
   ['Contexto e consulta', 'get_project_novelties', 'Lista eventos recentes de outros participantes do projeto.', 'Leitura'],
+  ['Contexto e consulta', 'list_project_activity', 'Consulta o histórico paginado de atividades e filtra pelo nome ou ID da tarefa.', 'Leitura'],
   ['Contexto e consulta', 'get_global_activity', 'Lista atividades recentes de todos os projetos; exige administrador de sistema.', 'Leitura'],
   ['Contexto e consulta', 'get_automation_status', 'Consulta execuções, liberações e estado da automação do projeto.', 'Leitura'],
   ['Projetos e tarefas', 'create_project', 'Cria um projeto e registra seus repositórios e regras de trabalho.', 'Gravação'],
