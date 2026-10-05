@@ -88,9 +88,24 @@ const mcpAdvice: Array<[RegExp, McpAdvice]> = [
   [/capacity reached/, advice('CAPACITY_LIMIT', 'O limite de sessões, assinaturas ou esperas concorrentes foi atingido.', true, 'Aguarde a liberação de capacidade ou reduza a concorrência antes de repetir a operação.')],
   [/Private project requires/, advice('PROJECT_POLICY', 'A visibilidade privada do projeto exige configuração de acesso adicional.', false, 'Forneça o token de acesso válido ou peça a um administrador para ajustar a política do projeto.')]
 ];
-export const mcpError = (error: unknown) => {
+function internalErrorDetails(error: unknown) {
+  const diagnostic = error instanceof Error ? error : new Error(String(error));
+  const stack = diagnostic.stack?.split('\n').slice(1, 8).join('\n');
+  return {
+    errorName: diagnostic.name,
+    errorMessage: diagnostic.message.slice(0, 1000),
+    ...(stack ? { stack: stack.slice(0, 4000) } : {})
+  };
+}
+
+export const mcpError = (error: unknown, reference?: string) => {
   if (error instanceof ZodError) return JSON.stringify({ ...advice('INVALID_ARGUMENTS', 'Os argumentos não atendem ao schema da ferramenta.', true, 'Corrija campos, tipos, IDs e limites de acordo com o schema antes de tentar novamente.'), error: error.message });
-  if (!(error instanceof DomainError)) return JSON.stringify({ ...advice('INTERNAL_ERROR', 'O servidor encontrou uma falha inesperada; detalhes internos foram ocultados.', false, 'Não repita automaticamente. Registre o horário e a ferramenta usada e solicite suporte humano.'), error: 'Internal service error' });
+  if (!(error instanceof DomainError)) {
+    const internalAdvice = reference
+      ? advice('INTERNAL_ERROR', 'A chamada falhou; a referência permite localizar o motivo técnico no log do servidor.', false, `Informe a referência ${reference} ao administrador; detalhes internos foram ocultados nesta resposta.`)
+      : advice('INTERNAL_ERROR', 'O servidor encontrou uma falha inesperada; detalhes internos foram ocultados.', false, 'Não repita automaticamente. Registre o horário e a ferramenta usada e solicite suporte humano.');
+    return JSON.stringify({ ...internalAdvice, error: 'Internal service error', ...(reference ? { reference } : {}) });
+  }
   const match = mcpAdvice.find(([pattern]) => pattern.test(error.message));
   const fallback = advice('DOMAIN_ERROR', 'A operação foi recusada por uma regra de domínio não categorizada.', true, 'Não repita cegamente. Consulte get_task_context ou list_records e, se persistir, peça esclarecimento humano.');
   return JSON.stringify({ ...(match?.[1] ?? fallback), error: error.message });
@@ -151,10 +166,26 @@ export function createApp(service: Service, origins: string[]) {
     res.type('html').send(adminPage);
   };
   app.get(['/admin', '/', '/projects', '/tasks', '/conversations', '/activity', '/activity/global', '/catalogs', '/catalogs/projects', '/catalogs/features', '/catalogs/tasks', '/catalogs/areas', '/settings', '/help'], sendAdminApp);
-  app.post('/admin/query', async (req, res) => {
+  app.post('/admin/query', async (req, res, next) => {
     const actor = await authenticate(token(req.headers.authorization), 'human');
     const body = z.object({ tool: z.string(), arguments: z.record(z.string(), z.unknown()) }).strict().parse(req.body);
-    res.json(await service.query(actor, body.tool, body.arguments));
+    try {
+      res.json(await service.query(actor, body.tool, body.arguments));
+    } catch (error) {
+      if (error instanceof DomainError || error instanceof ZodError) return next(error);
+      const reference = randomUUID();
+      logger.error('Admin query failed', {
+        event: 'admin_query_failed', reference, tool: body.tool.slice(0, 120),
+        ...(typeof body.arguments.projectId === 'string' ? { projectId: body.arguments.projectId } : {}),
+        ...(typeof body.arguments.taskId === 'string' ? { taskId: body.arguments.taskId } : {}),
+        ...internalErrorDetails(error)
+      });
+      res.status(500).json({
+        error: 'Internal service error',
+        reason: 'A falha interna foi registrada no log do servidor com esta referência.',
+        reference
+      });
+    }
   });
   app.post('/admin/projects/export', async (req, res) => {
     const actor = await authenticate(token(req.headers.authorization), 'human');
@@ -454,7 +485,16 @@ export function createApp(service: Service, origins: string[]) {
             else session.filters.delete(key);
           }
           return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
-        } catch (error) { logger.warn('MCP tool failed', { event: 'mcp_tool', ...meta, outcome: 'error', error: error instanceof DomainError || error instanceof ZodError ? error.message : 'Internal service error', durationMs: Number((Number(process.hrtime.bigint() - startedAt) / 1000000).toFixed(1)) }); return { isError: true, content: [{ type: 'text' as const, text: mcpError(error) }] }; }
+        } catch (error) {
+          const durationMs = Number((Number(process.hrtime.bigint() - startedAt) / 1000000).toFixed(1));
+          if (error instanceof DomainError || error instanceof ZodError) {
+            logger.warn('MCP tool failed', { event: 'mcp_tool', ...meta, outcome: 'error', error: error.message, durationMs });
+            return { isError: true, content: [{ type: 'text' as const, text: mcpError(error) }] };
+          }
+          const reference = randomUUID();
+          logger.error('MCP tool failed', { event: 'mcp_tool', ...meta, outcome: 'error', reference, ...internalErrorDetails(error), durationMs });
+          return { isError: true, content: [{ type: 'text' as const, text: mcpError(error, reference) }] };
+        }
         finally { if (waiting) session.waits--; }
       });
     }
