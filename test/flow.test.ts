@@ -116,6 +116,7 @@ test('planned responsible is configurable before claim and executor identity rep
   assert.equal(assigned.responsible, 'Equipe PCP');
   const claimed = await claim(p, assigned);
   assert.equal(claimed.responsible, 'owner');
+  assert.equal((await Task.findById(assigned._id))!.responsible, 'owner');
 });
 test('task context exposes blocked execution impediments and preserves its public fields', async () => {
   const { p, f, create } = await fixture();
@@ -309,6 +310,47 @@ test('MCP real HTTP handshake, tool listing, tool call and endpoint boundaries',
   } finally { await client.close(); await new Promise<void>(resolve => server.close(() => resolve())); }
 });
 
+test('Codex and Claude exchange ordered messages in a task-linked conversation', async () => {
+  const { p, create } = await fixture();
+  const task = await create('Conversation between Codex and Claude', [], 'frontend');
+  const server = createApp(service, []).listen(0, '127.0.0.1');
+  await new Promise<void>(resolve => server.once('listening', resolve));
+  const address = server.address() as { port: number }; const url = `http://127.0.0.1:${address.port}`;
+  const connectClient = async (name: string) => {
+    const client = new Client({ name, version: '1.0' });
+    await client.connect(new StreamableHTTPClientTransport(new URL(`${url}/mcp`), { requestInit: { headers: { authorization: `Bearer ${agentToken}` } } }));
+    return client;
+  };
+  let codex: Client | undefined; let claude: Client | undefined;
+  const read = (response: any) => {
+    assert.ok(!response.isError, JSON.stringify(response));
+    return JSON.parse(response.content[0].text);
+  };
+  try {
+    codex = await connectClient('Codex'); claude = await connectClient('Claude');
+    const conversation = read(await codex.callTool({ name: 'create_conversation', arguments: { operationId: op(), projectId: p._id, title: 'Troca Codex e Claude' } }));
+    const linked = read(await codex.callTool({ name: 'link_conversation_task', arguments: { operationId: op(), projectId: p._id, conversationId: conversation._id, taskId: task._id, version: conversation.version } }));
+    assert.equal(linked.taskId, task._id);
+
+    const codexMessage = read(await codex.callTool({ name: 'send_conversation_message', arguments: { operationId: op(), projectId: p._id, conversationId: conversation._id, content: 'Resposta do Codex' } }));
+    await new Promise(resolve => setTimeout(resolve, 5));
+    const claudeMessage = read(await claude.callTool({ name: 'send_conversation_message', arguments: { operationId: op(), projectId: p._id, conversationId: conversation._id, content: 'Resposta do Claude' } }));
+    assert.deepEqual([codexMessage.author, codexMessage.authorType, codexMessage.clientName], ['owner', 'agent', 'Codex']);
+    assert.deepEqual([claudeMessage.author, claudeMessage.authorType, claudeMessage.clientName], ['owner', 'agent', 'Claude']);
+
+    const transcript = read(await claude.callTool({ name: 'get_conversation', arguments: { projectId: p._id, conversationId: conversation._id, limit: 50 } }));
+    assert.equal(transcript.conversation.taskId, task._id);
+    assert.deepEqual(transcript.messages.map((message: any) => [message.content, message.author, message.authorType, message.clientName]), [
+      ['Resposta do Claude', 'owner', 'agent', 'Claude'],
+      ['Resposta do Codex', 'owner', 'agent', 'Codex']
+    ]);
+    assert.deepEqual(transcript.messages.slice().reverse().map((message: any) => message.content), ['Resposta do Codex', 'Resposta do Claude']);
+  } finally {
+    await codex?.close(); await claude?.close();
+    await new Promise<void>(resolve => server.close(() => resolve()));
+  }
+});
+
 test('cooperative task messages are durable, scoped and idempotent', async () => {
   const { p, f, create } = await fixture();
   let back = await create('Back'); const front = await create('Front', [], 'frontend');
@@ -324,8 +366,18 @@ test('cooperative task messages are durable, scoped and idempotent', async () =>
   await assert.rejects(service.call(other, 'list_task_messages', { projectId: p._id, taskId: front._id }), /access denied/);
 });
 test('MCP error catalog explains recovery paths without exposing internals', () => {
+  const conflict = JSON.parse(mcpError(new DomainError('Task missing or version conflict')));
+  assert.equal(conflict.code, 'VERSION_CONFLICT');
+  assert.match(conflict.nextAction, /version atual/);
+  const access = JSON.parse(mcpError(new DomainError('Invalid credential: access denied')));
+  assert.equal(access.code, 'AUTHORIZATION');
+  assert.equal(access.recoverable, false);
+  assert.match(access.nextAction, /Não repita a mutação/);
   assert.deepEqual(JSON.parse(mcpError(new DomainError('Dependencies not approved'))), { code: 'DEPENDENCY_PENDING', reason: 'Há dependências ou tarefas ativas que impedem a operação.', recoverable: true, nextAction: 'Use get_task_context ou get_summary para localizar as pendências e aguarde a aprovação ou conclusão necessária.', error: 'Dependencies not approved' });
-  assert.equal(JSON.parse(mcpError(new DomainError('Execution inactive or expired'))).recoverable, false);
+  const execution = JSON.parse(mcpError(new DomainError('Execution inactive or expired')));
+  assert.equal(execution.code, 'EXECUTION_INACTIVE');
+  assert.equal(execution.recoverable, false);
+  assert.match(execution.nextAction, /get_task_context/);
   assert.equal(JSON.parse(mcpError(new DomainError('Task has an active runner'))).code, 'AUTOMATION_CONFIGURATION');
   assert.equal(JSON.parse(mcpError(new DomainError('Only task participants may collaborate'))).code, 'COLLABORATION_SCOPE');
   assert.equal(JSON.parse(mcpError(new DomainError('Consultation is read-only'))).code, 'RUNNER_SCOPE');
@@ -386,6 +438,10 @@ test('admin page delivers a parseable script with markdown views, chained filter
   assert.ok(scripts.length);
   scripts.forEach(code => assert.doesNotThrow(() => new Function(code)));
   const script = scripts.join('\n');
+  const adminToolsDetails = adminPage.match(/<details id="admin-tools"[^>]*>/)?.[0] ?? '';
+  assert.ok(adminToolsDetails);
+  assert.doesNotMatch(adminToolsDetails, /\sopen(?:\s|>)/);
+  assert.doesNotMatch(script, /\$\('admin-tools'\)\.open\s*=\s*true/);
   assert.match(script, /activeMarkdown/);
   assert.match(script, /function showRendered/);
   for (const id of ['search', 'area', 'status', 'type', 'priority', 'responsible', 'featureId', 'created-from', 'created-to', 'updated-from', 'updated-to', 'clear-filters', 'page-size', 'page-info', 'previous-page', 'next-page', 'novelties', 'git-binding', 'git-modal', 'git-form', 'issue-agent-form', 'issue-agent-user', 'issue-agent-confirm', 'issue-agent-result', 'issue-agent-token', 'copy-agent-token', 'clear-agent-token']) assert.match(adminPage, new RegExp('id="' + id + '"'));

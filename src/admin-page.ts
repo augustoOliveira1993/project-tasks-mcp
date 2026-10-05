@@ -108,7 +108,7 @@ function restoreHumanSession(){const token=getSavedHumanToken();if(!token)return
   const taskStats=document.createElement('div');taskStats.id='pt-task-stats';taskStats.className='pt-task-stats';views.tasks.append(taskStats);
   const taskControls=document.createElement('div');taskControls.className='pt-task-controls';
   const projectLabel=$('project').closest('label'),searchBlock=$('search').closest('div'),advanced=$('advanced-filters');taskControls.append(projectLabel,searchBlock,advanced);views.tasks.append(taskControls,$('task-table').closest('section'));
-  const adminIntro=document.createElement('div');adminIntro.className='mb-4';adminIntro.innerHTML='<h2 class="text-lg font-bold">Ferramentas administrativas</h2><p class="text-sm text-slate-600">Disponíveis conforme as permissões da sua conta.</p>';views.admin.append(adminIntro,$('admin-tools'));$('admin-tools').open=true;
+  const adminIntro=document.createElement('div');adminIntro.className='mb-4';adminIntro.innerHTML='<h2 class="text-lg font-bold">Ferramentas administrativas</h2><p class="text-sm text-slate-600">Disponíveis conforme as permissões da sua conta.</p>';views.admin.append(adminIntro,$('admin-tools'));
   const help=$('modal');help.setAttribute('role','region');help.removeAttribute('aria-modal');help.setAttribute('aria-label','Ajuda e ferramentas MCP');views.help.append(help);
   controls.remove();main.insertBefore($('notice'),views.login);
   let currentView='login',projectPage=1;const projectPageSize=8;

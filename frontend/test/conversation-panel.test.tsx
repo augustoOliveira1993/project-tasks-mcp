@@ -303,17 +303,18 @@ test('chat mostra ícones de Codex e Claude, fallback acessível e identidade hu
   const html = renderPanel([
     { _id: conversationId, projectId: 'project-id', taskId: null, title: 'Teste dos ícones', status: 'open' }
   ], null, undefined, conversationId, [
-    { _id: 'codex-message', author: 'augusto.oliveira@ferroeste.com.br', authorType: 'agent', clientName: 'Codex', content: 'Resposta Codex', createdAt: '2026-10-01T12:00:00.000Z' },
-    { _id: 'claude-message', author: 'augusto.oliveira@ferroeste.com.br', authorType: 'agent', clientName: 'Claude', content: 'Resposta Claude', createdAt: '2026-10-01T12:01:00.000Z' },
-    { _id: 'legacy-message', author: 'augusto.oliveira@ferroeste.com.br', authorType: 'agent', content: 'Resposta legada', createdAt: '2026-10-01T12:02:00.000Z' },
+    { _id: 'human-message', author: 'augusto.oliveira@ferroeste.com.br', authorType: 'human', clientName: 'Codex', content: 'Mensagem humana', createdAt: '2026-10-01T12:04:00.000Z' },
     { _id: 'unknown-message', author: 'augusto.oliveira@ferroeste.com.br', authorType: 'agent', clientName: 'Agente local', content: 'Resposta desconhecida', createdAt: '2026-10-01T12:03:00.000Z' },
-    { _id: 'human-message', author: 'augusto.oliveira@ferroeste.com.br', authorType: 'human', clientName: 'Codex', content: 'Mensagem humana', createdAt: '2026-10-01T12:04:00.000Z' }
+    { _id: 'legacy-message', author: 'augusto.oliveira@ferroeste.com.br', authorType: 'agent', content: 'Resposta legada', createdAt: '2026-10-01T12:02:00.000Z' },
+    { _id: 'claude-message', author: 'augusto.oliveira@ferroeste.com.br', authorType: 'agent', clientName: 'Claude', content: 'Resposta Claude', createdAt: '2026-10-01T12:01:00.000Z' },
+    { _id: 'codex-message', author: 'augusto.oliveira@ferroeste.com.br', authorType: 'agent', clientName: 'Codex', content: 'Resposta Codex', createdAt: '2026-10-01T12:00:00.000Z' }
   ]);
 
   assert.match(html, /conversation-agent-icon codex/);
   assert.match(html, /conversation-agent-icon claude/);
   assert.match(html, /Codex \(Augusto\)/);
   assert.match(html, /Claude \(Augusto\)/);
+  assert.ok(html.indexOf('Resposta Codex') >= 0 && html.indexOf('Resposta Claude') > html.indexOf('Resposta Codex'));
   assert.match(html, /aria-hidden="true"/);
   assert.match(html, /conversation-agent-icon generic/);
   assert.match(html, /IA \(Augusto\)/);
