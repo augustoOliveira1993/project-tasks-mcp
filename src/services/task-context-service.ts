@@ -62,6 +62,7 @@ function fitContext(context: TaskContextDto, truncated: Set<string>) {
 }
 
 function eventTaskStatus(event: any): string | undefined {
+  if (!event) return undefined;
   const status = event.action === 'create_task'
     ? event.data?.status ?? event.data?.task?.status
     : event.data?.task?.status;
