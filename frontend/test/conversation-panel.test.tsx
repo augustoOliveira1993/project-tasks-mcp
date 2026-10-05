@@ -67,8 +67,9 @@ test('lista mostra a contagem não lida e só agenda leitura para cada novo curs
   const html = renderPanel([
     { _id: 'conversation-unread', projectId: 'project-id', taskId: null, title: 'Conversa pendente', status: 'open', unread: { count: 3, cursor: 'message-3' } }
   ]);
-  assert.match(html, /3 não lida\(s\)/);
+  assert.match(html, /conversation-unread-dot[^>]*>3</);
   assert.match(html, /aria-label="3 mensagens não lidas"/);
+  assert.match(html, /conversation-filter-count">1</);
 
   const first = conversationActions.nextConversationReadAttempt(null, 'conversation-1', { count: 2, cursor: 'message-2' });
   assert.equal(first?.cursor, 'message-2');
@@ -295,7 +296,7 @@ test('painel seleciona a conversa pedida pela navegação da task', () => {
     { _id: 'conversation-2', projectId: 'project-id', taskId: 'task-1', title: 'Conversa da task', status: 'open' }
   ], null, undefined, 'conversation-2');
 
-  assert.match(html, /aria-current="true" class="conversation-list-item active"><strong>Conversa da task/);
+  assert.match(html, /aria-current="true" class="conversation-list-item active"><div class="conversation-list-item-head"><strong>Conversa da task/);
 });
 
 test('chat mostra ícones de Codex e Claude, fallback acessível e identidade humana', () => {

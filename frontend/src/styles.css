@@ -156,10 +156,9 @@ h1, h2, h3, p { margin-top: 0; }
 .task-id { display: block; margin-top: 4px; color: #a1a9b5; font: 9px ui-monospace, SFMono-Regular, Menlo, monospace; }
 .task-sync-flags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
 .task-sync-flags .badge { padding: 3px 7px; font-size: 9px; }
-.task-unread-link { display: inline-flex; padding: 0; border: 0; border-radius: 999px; background: transparent; cursor: pointer; }
+.task-unread-link, .task-question-link { display: inline-flex; padding: 0; border: 0; border-radius: 999px; background: transparent; cursor: pointer; }
 .task-unread-link:focus-visible { outline: 2px solid #b7791f; outline-offset: 2px; }
-.task-question-link { text-decoration: none; }
-.task-question-link:hover { text-decoration: underline; }
+.task-question-link:focus-visible { outline: 2px solid #4a5bce; outline-offset: 2px; }
 .checked-label { display: block; margin-top: 4px; color: #288160; font-size: 9px; }
 .area-label { color: #788496; }
 .badge { @apply inline-flex min-h-5 items-center rounded-full px-2 py-1 text-[9px] font-semibold whitespace-nowrap; background: #f1f3f6; color: #707c8c; }
@@ -834,7 +833,14 @@ dialog.projects-dialog::backdrop { background: #16203370; backdrop-filter: blur(
 .conversation-list-item.active { border-color: #cdd3ff; background: #f1f2ff; }
 .conversation-list-item strong { color: #3f4b60; font-size: 11px; line-height: 1.45; overflow-wrap: anywhere; }
 .conversation-list-item small { color: #8791a1; font-size: 9px; line-height: 1.45; overflow-wrap: anywhere; }
-.conversation-unread-count { justify-self: start; }
+.conversation-list-item-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.conversation-list-item.unread { background: #f0fbf3; }
+.conversation-list-item.unread strong { color: #1f2937; font-weight: 800; }
+.conversation-unread-dot { flex: none; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: #25d366; color: #fff; font-size: 10px; font-weight: 700; line-height: 18px; text-align: center; }
+.conversation-filters { display: flex; gap: 6px; margin: 10px 0; }
+.conversation-filter { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border: 1px solid #d5dae3; border-radius: 999px; background: #fff; color: #5b6475; font-size: 11px; font-weight: 600; cursor: pointer; }
+.conversation-filter.active { border-color: #a8e6bd; background: #d9fdd3; color: #1f6b3a; }
+.conversation-filter-count { color: #1f6b3a; font-weight: 700; }
 .conversation-main { display: flex; flex-direction: column; gap: 14px; }
 .conversation-header, .conversation-composer-footer, .proposal-heading { display: flex; justify-content: space-between; gap: 12px; }
 .conversation-header { align-items: flex-start; flex-wrap: wrap; }

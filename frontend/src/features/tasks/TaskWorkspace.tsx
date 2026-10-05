@@ -8,7 +8,6 @@ import { CreateTaskDialog } from './CreateTaskDialog';
 import { CreateFeatureDialog } from './CreateFeatureDialog';
 import { MetricCard } from '../../components/ui/MetricCard';
 import { errorMessage, formatDate } from '../../lib/format';
-import { routeUrl } from '../../route-state';
 import { statusLabels, statusTone } from './status';
 import { readTaskQueryState, syncTaskQueryState } from './task-query-params';
 import { filterTasks, getTaskFilterOptions, taskFilterOptionLabel, type TaskFilters } from './task-filters';
@@ -29,7 +28,6 @@ type TaskWorkspaceProps = {
   onOpenTask: (task: Task, action?: 'details' | 'edit' | 'summary' | 'json') => void;
   onOpenTaskConversation: (task: Task) => void;
   onTransferTask: (task: Task) => void;
-  onOpenQuestionChat: (conversationId: string | null) => void;
   onChangeStatus: (task: Task) => void;
   onToggleChecked: (task: Task) => void;
   canHardDelete: boolean;
@@ -39,7 +37,7 @@ type TaskWorkspaceProps = {
   onSetTasksChecked: (taskIds: string[], checked: boolean) => Promise<string[]>;
 };
 
-export function TaskWorkspace({ token, nonce, projectId, repositories = [], projectAreas = ['backend', 'frontend', 'outro'], tasks, isPending, isError, error, saving, onRefresh, onOpenTask, onOpenTaskConversation, onTransferTask, onOpenQuestionChat, onChangeStatus, onToggleChecked, canHardDelete, onRequestHardDeleteTask, onArchiveTask, onApproveSelected, onSetTasksChecked }: TaskWorkspaceProps) {
+export function TaskWorkspace({ token, nonce, projectId, repositories = [], projectAreas = ['backend', 'frontend', 'outro'], tasks, isPending, isError, error, saving, onRefresh, onOpenTask, onOpenTaskConversation, onTransferTask, onChangeStatus, onToggleChecked, canHardDelete, onRequestHardDeleteTask, onArchiveTask, onApproveSelected, onSetTasksChecked }: TaskWorkspaceProps) {
   const [createTaskOpen, setCreateTaskOpen] = useState(false);
   const [createFeatureOpen, setCreateFeatureOpen] = useState(false);
   const [createdTaskNotice, setCreatedTaskNotice] = useState('');
@@ -70,7 +68,7 @@ export function TaskWorkspace({ token, nonce, projectId, repositories = [], proj
     enabled: Boolean(token && nonce && projectId),
     queryFn: () => query<{
       summary: { taskCount: number; unreadTaskCount: number; openQuestionCount: number };
-      tasks: Array<{ taskId: string; unread: { count: number }; openQuestions: Array<{ conversationId: string | null; createdAt: string }>; gitDiff: unknown | null }>;
+      tasks: Array<{ taskId: string; unread: { count: number }; openQuestions: unknown[]; gitDiff: unknown | null }>;
     }>(token, 'get_project_sync_report', { projectId, ...(featureFilter ? { featureId: featureFilter } : {}) })
   });
   const syncTasks = new Map((syncReportQuery.data?.tasks ?? []).map(item => [item.taskId, item]));
@@ -236,13 +234,9 @@ export function TaskWorkspace({ token, nonce, projectId, repositories = [], proj
         <tbody>{visibleTasks.map(task => {
           const taskSync = syncTasks.get(task._id);
           const openQuestions = taskSync?.openQuestions ?? [];
-          const latestQuestion = openQuestions.at(-1);
-          const conversationParams = new URLSearchParams();
-          if (latestQuestion?.conversationId) conversationParams.set('conversationId', latestQuestion.conversationId);
-          const conversationHref = routeUrl('conversations', conversationParams.toString(), projectId);
           return <tr key={task._id}>
           <td><input type="checkbox" aria-label={'Selecionar ' + task.name} disabled={!selectionAllowed(task) || saving} checked={selectedIds.includes(task._id)} onChange={event => toggleSelected(task._id, event.target.checked)} /></td>
-          <td><button className="task-name" onClick={() => onOpenTask(task)}>{task.name}</button><span className="task-id">{task._id.slice(0, 8)} · P{task.priority ?? '—'}</span><span className="task-sync-flags">{(taskSync?.unread.count ?? 0) > 0 && <button type="button" className="task-unread-link" aria-label={`Abrir detalhes de ${task.name}, ${taskSync!.unread.count} atividades não lidas`} onClick={() => onOpenTask(task)}><Badge tone="amber">{taskSync?.unread.count} não lida(s)</Badge></button>}{openQuestions.length > 0 && <a className="badge inline-flex items-center rounded-full px-2 py-1 text-[9px] font-semibold bg-indigo-50 text-indigo-700 task-question-link" href={conversationHref} aria-label={`Abrir chat sobre ${openQuestions.length} pergunta(s) aberta(s) de ${task.name}`} onClick={event => { if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); onOpenQuestionChat(latestQuestion?.conversationId ?? null); }}>{openQuestions.length} pergunta(s)</a>}{Boolean(taskSync?.gitDiff) && <Badge tone="green">Diff Git</Badge>}</span>{task.checked && <small className="checked-label">✓ Conferida por {task.checkedBy || 'membro'}</small>}</td>
+          <td><button className="task-name" onClick={() => onOpenTask(task)}>{task.name}</button><span className="task-id">{task._id.slice(0, 8)} · P{task.priority ?? '—'}</span><span className="task-sync-flags">{(taskSync?.unread.count ?? 0) > 0 && <button type="button" className="task-unread-link" aria-label={`Abrir detalhes de ${task.name}, ${taskSync!.unread.count} atividades não lidas`} onClick={() => onOpenTask(task)}><Badge tone="amber">{taskSync?.unread.count} não lida(s)</Badge></button>}{openQuestions.length > 0 && <button type="button" className="task-question-link" aria-label={`Abrir conversa de ${task.name}, ${openQuestions.length} pergunta(s) aberta(s)`} onClick={() => onOpenTaskConversation(task)}><Badge tone="blue">{openQuestions.length} pergunta(s)</Badge></button>}{Boolean(taskSync?.gitDiff) && <Badge tone="green">Diff Git</Badge>}</span>{task.checked && <small className="checked-label">✓ Conferida por {task.checkedBy || 'membro'}</small>}</td>
           <td><Badge tone={statusTone[task.status]}>{statusLabels[task.status] ?? task.status}</Badge></td>
           <td><span className="area-label">{task.area ?? '—'}</span></td>
           <td>{task.responsible || <span className="muted-text">Não atribuído</span>}</td>

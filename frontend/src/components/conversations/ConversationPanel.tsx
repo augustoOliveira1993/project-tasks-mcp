@@ -115,6 +115,7 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
   const [debouncedTaskSearch, setDebouncedTaskSearch] = useState('');
   const [draft, setDraft] = useState('');
   const [notice, setNotice] = useState('');
+  const [unreadOnly, setUnreadOnly] = useState(false);
   const [olderConversationPages, setOlderConversationPages] = useState<ConversationPage[]>([]);
   const [olderMessagePages, setOlderMessagePages] = useState<ConversationDetail[]>([]);
   const [loadingOlder, setLoadingOlder] = useState(false);
@@ -131,6 +132,8 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
   });
   const conversationItems = [...(conversations.data?.items ?? []), ...olderConversationPages.flatMap(page => page.items)];
   const uniqueConversationItems = [...new Map(conversationItems.map(item => [item._id, item])).values()];
+  const unreadConversationCount = uniqueConversationItems.filter(item => (item.unread?.count ?? 0) > 0).length;
+  const visibleConversationItems = unreadOnly ? uniqueConversationItems.filter(item => (item.unread?.count ?? 0) > 0 || item._id === selectedId) : uniqueConversationItems;
   useEffect(() => {
     if (!selectedId && uniqueConversationItems[0]) setSelectedId(uniqueConversationItems[0]._id);
   }, [conversations.data, selectedId]);
@@ -326,9 +329,11 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
     <aside className="panel-card conversation-sidebar">
       <div className="section-heading"><div><h2>Conversas</h2><p className="muted-text">Histórico compartilhado do projeto</p></div></div>
       <button className="button primary conversation-new-button" onClick={() => create.mutate()} disabled={create.isPending}>{create.isPending ? 'Criando…' : 'Nova conversa'}</button>
-      {conversations.isPending ? <div className="loading">Carregando conversas…</div> : conversations.isError ? <div className="notice error">{errorMessage(conversations.error)}</div> : uniqueConversationItems.length ? <><div className="conversation-list">{uniqueConversationItems.map(item => {
+      <div className="conversation-filters" role="group" aria-label="Filtrar conversas"><button type="button" className={'conversation-filter' + (!unreadOnly ? ' active' : '')} aria-pressed={!unreadOnly} onClick={() => setUnreadOnly(false)}>Tudo</button><button type="button" className={'conversation-filter' + (unreadOnly ? ' active' : '')} aria-pressed={unreadOnly} onClick={() => setUnreadOnly(true)}>Não lidas{unreadConversationCount > 0 && <span className="conversation-filter-count">{unreadConversationCount}</span>}</button></div>
+      {conversations.isPending ? <div className="loading">Carregando conversas…</div> : conversations.isError ? <div className="notice error">{errorMessage(conversations.error)}</div> : visibleConversationItems.length ? <><div className="conversation-list">{visibleConversationItems.map(item => {
         const task = item.taskId ? taskForId(item.taskId) : undefined;
-        return <button key={item._id} aria-current={selectedId === item._id ? 'true' : undefined} className={'conversation-list-item' + (selectedId === item._id ? ' active' : '')} onClick={() => { setSelectedId(item._id); onConversationSelected?.(item._id); }}><strong>{item.title || 'Nova conversa'}</strong><small>{item.taskId ? 'Tarefa vinculada · ' + (task?.name ?? item.taskId.slice(0, 8)) : 'Escopo do projeto'} · {formatDate(item.lastMessageAt || item.updatedAt)}</small>{(item.unread?.count ?? 0) > 0 && <span className="conversation-unread-count" aria-label={`${item.unread!.count} mensagens não lidas`}><Badge tone="amber">{item.unread!.count} não lida(s)</Badge></span>}{item.taskId && <div className="conversation-context-badges">{task && <Badge tone="blue">Área · {areaLabel(task.area)}</Badge>}{task && <Badge tone={statusTone(task.status)}>Status · {statusLabel(task.status)}</Badge>}<Badge tone="muted">Feature · {featureBadgeForTask(item.taskId)}</Badge></div>}</button>;
+        const unreadCount = item.unread?.count ?? 0;
+        return <button key={item._id} aria-current={selectedId === item._id ? 'true' : undefined} className={'conversation-list-item' + (selectedId === item._id ? ' active' : '') + (unreadCount > 0 ? ' unread' : '')} onClick={() => { setSelectedId(item._id); onConversationSelected?.(item._id); }}><div className="conversation-list-item-head"><strong>{item.title || 'Nova conversa'}</strong>{unreadCount > 0 && <span className="conversation-unread-dot" aria-label={`${unreadCount} mensagens não lidas`}>{unreadCount > 99 ? '99+' : unreadCount}</span>}</div><small>{item.taskId ? 'Tarefa vinculada · ' + (task?.name ?? item.taskId.slice(0, 8)) : 'Escopo do projeto'} · {formatDate(item.lastMessageAt || item.updatedAt)}</small>{item.taskId && <div className="conversation-context-badges">{task && <Badge tone="blue">Área · {areaLabel(task.area)}</Badge>}{task && <Badge tone={statusTone(task.status)}>Status · {statusLabel(task.status)}</Badge>}<Badge tone="muted">Feature · {featureBadgeForTask(item.taskId)}</Badge></div>}</button>;
       })}</div>{(olderConversationPages.at(-1)?.next ?? conversations.data?.next) && <button className="button ghost" disabled={loadingOlder} onClick={() => void loadOlderConversations()}>{loadingOlder ? 'Carregando…' : 'Carregar conversas anteriores'}</button>}</> : <div className="empty-state compact"><h3>Comece uma conversa</h3><p>Crie uma conversa geral e vincule uma tarefa pelo cabeçalho do chat.</p></div>}
     </aside>
     <div className="panel-card conversation-main">

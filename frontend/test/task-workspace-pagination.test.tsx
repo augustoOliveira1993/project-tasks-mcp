@@ -24,7 +24,7 @@ test('renderiza a página pedida e os controles de paginação', () => {
     const client = new QueryClient();
     client.setQueryData(['project-sync-report', 'session-nonce', 'project', 'feature-1'], {
       summary: { taskCount: 23, unreadTaskCount: 1, openQuestionCount: 1 },
-      tasks: [{ taskId: 'task-21', unread: { count: 2 }, openQuestions: [{}], gitDiff: { commit: 'abc' } }]
+      tasks: [{ taskId: 'task-21', unread: { count: 2 }, openQuestions: [{ conversationId: 'task-message-thread-1' }], gitDiff: { commit: 'abc' } }]
     });
     const html = renderToStaticMarkup(createElement(QueryClientProvider, { client }, createElement(TaskWorkspace, {
       token: 'session-token', nonce: 'session-nonce', projectId: 'project', tasks, isPending: false, isError: false, error: null, saving: false,
@@ -48,6 +48,8 @@ test('renderiza a página pedida e os controles de paginação', () => {
     assert.match(html, /value="feature-1"/);
     assert.match(html, /Perguntas abertas/);
     assert.match(html, /1 pergunta\(s\)/);
+    assert.match(html, /<button type="button" class="task-question-link" aria-label="Abrir conversa de Task 21, 1 pergunta\(s\) aberta\(s\)">/);
+    assert.doesNotMatch(html, /task-message-thread-1|conversationId=/);
     assert.match(html, /2 não lida\(s\)/);
     assert.match(html, /<button type="button" class="task-unread-link" aria-label="Abrir detalhes de Task 21, 2 atividades não lidas">/);
     assert.match(html, /Diff Git/);
