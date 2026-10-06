@@ -110,3 +110,42 @@ test('membros do projeto: agrupa tokens por e-mail e mostra avatares com cartão
   assert.match(html, /Papel: Colaborador/);
   assert.match(renderToStaticMarkup(createElement(AvatarStack, { people: [], label: 'x' })), /Sem responsáveis/);
 });
+
+test('cadastro de responsáveis: agrupa por e-mail, separa pessoa e agente e filtra', async () => {
+  const { groupResponsibles } = await vite.ssrLoadModule('/src/features/responsibles/responsibles.ts');
+  const { filterResponsibles, ResponsiblesCatalog } = await vite.ssrLoadModule('/src/features/catalogs/ResponsiblesCatalog.tsx');
+  const { QueryClient, QueryClientProvider } = await import('@tanstack/react-query');
+  const items = groupResponsibles([
+    { credentialId: '1', email: 'Maria@x.com', scope: 'human', systemAdmin: false, state: 'active', createdAt: '2026-10-02T10:00:00Z', projects: [{ projectId: 'p1', projectName: 'AVBOne', role: 'colaborador' }] },
+    { credentialId: '2', email: 'maria@x.com', scope: 'agent', systemAdmin: false, state: 'active', createdAt: '2026-09-01T10:00:00Z' },
+    { credentialId: '3', email: 'joao@x.com', scope: 'human', systemAdmin: false, state: 'active', createdAt: null, projectId: 'p2', projectName: 'Portal RH' },
+    { credentialId: '4', email: 'velho@x.com', scope: 'human', systemAdmin: false, state: 'revoked', createdAt: null }
+  ]);
+  assert.deepEqual(items.map((item: { email: string }) => item.email), ['joao@x.com', 'Maria@x.com']);
+  const maria = items[1];
+  assert.deepEqual(maria.kinds, ['pessoa', 'agente']);
+  assert.equal(maria.tokens, 2);
+  assert.deepEqual(maria.projects, ['AVBOne']);
+  assert.equal(maria.since, '2026-09-01T10:00:00Z');
+  assert.deepEqual(items[0].projects, ['Portal RH']);
+  assert.equal(filterResponsibles(items, '', 'agente').length, 1);
+  assert.equal(filterResponsibles(items, 'portal', 'todos').length, 1);
+  assert.equal(filterResponsibles(items, 'zzz', 'todos').length, 0);
+  const html = renderToStaticMarkup(createElement(QueryClientProvider, { client: new QueryClient() }, createElement(ResponsiblesCatalog, {
+    token: 't', nonce: 'n', projects: [], project: { _id: 'p1', version: 1, name: 'AVBOne' }, systemAdmin: true, notify() {}, onChanged() {}
+  })));
+  assert.match(html, /<h2>Responsáveis<\/h2>/);
+  assert.match(html, />Novo responsável</);
+  assert.match(html, /aria-label="Buscar responsáveis"/);
+});
+
+test('cadastros não repetem o seletor de projeto (vem do menu lateral)', async () => {
+  const { CatalogsPage } = await vite.ssrLoadModule('/src/features/catalogs/CatalogsPage.tsx');
+  const { QueryClient, QueryClientProvider } = await import('@tanstack/react-query');
+  const html = renderToStaticMarkup(createElement(QueryClientProvider, { client: new QueryClient() }, createElement(CatalogsPage, {
+    section: 'responsibles', token: 't', nonce: 'n', projects: [{ _id: 'p1', version: 1, name: 'AVBOne' }], project: { _id: 'p1', version: 1, name: 'AVBOne' }, tasks: [],
+    notify() {}, onProjectCreated() {}, onSelectProject() {}, onChanged() {}
+  })));
+  assert.doesNotMatch(html, /Projeto dos cadastros|catalog-project-picker|catalog-section-nav/);
+  assert.match(html, /Projeto ativo: AVBOne/);
+});

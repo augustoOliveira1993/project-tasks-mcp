@@ -712,3 +712,13 @@ a.task-name:hover { color: var(--tone-blue); text-decoration: underline; }
   .conversation-composer textarea { min-height: 56px; }
   .conversation-header-top .muted-text { display: none; }
 }
+
+/* ---------- Cadastro de responsáveis ---------- */
+.responsible-filters { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); margin-bottom: var(--space-3); }
+.responsible-filters .search-field { flex: 1 1 260px; max-width: 420px; }
+.responsible-table { min-width: 720px; }
+.responsible-table td { vertical-align: middle; }
+.responsible-table .person { font-size: var(--text-sm); }
+.responsible-kinds { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.responsible-projects { display: block; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.catalogs-heading { margin-bottom: var(--space-3); }

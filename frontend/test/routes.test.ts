@@ -24,3 +24,14 @@ test('deep links mantêm projectId e featureId, e trocar projeto descarta filtro
   assert.equal(routeUrl('conversations', '?projectId=project-1&featureId=feature-1', 'project-1'), '/conversations?projectId=project-1&featureId=feature-1');
   assert.equal(routeUrl('conversations', '?projectId=project-1&conversationId=conversation-1', 'project-1'), '/conversations?projectId=project-1&conversationId=conversation-1');
 });
+
+test('cada cadastro tem a própria rota e entrada no menu', async () => {
+  const { catalogSectionForRoute, routeForCatalogSection, isCatalogRoute } = await import('../src/route-state.js');
+  assert.equal(routeFromPath('/catalogs/responsibles'), 'catalogResponsibles');
+  assert.equal(pathForRoute('catalogResponsibles'), '/catalogs/responsibles');
+  assert.equal(isCatalogRoute('catalogResponsibles'), true);
+  assert.equal(catalogSectionForRoute('catalogResponsibles'), 'responsibles');
+  assert.equal(catalogSectionForRoute('catalogs'), 'projects');
+  for (const section of ['projects', 'features', 'tasks', 'responsibles'] as const) assert.equal(catalogSectionForRoute(routeForCatalogSection(section)), section);
+  assert.equal(tabForRoute('catalogResponsibles'), 'catalogs');
+});

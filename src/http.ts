@@ -175,7 +175,7 @@ export function createApp(service: Service, origins: string[]) {
     if (existsSync(index)) { res.sendFile(index); return; }
     res.type('html').send(adminPage);
   };
-  app.get(['/admin', '/', '/projects', '/tasks', '/conversations', '/activity', '/activity/global', '/catalogs', '/catalogs/projects', '/catalogs/features', '/catalogs/tasks', '/catalogs/areas', '/settings', '/help'], sendAdminApp);
+  app.get(['/admin', '/', '/projects', '/tasks', '/conversations', '/activity', '/activity/global', '/catalogs', '/catalogs/projects', '/catalogs/features', '/catalogs/tasks', '/catalogs/areas', '/catalogs/responsibles', '/settings', '/help'], sendAdminApp);
   app.post('/admin/query', async (req, res, next) => {
     const actor = await authenticate(token(req.headers.authorization), 'human');
     const body = z.object({ tool: z.string(), arguments: z.record(z.string(), z.unknown()) }).strict().parse(req.body);
