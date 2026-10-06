@@ -10,6 +10,7 @@ import { errorMessage } from './lib/format';
 import { openTaskConversation } from './features/tasks/task-conversation';
 import type { ActivityEvent } from './features/activity/ActivityPage';
 import { IconMenu } from './components/ui/icons';
+import { Logo } from './components/ui/Logo';
 import { EntityNavigationContext } from './components/ui/Links';
 import type { TaskReviewDecision } from './components/tasks/TaskDetailsDialog';
 import { catalogSectionForRoute, conversationIdFromSearch, isCatalogRoute, projectIdFromSearch, routeForCatalogSection, routeForTab, routeFromPath, routeUrl, tabForRoute, taskIdFromSearch, type AppRoute, type AppTab } from './route-state';
@@ -517,11 +518,11 @@ function App() {
   const projectPages = Math.max(1, Math.ceil(filteredProjects.length / 8));
   const currentProjectPage = filteredProjects.slice((projectPage - 1) * 8, projectPage * 8);
 
-  if (!token || !nonce) return <main className="auth-page"><div className="auth-brand"><span className="brand-mark">PT</span><span>Project Tasks</span></div><section className="auth-card"><p className="eyebrow">PAINEL DE OPERAÇÃO</p><h1>Acesse seu workspace</h1><p className="muted-text">Entre com seu token humano para consultar projetos e tarefas.</p><form className="stack-form" onSubmit={signIn}><label>Token humano<input name="token" type="password" autoComplete="current-password" required autoFocus placeholder="Cole o token de administrador" /></label><button className="button primary full-button" disabled={saving}>{saving ? 'Validando…' : 'Entrar'}</button></form><p className="auth-footnote">As ações respeitam as permissões configuradas no servidor.</p></section>{notice && <div className={'toast toast-' + notice.kind}>{notice.message}</div>}</main>;
+  if (!token || !nonce) return <main className="auth-page"><div className="auth-brand"><Logo size={36} title="Project Tasks" /><span>Project Tasks</span></div><section className="auth-card"><p className="eyebrow">PAINEL DE OPERAÇÃO</p><h1>Acesse seu workspace</h1><p className="muted-text">Entre com seu token humano para consultar projetos e tarefas.</p><form className="stack-form" onSubmit={signIn}><label>Token humano<input name="token" type="password" autoComplete="current-password" required autoFocus placeholder="Cole o token de administrador" /></label><button className="button primary full-button" disabled={saving}>{saving ? 'Validando…' : 'Entrar'}</button></form><p className="auth-footnote">As ações respeitam as permissões configuradas no servidor.</p></section>{notice && <div className={'toast toast-' + notice.kind}>{notice.message}</div>}</main>;
 
   return <EntityNavigationContext.Provider value={{ projectId: activeProjectId, openTask: openTaskFromActivity, openConversation, filterByFeature: featureId => filterTasksBy('featureId', featureId), filterBy: filterTasksBy }}><div className={'app-shell min-h-screen bg-canvas text-ink' + (sidebarCollapsed ? ' sidebar-collapsed' : '')}>
     <aside className="sidebar" id="app-sidebar" aria-label="Menu lateral" aria-hidden={sidebarCollapsed || undefined} inert={sidebarCollapsed || undefined}>
-      <a className="brand" href={routeUrl('tasks', window.location.search, activeProjectId)} onClick={event => { event.preventDefault(); navigateToRoute('tasks'); }}><span className="brand-mark">PT</span><span><strong>Project Tasks</strong><small>Workspace</small></span></a>
+      <a className="brand" href={routeUrl('tasks', window.location.search, activeProjectId)} onClick={event => { event.preventDefault(); navigateToRoute('tasks'); }}><Logo size={34} /><span><strong>Project Tasks</strong><small>Workspace</small></span></a>
       <div className="sidebar-label">CONTEXTO DO PROJETO</div>
       <div className="project-picker">
         <span className="project-picker-label">Projeto ativo</span>

@@ -3,6 +3,7 @@ export type Message = { _id: string; author: string; authorType: 'human' | 'agen
 export type Proposal = {
   _id: string; taskId: string; expectedTaskVersion: number; title: string; summary: string;
   taskPatch: { instructions?: string; acceptance?: string[] }; status: string; version: number; stale: boolean;
+  jobId?: string | null; createdBy?: string; createdAt?: string; approvedBy?: string | null; approvedAt?: string | null;
 };
 export type ConversationJob = { _id: string; status: string; failed: boolean; permissionTitle: string | null };
 export type ConversationDetail = {

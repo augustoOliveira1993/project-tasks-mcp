@@ -1,4 +1,5 @@
 import express from 'express';
+import { MCP_SERVER_ICONS } from './brand.js';
 import { randomUUID } from 'node:crypto';
 import mongoose from 'mongoose';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -160,6 +161,15 @@ export function createApp(service: Service, origins: string[]) {
   const token = (authorization?: string) => authorization?.startsWith('Bearer ') ? authorization.slice(7) : '';
   const adminDist = resolve(process.cwd(), 'frontend', 'dist');
   app.use('/admin/assets', express.static(resolve(adminDist, 'assets'), { fallthrough: true, immutable: true, maxAge: '1y' }));
+  // Ícones do painel (favicon e logo). Fora de /admin/assets porque não têm hash no nome.
+  const brandFile = (name: string) => (_req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const file = resolve(adminDist, name);
+    if (!existsSync(file)) { next(); return; }
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.type('image/svg+xml').sendFile(file);
+  };
+  app.get(['/admin/favicon.svg', '/favicon.ico', '/favicon.svg'], brandFile('favicon.svg'));
+  app.get(['/admin/logo.svg', '/logo.svg'], brandFile('logo.svg'));
   const sendAdminApp = (_req: express.Request, res: express.Response) => {
     const index = resolve(adminDist, 'index.html');
     if (existsSync(index)) { res.sendFile(index); return; }
@@ -422,7 +432,7 @@ export function createApp(service: Service, origins: string[]) {
   const createSession = async (req: express.Request) => {
     if (sessions.size >= 500) throw new DomainError('MCP session capacity reached', 503);
     const actor = await authenticateMcp(req);
-    const server = new McpServer({ name: 'project-tasks-mcp', version: '0.2.0' }, { capabilities: { logging: {} }, instructions: MCP_AGENT_INSTRUCTIONS });
+    const server = new McpServer({ name: 'project-tasks-mcp', version: '0.2.0', title: 'Project Tasks', icons: MCP_SERVER_ICONS }, { capabilities: { logging: {} }, instructions: MCP_AGENT_INSTRUCTIONS });
     server.registerPrompt('iniciar_trabalho', {
       title: 'Iniciar trabalho no Project Tasks MCP',
       description: 'Prepara o contexto e inicia uma tarefa existente quando ela estiver claramente identificada.'

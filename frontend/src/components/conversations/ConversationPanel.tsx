@@ -3,18 +3,22 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { allRecords, operationId, query, request } from '../../api';
 import { copyToClipboard } from '../../lib/clipboard';
 import { errorMessage, formatDate } from '../../lib/format';
-import { areaLabel, relativeTime } from '../../lib/labels';
+import { areaLabel, personInitials, plural, relativeTime } from '../../lib/labels';
+import { activityText, conversationPhase, stripTaskPrefix, suggestionsFor } from '../../lib/conversation-ui';
 import { routeUrl } from '../../route-state';
 import { statusLabels, statusTone } from '../../features/tasks/status';
 import { AgentClientIcon } from '../ui/AgentClientIcon';
 import { Badge } from '../ui/Badge';
+import { DropdownMenu } from '../ui/DropdownMenu';
 import { ErrorNotice } from '../ui/ErrorNotice';
-import { IconFeature } from '../ui/icons';
+import { IconChevron, IconFeature, IconMore } from '../ui/icons';
 import { FeatureLink, FilterLink } from '../ui/Links';
 import { MarkdownView } from '../ui/MarkdownView';
 import { Skeleton } from '../ui/Skeleton';
 import { confirmConversationDeletion, createProjectConversation, deleteProjectConversation, historyAfterConversationDeletion, historyAfterConversationTitleUpdate, linkConversationTask, markConversationRead, nextConversationReadAttempt, scheduleTaskSearch, searchProjectTasks, updateConversationTitle, type ConversationReadAttempt } from './conversation-actions';
 import { ConversationAside } from './ConversationAside';
+import { ConversationStepper } from './ConversationStepper';
+import { ProposalCard } from './ProposalCard';
 import { authorDisplayName } from './ConversationParts';
 import type { Conversation, ConversationDetail, ConversationPage, Feature, Proposal, TaskActivity, TaskOption } from './conversation-types';
 
@@ -37,6 +41,11 @@ export function ConversationTitleEditor({ title, editing, draft, editable, savin
   return <form className="conversation-title-editor" onSubmit={onSave}><label className="conversation-title-label" htmlFor="conversation-title">Título da conversa</label><input id="conversation-title" aria-label="Título da conversa" type="text" maxLength={255} value={draft} onChange={event => onDraftChange(event.target.value)} autoFocus /><div className="button-row"><button type="submit" className="button primary small-button" disabled={!draft.trim() || saving}>{saving ? 'Salvando…' : 'Salvar título'}</button><button type="button" className="button secondary small-button" onClick={onCancel} disabled={saving}>Cancelar</button></div>{error !== undefined && error !== null && <div className="notice error" role="alert">{errorMessage(error)}</div>}</form>;
 }
 
+/** Título com `código` em fonte monoespaçada. */
+function renderInlineCode(text: string) {
+  return text.split(/(`[^`]+`)/g).map((part, index) => part.startsWith('`') && part.endsWith('`') && part.length > 2 ? <code className="inline-code" key={index}>{part.slice(1, -1)}</code> : part);
+}
+
 export function ConversationPanel({ token, nonce, projectId, tasks, requestedConversationId, onConversationSelected, onOpenTask, onOpenAdmin }: { token: string; nonce: string; projectId: string; tasks: TaskOption[]; requestedConversationId?: string; onConversationSelected?: (conversationId: string) => void; onOpenTask: (taskId: string) => void; onOpenAdmin: () => void }) {
   const client = useQueryClient();
   const [selectedId, setSelectedId] = useState(requestedConversationId ?? '');
@@ -47,7 +56,17 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
   const [debouncedTaskSearch, setDebouncedTaskSearch] = useState('');
   const [draft, setDraft] = useState('');
   const [notice, setNotice] = useState('');
-  const [unreadOnly, setUnreadOnly] = useState(false);
+  const [listFilter, setListFilter] = useState<'all' | 'unread' | 'review' | 'done'>('all');
+  const [listSearch, setListSearch] = useState('');
+  const [mobileView, setMobileView] = useState<'list' | 'detail'>(requestedConversationId ? 'detail' : 'list');
+  const [detailTab, setDetailTab] = useState<'chat' | 'criteria'>('chat');
+  const [idCopied, setIdCopied] = useState(false);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
+  const messagesRef = useRef<HTMLDivElement>(null);
+  const stickToBottom = useRef(true);
+  const knownMessageCount = useRef(0);
+  const [showScrollBottom, setShowScrollBottom] = useState(false);
+  const [hasNewBelow, setHasNewBelow] = useState(false);
   const [olderConversationPages, setOlderConversationPages] = useState<ConversationPage[]>([]);
   const [olderMessagePages, setOlderMessagePages] = useState<ConversationDetail[]>([]);
   const [loadingOlder, setLoadingOlder] = useState(false);
@@ -64,8 +83,21 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
   });
   const conversationItems = [...(conversations.data?.items ?? []), ...olderConversationPages.flatMap(page => page.items)];
   const uniqueConversationItems = [...new Map(conversationItems.map(item => [item._id, item])).values()];
-  const unreadConversationCount = uniqueConversationItems.filter(item => (item.unread?.count ?? 0) > 0).length;
-  const visibleConversationItems = unreadOnly ? uniqueConversationItems.filter(item => (item.unread?.count ?? 0) > 0 || item._id === selectedId) : uniqueConversationItems;
+  const statusOf = (item: Conversation) => item.taskId ? tasks.find(task => task._id === item.taskId)?.status : undefined;
+  const listFilters = [
+    { id: 'all' as const, label: 'Todas', count: uniqueConversationItems.length },
+    { id: 'unread' as const, label: 'Não lidas', count: uniqueConversationItems.filter(item => (item.unread?.count ?? 0) > 0).length },
+    { id: 'review' as const, label: 'Em revisão', count: uniqueConversationItems.filter(item => statusOf(item) === 'em_revisao').length },
+    { id: 'done' as const, label: 'Concluídas', count: uniqueConversationItems.filter(item => statusOf(item) === 'concluida').length }
+  ];
+  const searchNeedle = listSearch.trim().toLocaleLowerCase('pt-BR');
+  const visibleConversationItems = uniqueConversationItems.filter(item => {
+    const matchesFilter = listFilter === 'all' || item._id === selectedId
+      || listFilter === 'unread' && (item.unread?.count ?? 0) > 0
+      || listFilter === 'review' && statusOf(item) === 'em_revisao'
+      || listFilter === 'done' && statusOf(item) === 'concluida';
+    return matchesFilter && (!searchNeedle || stripTaskPrefix(item.title).toLocaleLowerCase('pt-BR').includes(searchNeedle));
+  });
   useEffect(() => {
     if (!selectedId && uniqueConversationItems[0]) setSelectedId(uniqueConversationItems[0]._id);
   }, [conversations.data, selectedId]);
@@ -189,15 +221,13 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
   });
   const send = useMutation({
     mutationFn: (content: string) => request(token, `/admin/conversations/${selectedId}/messages`, { body: { projectId, operationId: operationId(), content } }),
-    onSuccess: async () => { setDraft(''); await refresh(); },
-    onError: error => setNotice(errorMessage(error))
+    onSuccess: async () => { setDraft(''); await refresh(); }
   });
   const approve = useMutation({
     mutationFn: (proposal: Proposal) => request<{ task: { _id: string; status: string }; job: { _id: string } }>(token, '/admin/conversations/approve-proposal', {
       body: { projectId, proposalId: proposal._id, version: proposal.version, operationId: operationId() }
     }),
-    onSuccess: async result => { setNotice(`Execução autorizada para a tarefa ${result.task._id}. O resultado será enviado para revisão.`); await refresh(); await client.invalidateQueries({ queryKey: ['project-tasks'] }); },
-    onError: error => setNotice(errorMessage(error))
+    onSuccess: async result => { setNotice(`Execução autorizada para a tarefa ${result.task._id}. O resultado será enviado para revisão.`); await refresh(); await client.invalidateQueries({ queryKey: ['project-tasks'] }); }
   });
 
   function beginTitleEdit() {
@@ -230,42 +260,119 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
   async function copyConversationId() {
     const conversationId = latest?.conversation._id ?? selectedId;
     if (!conversationId) return;
-    setNotice(await copyToClipboard(conversationId) ? 'ID da conversa copiado.' : `Não foi possível copiar. ID da conversa: ${conversationId}`);
+    if (await copyToClipboard(conversationId)) { setIdCopied(true); window.setTimeout(() => setIdCopied(false), 2000); }
+    else setNotice(`Não foi possível copiar. ID da conversa: ${conversationId}`);
   }
   function confirmDeleteConversation() {
     confirmConversationDeletion(message => window.confirm(message), () => deleteConversation.mutate());
   }
 
-  const showAside = Boolean(latest && (latest.task || latest.proposals.length));
-  const pendingProposal = latest?.proposals.find(proposal => proposal.status === 'pending' && !proposal.stale);
+  const messageCount = orderedMessages.length + (latest?.proposals.length ?? 0);
+  function scrollToBottom(smooth = true) {
+    const element = messagesRef.current;
+    if (!element) return;
+    element.scrollTo({ top: element.scrollHeight, behavior: smooth && !window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'smooth' : 'auto' });
+    // Rede de segurança: se a rolagem suave não terminar (aba em segundo plano, navegador sem animação), vai direto ao fim.
+    if (smooth) window.setTimeout(() => { if (messagesRef.current && stickToBottom.current) messagesRef.current.scrollTop = messagesRef.current.scrollHeight; }, 700);
+    stickToBottom.current = true;
+    setShowScrollBottom(false);
+    setHasNewBelow(false);
+  }
+  function onMessagesScroll() {
+    const element = messagesRef.current;
+    if (!element) return;
+    const distance = element.scrollHeight - element.scrollTop - element.clientHeight;
+    stickToBottom.current = distance < 80;
+    setShowScrollBottom(distance > 160);
+    if (distance < 80) setHasNewBelow(false);
+  }
+  useEffect(() => { knownMessageCount.current = 0; stickToBottom.current = true; setShowScrollBottom(false); setHasNewBelow(false); }, [selectedId]);
+  useEffect(() => {
+    if (detail.isPending || !messagesRef.current) return;
+    const firstLoad = knownMessageCount.current === 0;
+    const grew = messageCount > knownMessageCount.current;
+    knownMessageCount.current = messageCount;
+    if (firstLoad || (grew && stickToBottom.current)) window.requestAnimationFrame(() => scrollToBottom(!firstLoad));
+    else if (grew) setHasNewBelow(true);
+  }, [messageCount, selectedId, detail.isPending, detailTab]);
 
-  return <section className={'conversation-layout' + (showAside ? ' has-aside' : '')}>
-    <aside className="panel-card conversation-sidebar">
+  const showAside = Boolean(latest && latest.task);
+  const phase = conversationPhase(latest?.proposals ?? [], latest?.jobs ?? []);
+  const criteriaTotal = taskContext.data?.task.acceptance.length ?? 0;
+  const criteriaDone = taskContext.data?.task.acceptanceProgress.filter(Boolean).length ?? 0;
+  const sortedProposals = [...(latest?.proposals ?? [])].sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? '') || a.version - b.version);
+  const pendingProposal = sortedProposals.find(proposal => proposal.status === 'pending' && !proposal.stale);
+  const headerTitle = stripTaskPrefix(latest?.conversation.title) || 'Conversa';
+  const taskTitleDiffers = Boolean(latest?.task) && stripTaskPrefix(latest!.task!.name).toLowerCase() !== headerTitle.toLowerCase();
+  const suggestions = suggestionsFor(latest?.task, criteriaTotal);
+  const draftValid = draft.trim().length > 0;
+  const tabs = showAside ? <div className="conversation-tabs" role="tablist" aria-label="Seções da conversa">
+    <button type="button" role="tab" aria-selected={detailTab === 'chat'} className={'conversation-tab' + (detailTab === 'chat' ? ' active' : '')} onClick={() => setDetailTab('chat')}>Conversa</button>
+    <button type="button" role="tab" aria-selected={detailTab === 'criteria'} className={'conversation-tab' + (detailTab === 'criteria' ? ' active' : '')} onClick={() => setDetailTab('criteria')}>Critérios{criteriaTotal > 0 && <span className="tab-count">{criteriaDone}/{criteriaTotal}</span>}</button>
+  </div> : null;
+  function chooseConversation(id: string) { setSelectedId(id); setMobileView('detail'); setDetailTab('chat'); onConversationSelected?.(id); }
+  function fillDraft(text: string) { setDraft(text); window.requestAnimationFrame(() => composerRef.current?.focus()); }
+
+  return <section className={'conversation-layout' + (showAside ? ' has-aside' : '')} data-view={mobileView} data-tab={detailTab}>
+    <aside className="panel-card conversation-sidebar" aria-label="Lista de conversas">
       <div className="section-heading"><div><h2>Conversas</h2><p className="muted-text">Histórico compartilhado do projeto</p></div></div>
+      <input type="search" className="conversation-search" value={listSearch} onChange={event => setListSearch(event.target.value)} placeholder="Buscar conversas" aria-label="Buscar conversas" />
       <button type="button" className="button primary conversation-new-button" onClick={() => create.mutate()} disabled={create.isPending}>{create.isPending ? 'Criando…' : 'Nova conversa'}</button>
-      <div className="conversation-filters" role="group" aria-label="Filtrar conversas"><button type="button" className={'conversation-filter' + (!unreadOnly ? ' active' : '')} aria-pressed={!unreadOnly} onClick={() => setUnreadOnly(false)}>Tudo</button><button type="button" className={'conversation-filter' + (unreadOnly ? ' active' : '')} aria-pressed={unreadOnly} onClick={() => setUnreadOnly(true)}>Não lidas{unreadConversationCount > 0 && <span className="conversation-filter-count">{unreadConversationCount}</span>}</button></div>
+      <div className="conversation-filters" role="group" aria-label="Filtrar conversas">{listFilters.map(item => <button type="button" key={item.id} className={'conversation-filter' + (listFilter === item.id ? ' active' : '')} aria-pressed={listFilter === item.id} onClick={() => setListFilter(item.id)}>{item.label}{item.count > 0 && item.id !== 'all' && <span className="conversation-filter-count">{item.count}</span>}</button>)}</div>
       {conversations.isPending ? <Skeleton rows={5} label="Carregando conversas…" /> : conversations.isError ? <div className="notice error">{errorMessage(conversations.error)}</div> : visibleConversationItems.length ? <><div className="conversation-list">{visibleConversationItems.map(item => {
         const task = item.taskId ? taskForId(item.taskId) : undefined;
         const unreadCount = item.unread?.count ?? 0;
-        const hasMessages = Boolean(item.lastMessageAt || unreadCount > 0);
-        const messageStatus = unreadCount > 0 ? 'unread' : hasMessages ? 'read' : 'empty';
-        return <button type="button" key={item._id} aria-current={selectedId === item._id ? 'true' : undefined} className={'conversation-list-item' + (selectedId === item._id ? ' active' : '') + (unreadCount > 0 ? ' unread' : '')} onClick={() => { setSelectedId(item._id); onConversationSelected?.(item._id); }}><div className="conversation-list-item-head"><strong>{item.title || 'Nova conversa'}</strong>{unreadCount > 0 && <span className="conversation-unread-dot" aria-label={`${unreadCount} ${unreadCount === 1 ? 'mensagem não lida' : 'mensagens não lidas'}`}>{unreadCount > 99 ? '99+' : unreadCount}</span>}</div><small className="conversation-list-item-context">{item.taskId ? 'Tarefa vinculada · ' + (task?.name ?? item.taskId.slice(0, 8)) : 'Escopo do projeto'}</small><div className="conversation-list-item-activity"><span className={`conversation-message-state ${messageStatus}`}>{messageStatus === 'unread' ? 'Não lida' : messageStatus === 'read' ? 'Lida' : 'Sem mensagens ainda'}</span>{item.lastMessageAt && <time dateTime={item.lastMessageAt} title={formatDate(item.lastMessageAt)}>{relativeTime(item.lastMessageAt)}</time>}</div>{task && <div className="conversation-context-badges"><Badge tone={statusTone[task.status] ?? 'muted'}>{statusLabels[task.status] ?? task.status}</Badge></div>}</button>;
-      })}</div>{(olderConversationPages.at(-1)?.next ?? conversations.data?.next) && <button type="button" className="button ghost" disabled={loadingOlder} onClick={() => void loadOlderConversations()}>{loadingOlder ? 'Carregando…' : 'Carregar conversas anteriores'}</button>}</> : <div className="empty-state compact"><h3>Comece uma conversa</h3><p>Crie uma conversa geral e vincule uma tarefa pelo cabeçalho do chat.</p></div>}
+        const lastActivity = item.lastMessageAt || (unreadCount > 0 ? item.updatedAt : undefined);
+        return <button type="button" key={item._id} aria-current={selectedId === item._id ? 'true' : undefined} className={'conversation-list-item' + (selectedId === item._id ? ' active' : '') + (unreadCount > 0 ? ' unread' : '')} onClick={() => chooseConversation(item._id)}><div className="conversation-list-item-head"><strong>{stripTaskPrefix(item.title) || 'Nova conversa'}</strong>{unreadCount > 0 && <span className="conversation-unread-dot" aria-label={`${unreadCount} ${unreadCount === 1 ? 'mensagem não lida' : 'mensagens não lidas'}`}>{unreadCount > 99 ? '99+' : unreadCount}</span>}</div><div className="conversation-list-item-meta">{task && <Badge tone={statusTone[task.status] ?? 'muted'}>{statusLabels[task.status] ?? task.status}</Badge>}<span className={'conversation-message-state ' + (unreadCount > 0 ? 'unread' : lastActivity ? 'read' : 'empty')} title={lastActivity ? formatDate(lastActivity) : undefined}>{activityText(unreadCount, lastActivity, relativeTime)}</span></div></button>;
+      })}</div>{(olderConversationPages.at(-1)?.next ?? conversations.data?.next) && <button type="button" className="button ghost" disabled={loadingOlder} onClick={() => void loadOlderConversations()}>{loadingOlder ? 'Carregando…' : 'Carregar conversas anteriores'}</button>}</> : conversations.data?.items.length ? <div className="empty-state compact"><h3>Nenhuma conversa nesse filtro.</h3><button type="button" className="button secondary small-button" onClick={() => { setListFilter('all'); setListSearch(''); }}>Limpar filtro</button></div> : <div className="empty-state compact"><h3>Comece uma conversa</h3><p>Crie uma conversa geral e vincule uma tarefa pelo cabeçalho do chat.</p></div>}
     </aside>
-    <div className="panel-card conversation-main">
+    <section className="panel-card conversation-main" aria-label="Conversa">
       {!selectedId ? <div className="empty-state"><h2>Conversa do projeto</h2><p>Selecione uma conversa ou crie uma nova para começar.</p></div> : <>
-        <header className="conversation-header"><div className="conversation-header-main"><ConversationTitleEditor title={latest?.conversation.title ?? 'Conversa'} editing={titleEditing} draft={titleDraft} editable={Boolean(latest)} saving={renameConversation.isPending} error={renameConversation.isError ? renameConversation.error : undefined} onEdit={beginTitleEdit} onDraftChange={setTitleDraft} onSave={submitTitle} onCancel={cancelTitleEdit} /><p className="muted-text">{latest?.conversation.taskId ? 'Conversa vinculada à tarefa' : 'Escopo do projeto'}</p>{latest?.task && <div className="conversation-task-card"><a className="conversation-task-anchor" href={routeUrl('tasks', `taskId=${encodeURIComponent(latest.task._id)}`, projectId)} aria-label={`Abrir tarefa ${latest.task.name} na listagem`} onClick={event => { if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); onOpenTask(latest.task!._id); }}>{latest.task.name}</a><Badge tone={statusTone[latest.task.status] ?? 'muted'}>{statusLabels[latest.task.status] ?? latest.task.status}</Badge>{latest.task.area ? <FilterLink param="area" value={latest.task.area} projectId={projectId} className={`chip chip-area chip-area-${latest.task.area} entity-chip`} title={`Filtrar tarefas pela área ${areaLabel(latest.task.area)}`}>{areaLabel(latest.task.area)}</FilterLink> : <span className="chip chip-area chip-area-none">{areaLabel(latest.task.area)}</span>}{latest.task.featureId ? <FeatureLink featureId={latest.task.featureId} projectId={projectId} className="chip chip-feature entity-chip" title="Ver todas as tarefas desta feature"><IconFeature size={11} /><span>{featureLabelForTask(latest.task._id)}</span></FeatureLink> : <span className="chip chip-feature"><IconFeature size={11} /><span>Sem feature</span></span>}<small>v{taskContext.data?.task.version ?? latest.task.version}</small></div>}</div><div className="conversation-header-actions">{latest && !latest.conversation.taskId && <button type="button" className="button secondary" onClick={() => setLinkTaskOpen(open => !open)} disabled={linkTask.isPending}>{linkTaskOpen ? 'Fechar busca' : 'Vincular tarefa'}</button>}<button type="button" className="button ghost small-button" title={latest ? `Copiar ID: ${latest.conversation._id}` : undefined} onClick={() => void copyConversationId()}>Copiar ID</button><button type="button" className="button ghost small-button danger-text" onClick={confirmDeleteConversation} disabled={!latest || deleteConversation.isPending}>{deleteConversation.isPending ? 'Excluindo…' : 'Excluir conversa'}</button></div></header>
-        {pendingProposal && <a className="conversation-pending-banner" href="#conversation-proposals">Há uma proposta aguardando sua autorização. <strong>Ver proposta</strong></a>}
+        <button type="button" className="conversation-back" onClick={() => setMobileView('list')}>← Conversas</button>
+        <header className="conversation-header"><div className="conversation-header-main">
+          <div className="conversation-header-top"><p className="muted-text">{latest?.conversation.taskId ? 'Conversa vinculada à tarefa' : 'Escopo do projeto'}</p>
+            <div className="conversation-header-actions">
+              {latest && !latest.conversation.taskId && <button type="button" className="button secondary small-button" onClick={() => setLinkTaskOpen(open => !open)} disabled={linkTask.isPending}>{linkTaskOpen ? 'Fechar busca' : 'Vincular tarefa'}</button>}
+              <button type="button" className="button ghost small-button" title={latest ? `Copiar ID: ${latest.conversation._id}` : undefined} onClick={() => void copyConversationId()}>{idCopied ? 'ID copiado' : 'Copiar ID'}</button>
+              <DropdownMenu ariaLabel="Mais ações da conversa" title="Mais ações" triggerClassName="small-icon conversation-menu-trigger" items={[{ id: 'edit', label: 'Editar título', disabled: !latest }, { id: 'delete', label: 'Excluir conversa…', danger: true, dividerBefore: true, disabled: !latest || deleteConversation.isPending }]} onSelect={action => { if (action === 'edit') beginTitleEdit(); else confirmDeleteConversation(); }}><IconMore size={16} /></DropdownMenu>
+            </div></div>
+          {titleEditing ? <ConversationTitleEditor title={headerTitle} editing draft={titleDraft} editable saving={renameConversation.isPending} error={renameConversation.isError ? renameConversation.error : undefined} onEdit={beginTitleEdit} onDraftChange={setTitleDraft} onSave={submitTitle} onCancel={cancelTitleEdit} /> : <h2 className="conversation-title">{renderInlineCode(headerTitle)}</h2>}
+          {latest?.task && <div className="conversation-task-card">
+            <Badge tone={statusTone[latest.task.status] ?? 'muted'}>{statusLabels[latest.task.status] ?? latest.task.status}</Badge>
+            {latest.task.area ? <FilterLink param="area" value={latest.task.area} projectId={projectId} className={`chip chip-area chip-area-${latest.task.area} entity-chip`} title={`Filtrar tarefas pela área ${areaLabel(latest.task.area)}`}>{areaLabel(latest.task.area)}</FilterLink> : null}
+            {latest.task.featureId ? <FeatureLink featureId={latest.task.featureId} projectId={projectId} className="chip chip-feature entity-chip" title="Ver todas as tarefas desta feature"><IconFeature size={11} /><span>{featureLabelForTask(latest.task._id)}</span></FeatureLink> : null}
+            <a className="conversation-task-anchor" href={routeUrl('tasks', `taskId=${encodeURIComponent(latest.task._id)}`, projectId)} aria-label={`Abrir tarefa ${latest.task.name} na listagem`} onClick={event => { if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); onOpenTask(latest.task!._id); }}>{taskTitleDiffers ? renderInlineCode(stripTaskPrefix(latest.task.name)) : 'Abrir tarefa'} ↗</a>
+            <small>v{taskContext.data?.task.version ?? latest.task.version}</small>
+          </div>}
+        </div></header>
+        <ConversationStepper phase={phase} />
+        {tabs}
         {linkTaskOpen && latest && !latest.conversation.taskId && <ConversationTaskSearch value={taskSearch} debouncedValue={debouncedTaskSearch} isFetching={taskSearchResults.isFetching} isError={taskSearchResults.isError} error={taskSearchResults.error} tasks={taskSearchResults.data?.items ?? []} onChange={setTaskSearch} onSelect={taskId => linkTask.mutate(taskId)} disabled={linkTask.isPending} featureLabel={task => task.featureId ? features.data?.find(feature => feature._id === task.featureId)?.name ?? 'Carregando…' : 'Sem feature'} />}
         {notice && <div className="notice" role="status">{notice}</div>}
         {markRead.isError && readAttempt.current?.conversationId === selectedId && <ConversationReadFailure error={markRead.error} retrying={markRead.isPending} retry={() => { if (readAttempt.current) markRead.mutate(readAttempt.current); }} />}
         {detail.isPending ? <Skeleton rows={6} label="Carregando mensagens…" /> : detail.isError ? <ErrorNotice error={detail.error} onRetry={() => void detail.refetch()} retrying={detail.isFetching} title="Não foi possível carregar a conversa" /> : <>
-          {(olderMessagePages.at(-1)?.next ?? latest?.next) && <button type="button" className="button ghost" disabled={loadingOlder} onClick={() => void loadOlderMessages()}>{loadingOlder ? 'Carregando…' : 'Carregar mensagens anteriores'}</button>}
-          <div className="conversation-messages" aria-live="polite">{orderedMessages.length ? orderedMessages.map(message => <article key={message._id} className={`conversation-message ${message.authorType}`}><div className="conversation-message-meta"><strong className={message.authorType === 'agent' ? 'conversation-agent-identity' : undefined}>{message.authorType === 'agent' ? <><AgentClientIcon clientName={message.clientName} /><span>{message.clientName?.trim() || 'IA'} ({authorDisplayName(message.author)})</span></> : `Pessoa (${authorDisplayName(message.author)})`}</strong><small title={formatDate(message.createdAt)}>{relativeTime(message.createdAt)}</small></div><MarkdownView content={message.content} /></article>) : <div className="empty-state compact"><h3>Sem mensagens</h3><p>Envie o objetivo e os detalhes conhecidos para iniciar.</p></div>}</div>
-          <form className="conversation-composer" onSubmit={submitMessage}><label htmlFor="conversation-message">Mensagem</label><textarea id="conversation-message" rows={4} maxLength={20000} value={draft} onChange={event => setDraft(event.target.value)} onKeyDown={sendMessageOnEnter} placeholder="Descreva o objetivo, restrições e dúvidas…" /><div className="conversation-composer-footer"><small>Enter envia · Shift+Enter quebra a linha</small><button className="button primary" disabled={!draft.trim() || send.isPending}>{send.isPending ? 'Enviando…' : 'Enviar'}</button></div></form>
+          <div className="conversation-chat">
+            {(olderMessagePages.at(-1)?.next ?? latest?.next) && <button type="button" className="button ghost" disabled={loadingOlder} onClick={() => void loadOlderMessages()}>{loadingOlder ? 'Carregando…' : 'Carregar mensagens anteriores'}</button>}
+            <div className="messages-wrap"><div className="conversation-messages" aria-live="polite" ref={messagesRef} onScroll={onMessagesScroll} tabIndex={0} aria-label="Mensagens da conversa">{orderedMessages.length || sortedProposals.length ? <>
+              {orderedMessages.map(message => <article key={message._id} className={`conversation-message ${message.authorType}`}>
+                {message.authorType === 'agent' ? <span className="msg-avatar agent" aria-hidden="true"><AgentClientIcon clientName={message.clientName} /></span> : <span className="msg-avatar human" aria-hidden="true">{personInitials(message.author)}</span>}
+                <div className="msg-body"><div className="conversation-message-meta"><strong className={message.authorType === 'agent' ? 'conversation-agent-identity' : undefined}>{message.authorType === 'agent' ? <span>{message.clientName?.trim() || 'IA'} ({authorDisplayName(message.author)})</span> : `Pessoa (${authorDisplayName(message.author)})`}</strong><time dateTime={message.createdAt} title={formatDate(message.createdAt)}>{relativeTime(message.createdAt)}</time></div><div className="msg-bubble"><MarkdownView content={message.content} /></div></div>
+              </article>)}
+              {sortedProposals.map(proposal => <ProposalCard key={proposal._id} proposal={proposal} taskVersion={latest?.task?.version} job={latest?.jobs.find(job => job._id === proposal.jobId)} approving={approve.isPending && approve.variables?._id === proposal._id} error={approve.isError && approve.variables?._id === proposal._id ? errorMessage(approve.error) : undefined} onApprove={item => approve.mutate(item)} onRequestChanges={() => composerRef.current?.focus()} />)}
+            </> : <div className="conversation-empty">
+              <h3>Comece pelo objetivo {latest?.task ? 'da tarefa' : 'da conversa'}</h3>
+              <p>Descreva o que precisa, as restrições e o que já sabe. As IAs conectadas ao MCP leem esta conversa{latest?.task ? ' e a tarefa vinculada' : ''}.</p>
+              {latest?.task && <p className="conversation-context-line">Contexto disponível: Tarefa · {plural(criteriaTotal, 'critério', 'critérios')}</p>}
+              <div className="suggestion-list" role="group" aria-label="Sugestões de mensagem">{suggestions.map(text => <button type="button" className="suggestion" key={text} onClick={() => fillDraft(text)}>{text}</button>)}</div>
+            </div>}</div>{showScrollBottom && <button type="button" className={'scroll-bottom' + (hasNewBelow ? ' has-new' : '')} onClick={() => scrollToBottom()} aria-label={hasNewBelow ? 'Ir para as novas mensagens' : 'Ir para a última mensagem'}><IconChevron size={14} />{hasNewBelow ? 'Novas mensagens' : 'Última mensagem'}</button>}</div>
+            {pendingProposal && <a className="conversation-pending-banner" href="#conversation-proposals" onClick={event => { event.preventDefault(); document.querySelector('.proposal-message:not(.approved)')?.scrollIntoView({ block: 'center', behavior: 'smooth' }); }}>Há uma proposta aguardando sua autorização. <strong>Ver proposta</strong></a>}
+            <form className="conversation-composer" onSubmit={submitMessage}><label htmlFor="conversation-message">Mensagem</label><textarea id="conversation-message" ref={composerRef} rows={3} maxLength={20000} value={draft} onChange={event => setDraft(event.target.value)} onKeyDown={sendMessageOnEnter} placeholder="Descreva o objetivo, as restrições e as dúvidas…" aria-invalid={send.isError} />
+              {send.isError && <div className="notice error" role="alert">Não foi possível enviar: {errorMessage(send.error)} <button type="button" className="text-button" disabled={send.isPending || !draftValid} onClick={() => send.mutate(draft.trim())}>Tentar novamente</button></div>}
+              <div className="conversation-composer-footer"><small>Enter envia · Shift+Enter quebra a linha</small><button className={'button primary send-button' + (draftValid ? '' : ' is-empty')} disabled={!draftValid || send.isPending}>{send.isPending ? 'Enviando…' : 'Enviar'}</button></div></form>
+          </div>
         </>}
       </>}
-    </div>
-    {showAside && latest && <ConversationAside detail={latest} taskContext={taskContext} approving={approve.isPending} onApprove={proposal => approve.mutate(proposal)} onOpenAdmin={onOpenAdmin} />}
+    </section>
+    {showAside && latest && <ConversationAside detail={latest} taskContext={taskContext} onOpenAdmin={onOpenAdmin} tabs={tabs} />}
   </section>;
 }

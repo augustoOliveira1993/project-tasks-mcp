@@ -49,8 +49,11 @@ test('painel inicia conversa no escopo do projeto e oferece retomada paginada', 
   assert.match(html, /Nova conversa/);
   assert.doesNotMatch(html, /new-conversation-task/);
   assert.doesNotMatch(html, /Vincular a uma tarefa \(opcional\)/);
-  assert.match(html, /Tarefa vinculada · Task A/);
-  assert.match(html, /conversation-context-badges[^>]*><span class="badge[^>]*>Pendente</);
+  assert.doesNotMatch(html, /Tarefa vinculada · /, 'a lista não repete "Tarefa vinculada · …"');
+  assert.match(html, /Sem mensagens ainda/);
+  assert.match(html, /aria-label="Buscar conversas"/);
+  assert.match(html, /aria-label="Lista de conversas"/);
+  assert.match(html, /conversation-list-item-meta[^>]*><span class="badge[^>]*>Pendente</);
   assert.doesNotMatch(html, /Área · Backend|Feature · Colaboração por task/, 'a lista não repete área e feature da task');
   assert.doesNotMatch(html, /Autorizar execução/);
 });
@@ -99,7 +102,12 @@ test('conversa vazia mantém criação geral e conversa sem vínculo oferece vin
     { _id: 'conversation-unlinked', projectId: 'project-id', taskId: null, title: 'Conversa geral', status: 'open' }
   ], null, undefined, 'conversation-unlinked');
   assert.match(unlinkedHtml, /Vincular tarefa/);
-  assert.match(unlinkedHtml, /Excluir conversa/);
+  assert.match(unlinkedHtml, /aria-label="Mais ações da conversa"/, 'excluir e editar título ficam no menu ⋯');
+  assert.doesNotMatch(unlinkedHtml, />Excluir conversa</);
+  assert.match(unlinkedHtml, /Comece pelo objetivo da conversa/);
+  assert.match(unlinkedHtml, /class="suggestion"/);
+  assert.match(unlinkedHtml, /nav class="conversation-stepper" aria-label="Fases da conversa"/);
+  assert.match(unlinkedHtml, /send-button is-empty"[^>]*disabled/, 'Enviar desabilitado com o campo vazio');
   assert.doesNotMatch(unlinkedHtml, /new-conversation-task/);
 });
 
@@ -115,10 +123,13 @@ test('conversa vinculada mostra task e feature e mantém propostas', () => {
   assert.match(html, /Conversa vinculada à tarefa/);
   assert.match(html, /Task A/);
   assert.match(html, /entity-chip[^>]*>[\s\S]*Colaboração por task/);
-  assert.match(html, /Propostas de execução/);
-  assert.match(html, /Autorizar execução/);
-  assert.match(html, /Proposta e acompanhamento da tarefa/);
-  assert.match(html, /Editar título/);
+  assert.match(html, /PROPOSTA DE EXECUÇÃO · VERSÃO 0/);
+  assert.match(html, /Aguardando autorização/);
+  assert.match(html, />Autorizar execução</);
+  assert.match(html, />Pedir ajustes</);
+  assert.match(html, /aria-label="Critérios da tarefa"/);
+  assert.match(html, /aria-label="Mais ações da conversa"/);
+  assert.match(html, /aria-current="step"[^>]*>[\s\S]*?Autorização/, 'proposta pendente leva à fase 3');
   assert.doesNotMatch(html, /Vincular tarefa/);
 });
 

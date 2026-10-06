@@ -1,4 +1,5 @@
 import express from 'express';
+import { MCP_SERVER_ICONS } from '../brand.js';
 import { randomBytes } from 'node:crypto';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
@@ -41,7 +42,7 @@ export async function createJobBridge(call: (name: string, args: any) => Promise
   const connections = new Set<McpServer>();
   app.post('/mcp', async (req, res) => {
     if (req.headers.authorization !== `Bearer ${token}` || req.headers.origin) { res.sendStatus(403); return; }
-    const server = new McpServer({ name: 'project_tasks_runner', version: '0.2.0' }, { instructions: RUNNER_MCP_INSTRUCTIONS });
+    const server = new McpServer({ name: 'project_tasks_runner', version: '0.2.0', title: 'Project Tasks (runner)', icons: MCP_SERVER_ICONS }, { instructions: RUNNER_MCP_INSTRUCTIONS });
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     connections.add(server);
     for (const name of names) {

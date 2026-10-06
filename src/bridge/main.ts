@@ -7,6 +7,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import { id, tools } from '../schema.js';
+import { MCP_SERVER_ICONS } from '../brand.js';
 import { DIFF_FLAGS, limitPatch } from './diff.js';
 import { listAccessibleProjects, matchGitProjects } from './project-resolution.js';
 
@@ -82,7 +83,7 @@ function describeBridgeTool(name: string) {
   const base = name + ' through the local Git-aware bridge. Call status first when relying on Git scope; explicit projectId may be supplied. The bridge uses the same server permissions and does not grant access.';
   return BRIDGE_TOOL_GUIDANCE[name] ? base + ' ' + BRIDGE_TOOL_GUIDANCE[name] : base;
 }
-const server = new McpServer({ name: 'project-tasks-bridge', version: '0.2.0' }, { instructions: [
+const server = new McpServer({ name: 'project-tasks-bridge', version: '0.2.0', title: 'Project Tasks (bridge Git)', icons: MCP_SERVER_ICONS }, { instructions: [
   'This optional local bridge reads Git context from the open checkout; it is not the main HTTP MCP server and it does not grant project access.',
   'Call status first when relying on Git-derived scope. ready:true means exactly one registered project/repository binding matched. If ambiguous, pass an explicit projectId to forwarded tools when you know the intended project; publish_task_diff requires a unique match. If no binding exists, ask a human administrator to configure it.',
   'Use publish_task_diff to derive changed files and commits from Git. Other tools forward to the main MCP with the same schemas, authorization, version, operationId, and human gates. Use the main MCP directly if this optional bridge is absent.',

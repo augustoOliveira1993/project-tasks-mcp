@@ -1,3 +1,5 @@
+<p align="center"><img src="frontend/public/logo.svg" alt="Project Tasks" height="64"></p>
+
 # Project Tasks MCP
 
 Servidor MCP para coordenar projetos, features e tarefas entre equipes. Mantém dependências, execução, progresso, mensagens e revisão humana em MongoDB; expõe a API Streamable HTTP em `POST /mcp`.
