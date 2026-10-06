@@ -7,12 +7,15 @@ import { copyToClipboard } from '../../lib/clipboard';
 import { errorMessage } from '../../lib/format';
 import { makeToken } from '../../lib/token';
 import { ProjectExportPanel } from './ProjectExportPanel';
+import { ResponsibleRegistration } from './ResponsibleRegistration';
+import { fetchAssignees } from '../../features/tasks/assignees';
 import { ProjectImportPanel } from './ProjectImportPanel';
 import './admin-panels.css';
 
 const adminPanelTabs = [
   { id: 'tools', label: 'Ferramentas administrativas' },
   { id: 'credentials', label: 'Credenciais' },
+  { id: 'responsibles', label: 'Responsáveis' },
   { id: 'export', label: 'Exportar/Importar Projeto' },
   { id: 'danger', label: 'Zona de perigo' }
 ] as const;
@@ -66,6 +69,7 @@ export function AdminPanel({ project, projects, onChanged, notify, token, canHar
     }),
     retry: false
   });
+  const assigneesQuery = useQuery({ queryKey: ['assignees', 'admin', token, project._id, systemAdmin], staleTime: 30_000, retry: false, queryFn: () => fetchAssignees(token, project._id, systemAdmin) });
   const issueMutation = useMutation({
     mutationFn: (body: Record<string, unknown>) => request<{ credentialId: string }>(token, '/admin', { body })
   });
@@ -237,6 +241,9 @@ export function AdminPanel({ project, projects, onChanged, notify, token, canHar
       })}</tbody></table></div> : <div className="empty-state compact"><h3>Nenhuma credencial encontrada</h3><p>Ajuste os filtros ou emita a primeira credencial para este escopo.</p></div>}
       <div className="credential-pagination"><span>Página {credentialCursors.length}{credentialsQuery.data?.items.length ? ` · ${credentialsQuery.data.items.length} registro(s)` : ''}</span><div className="button-row"><button type="button" className="button secondary small-button" onClick={() => setCredentialCursors(values => values.slice(0, -1))} disabled={credentialCursors.length <= 1 || credentialsQuery.isFetching}>Anterior</button><button type="button" className="button secondary small-button" onClick={() => { if (credentialsQuery.data?.next) setCredentialCursors(values => [...values, credentialsQuery.data!.next!]); }} disabled={!credentialsQuery.data?.next || credentialsQuery.isFetching}>Próxima</button></div></div>
     </section>
+    </div>
+    <div id="admin-panel-responsibles" role="tabpanel" aria-labelledby="admin-tab-responsibles" hidden={activePanel !== 'responsibles'} tabIndex={0}>
+      <ResponsibleRegistration key={token} token={token} projects={projects} currentProjectId={project._id} systemAdmin={systemAdmin} knownEmails={(assigneesQuery.data ?? []).map(item => item.email)} notify={notify} onChanged={onChanged} />
     </div>
     <div id="admin-panel-danger" role="tabpanel" aria-labelledby="admin-tab-danger" hidden={activePanel !== 'danger'} tabIndex={0}>
       <p className="danger-intro" role="note">Ações desta aba afetam o projeto inteiro. Arquivar é reversível; a exclusão permanente não pode ser desfeita e exige digitar o nome do projeto para confirmar.</p>

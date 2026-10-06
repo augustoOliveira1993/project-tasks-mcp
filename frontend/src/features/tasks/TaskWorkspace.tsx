@@ -7,7 +7,9 @@ import { Badge } from '../../components/ui/Badge';
 import { ErrorNotice } from '../../components/ui/ErrorNotice';
 import { IconCheck, IconDiff, IconFeature, IconMail, IconQuestion, IconRefresh, IconSearch } from '../../components/ui/icons';
 import { FeatureLink, FilterLink, taskHref } from '../../components/ui/Links';
+import { AssigneePicker } from '../../components/ui/AssigneePicker';
 import { Person } from '../../components/ui/Person';
+import { useAssignees, type Assignee } from './assignees';
 import { TableSkeleton } from '../../components/ui/Skeleton';
 import { formatDate } from '../../lib/format';
 import { areaLabel, plural, priorityInfo, relativeTime, shortId, typeLabel } from '../../lib/labels';
@@ -72,6 +74,7 @@ export function TaskWorkspace({ token, nonce, projectId, repositories = [], proj
   const [viewFormOpen, setViewFormOpen] = useState(false);
   const [identityOpen, setIdentityOpen] = useState(false);
   const [myEmail, setMyEmail] = useState(loadMyEmail);
+  const [identityDraft, setIdentityDraft] = useState('');
   const [now, setNow] = useState(() => Date.now());
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -85,6 +88,13 @@ export function TaskWorkspace({ token, nonce, projectId, repositories = [], proj
     enabled: Boolean(token && nonce && projectId),
     queryFn: () => allRecords<Feature>(token, { kind: 'feature', projectId, archived: false })
   });
+  const assigneesQuery = useAssignees(token, nonce, projectId, systemAdmin);
+  // Responsáveis conhecidos: credenciais ativas somadas a quem já aparece nas tarefas do projeto.
+  const responsibleOptions = useMemo<Assignee[]>(() => {
+    const known = new Map((assigneesQuery.data ?? []).map(item => [item.email.toLowerCase(), item]));
+    for (const task of tasks) if (task.responsible && !known.has(task.responsible.toLowerCase())) known.set(task.responsible.toLowerCase(), { email: task.responsible, kind: 'pessoa' });
+    return [...known.values()].sort((a, b) => a.email.localeCompare(b.email, 'pt-BR'));
+  }, [assigneesQuery.data, tasks]);
   const featureNames = useMemo(() => new Map((featuresQuery.data ?? []).map(feature => [feature._id, feature.name])), [featuresQuery.data]);
   const syncTasks = useMemo(() => new Map((syncReportQuery.data?.tasks ?? []).map(item => [item.taskId, item])), [syncReportQuery.data]);
 
@@ -249,7 +259,7 @@ export function TaskWorkspace({ token, nonce, projectId, repositories = [], proj
 
   function saveIdentity(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const email = String(new FormData(event.currentTarget).get('myEmail') ?? '').trim();
+    const email = identityDraft.trim();
     if (!email) return;
     storeMyEmail(email);
     setMyEmail(email);
@@ -317,11 +327,11 @@ export function TaskWorkspace({ token, nonce, projectId, repositories = [], proj
             {view.custom && <button type="button" className="view-pill-remove" aria-label={`Remover visão ${view.label}`} title="Remover visão" onClick={() => removeView(view.id)}>×</button>}
           </span>;
         })}
-        {!myEmail && <button type="button" className={'view-pill' + (identityOpen ? ' active' : '')} aria-expanded={identityOpen} title="Informe seu e-mail para filtrar as tasks sob sua responsabilidade" onClick={chooseMine}>Minhas tasks</button>}
-        {myEmail && <button type="button" className="text-button" title={`Responsável: ${myEmail}. Clique para trocar.`} onClick={() => setIdentityOpen(open => !open)}>trocar e-mail</button>}
+        {!myEmail && <button type="button" className={'view-pill' + (identityOpen ? ' active' : '')} aria-expanded={identityOpen} title="Informe seu e-mail para filtrar as tasks sob sua responsabilidade" onClick={() => { setIdentityDraft(''); chooseMine(); }}>Minhas tasks</button>}
+        {myEmail && <button type="button" className="text-button" title={`Responsável: ${myEmail}. Clique para trocar.`} onClick={() => { setIdentityDraft(myEmail); setIdentityOpen(open => !open); }}>trocar responsável</button>}
         <button type="button" className="view-pill view-pill-add" aria-expanded={viewFormOpen} disabled={noFilters} title={noFilters ? 'Aplique filtros para salvar uma visão' : 'Salvar os filtros atuais como visão'} onClick={() => setViewFormOpen(open => !open)}>+ Salvar visão</button>
       </div>
-      {identityOpen && <form className="inline-form" onSubmit={saveIdentity}><label>Seu e-mail de responsável<input name="myEmail" type="email" required autoFocus defaultValue={myEmail} placeholder="voce@empresa.com" /></label><button className="button primary small-button">Usar</button><button type="button" className="button ghost small-button" onClick={() => setIdentityOpen(false)}>Cancelar</button><small>Fica salvo só neste navegador.</small></form>}
+      {identityOpen && <form className="inline-form" onSubmit={saveIdentity}><AssigneePicker label="Quem é você? (responsável cadastrado)" assignees={responsibleOptions} isPending={assigneesQuery.isPending} isError={assigneesQuery.isError} defaultValue={myEmail} allowCustom={false} emptyLabel="Selecione seu nome" onChange={setIdentityDraft} /><button className="button primary small-button" disabled={!identityDraft.trim()}>Usar</button><button type="button" className="button ghost small-button" onClick={() => setIdentityOpen(false)}>Cancelar</button><small>Fica salvo só neste navegador. Falta o seu nome? Cadastre em Administração › Responsáveis.</small></form>}
       {viewFormOpen && <form className="inline-form" onSubmit={saveCurrentView}><label>Nome da visão<input name="viewName" required autoFocus maxLength={40} placeholder="Ex.: Backend em revisão" /></label><button className="button primary small-button">Salvar</button><button type="button" className="button ghost small-button" onClick={() => setViewFormOpen(false)}>Cancelar</button><small>Guarda busca, status, área, tipo, prioridade, responsável, feature e ordenação.</small></form>}
 
       <div className="filters-row">
@@ -334,7 +344,7 @@ export function TaskWorkspace({ token, nonce, projectId, repositories = [], proj
       </div>
       {advancedOpen && <div className="advanced-filters">
         <label>Prioridade<select aria-label="Filtrar por prioridade" value={state.priority} onChange={event => patch({ priority: event.target.value })}><option value="">Todas</option>{filterOptions.priority.map(({ value, count }) => <option value={value} key={value}>{priorityInfo(Number(value)).text} ({count})</option>)}</select></label>
-        <label>Responsável<input value={state.responsible} onChange={event => patch({ responsible: event.target.value })} placeholder="E-mail ou nome" /></label>
+        <label>Responsável<select aria-label="Filtrar por responsável" value={state.responsible} onChange={event => patch({ responsible: event.target.value })}><option value="">Todos</option>{state.responsible && !responsibleOptions.some(item => item.email === state.responsible) && <option value={state.responsible}>{state.responsible}</option>}{responsibleOptions.map(item => <option value={item.email} key={item.email}>{item.email}{item.kind === 'agente' ? ' (agente)' : ''}</option>)}</select></label>
         <label>Feature<select aria-label="Filtrar por feature" value={state.featureId} onChange={event => patch({ featureId: event.target.value })}><option value="">Todas</option>{state.featureId && !featureNames.has(state.featureId) && <option value={state.featureId}>{`Feature ${shortId(state.featureId)}`}</option>}{(featuresQuery.data ?? []).map(feature => <option value={feature._id} key={feature._id}>{feature.name}</option>)}</select></label>
         <label>Criada de<input type="date" value={state.createdAfter} onChange={event => patch({ createdAfter: event.target.value })} /></label>
         <label>Criada até<input type="date" value={state.createdBefore} onChange={event => patch({ createdBefore: event.target.value })} /></label>

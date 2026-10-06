@@ -509,3 +509,22 @@ a.task-name:hover { color: var(--tone-blue); text-decoration: underline; }
 .task-drawer > .drawer-header, .task-drawer > .drawer-actionbar, .task-drawer > .drawer-tabs, .task-drawer > .review-panel, .task-drawer > .drawer-notice, .task-drawer > .drawer-notices { flex: 0 0 auto; }
 .drawer-tabs { min-height: 41px; }
 .drawer-body { flex: 1 1 0; }
+
+/* ---------- Cadastro de responsável ---------- */
+.responsible-registration { padding: var(--space-5); }
+.responsible-registration > .muted-text { margin: 0 0 var(--space-4); font-size: var(--text-sm); }
+.responsible-registration .stack-form { max-width: 720px; }
+.token-kinds, .project-access { display: grid; gap: var(--space-2); min-width: 0; margin: 0; padding: var(--space-3) var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-md); }
+.token-kinds legend, .project-access legend { padding: 0 6px; color: var(--ink-2); font-size: var(--text-xs); font-weight: 700; }
+.token-kinds .confirm-line { align-items: flex-start; padding: 6px 0; font-size: var(--text-sm); }
+.token-kinds .confirm-line > span { display: grid; gap: 2px; }
+.token-kinds .confirm-line small { color: var(--muted-strong); font-size: var(--text-xs); }
+.confirm-line.disabled { opacity: .6; }
+.project-access small { color: var(--muted-strong); font-size: var(--text-xs); }
+.project-access-list { display: grid; gap: 4px; max-height: 240px; overflow-y: auto; }
+.project-access-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); font-size: var(--text-sm); font-weight: 400; cursor: pointer; }
+.project-access-item input { width: auto; flex: 0 0 auto; }
+.project-access-item > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.project-access-item:has(input:checked) { border-color: var(--focus); background: var(--tone-blue-bg); }
+.responsible-result label { gap: 8px; }
+.responsible-result ul { margin: 4px 0 0; padding-left: 18px; }

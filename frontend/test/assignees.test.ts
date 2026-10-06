@@ -58,3 +58,33 @@ test('seletor agrupa pessoas e agentes, preserva responsável atual e oferece ou
   assert.match(html, /Outro e-mail…/);
   assert.match(html, /<input type="hidden" name="responsible" value="antigo@x\.com"/);
 });
+
+test('seletor sem digitação não oferece "Outro e-mail" e usa o texto vazio informado', () => {
+  const html = renderToStaticMarkup(createElement(AssigneePicker, {
+    assignees: [{ email: 'maria@x.com', kind: 'pessoa' }], allowCustom: false, emptyLabel: 'Selecione seu nome'
+  }));
+  assert.doesNotMatch(html, /Outro e-mail/);
+  assert.match(html, /Selecione seu nome/);
+  assert.match(html, /maria@x\.com/);
+});
+
+test('cadastro de responsável: tipos de token, projetos e restrição para quem não é administrador do sistema', async () => {
+  const { ResponsibleRegistration, issuedText } = await vite.ssrLoadModule('/src/components/admin/ResponsibleRegistration.tsx');
+  const { QueryClient, QueryClientProvider } = await import('@tanstack/react-query');
+  const projects = [{ _id: 'p1', version: 1, name: 'AVBOne', visibility: 'private' }, { _id: 'p2', version: 2, name: 'Portal RH', visibility: 'shared' }];
+  const render = (systemAdmin: boolean) => renderToStaticMarkup(createElement(QueryClientProvider, { client: new QueryClient() }, createElement(ResponsibleRegistration, {
+    token: 't', projects, currentProjectId: 'p1', systemAdmin, knownEmails: [], notify() {}, onChanged() {}
+  })));
+  const admin = render(true);
+  assert.match(admin, /Novo responsável/);
+  assert.match(admin, /Token de acesso \(pessoa\)/);
+  assert.match(admin, /Token de agente/);
+  assert.match(admin, /type="checkbox"[^>]*name="project-access"/);
+  const member = render(false);
+  assert.match(member, /Somente administradores do sistema emitem tokens de agente/);
+  assert.match(member, /type="radio"[^>]*name="project-access"/);
+  const text = issuedText({ email: 'a@x.com', agent: { token: 'AG', credentialId: '1' }, person: { token: 'PE', credentialId: '2', projects: ['AVBOne', 'Portal RH'] }, failures: [] });
+  assert.match(text, /Responsável: a@x\.com/);
+  assert.match(text, /Token de agente[^\n]*: AG/);
+  assert.match(text, /projetos: AVBOne, Portal RH\nPE/);
+});

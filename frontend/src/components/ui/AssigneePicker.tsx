@@ -13,11 +13,14 @@ type Props = {
   name?: string;
   label?: string;
   allowEmpty?: boolean;
+  /** Permite digitar um e-mail fora da lista; desligue quando só valem responsáveis cadastrados. */
+  allowCustom?: boolean;
+  emptyLabel?: string;
   onChange?: (email: string) => void;
 };
 
 /** Seleciona o responsável entre as credenciais cadastradas (pessoas e agentes); aceita outro e-mail quando necessário. */
-export function AssigneePicker({ assignees, isPending = false, isError = false, defaultValue = '', name, label = 'Responsável', allowEmpty = true, onChange }: Props) {
+export function AssigneePicker({ assignees, isPending = false, isError = false, defaultValue = '', name, label = 'Responsável', allowEmpty = true, allowCustom = true, emptyLabel = 'Sem responsável', onChange }: Props) {
   const initial = (defaultValue ?? '').trim();
   const [selected, setSelected] = useState(initial);
   const [custom, setCustom] = useState(false);
@@ -37,15 +40,15 @@ export function AssigneePicker({ assignees, isPending = false, isError = false, 
         if (event.target.value === OTHER) { setCustom(true); update(''); }
         else { setCustom(false); update(event.target.value); }
       }}>
-        {allowEmpty && <option value="">{isPending ? 'Carregando credenciais…' : 'Sem responsável'}</option>}
+        {allowEmpty && <option value="">{isPending ? 'Carregando credenciais…' : emptyLabel}</option>}
         {currentIsExtra && <option value={selected}>{selected} (atual, sem credencial ativa)</option>}
         {people.length > 0 && <optgroup label="Pessoas">{people.map(item => <option key={item.email} value={item.email}>{personName(item.email)} · {item.email}</option>)}</optgroup>}
         {agents.length > 0 && <optgroup label="Agentes de IA">{agents.map(item => <option key={item.email} value={item.email}>{item.email}</option>)}</optgroup>}
-        <option value={OTHER}>Outro e-mail…</option>
+        {allowCustom && <option value={OTHER}>Outro e-mail…</option>}
       </select>
     </label>
     {custom && <input type="text" autoFocus maxLength={320} value={selected} placeholder="E-mail ou nome" aria-label={`${label}: outro e-mail`} onChange={event => update(event.target.value)} />}
-    {isError && <small className="field-error">Não foi possível listar as credenciais; use “Outro e-mail…”.</small>}
+    {isError && <small className="field-error">Não foi possível listar as credenciais; {allowCustom ? 'use “Outro e-mail…”.' : 'tente atualizar a página.'}</small>}
     {!isPending && !isError && assignees.length === 0 && <small>Nenhuma credencial ativa encontrada para este projeto.</small>}
     {name && <input type="hidden" name={name} value={selected} />}
   </div>;
