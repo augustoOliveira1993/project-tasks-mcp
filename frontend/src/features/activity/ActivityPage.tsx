@@ -3,6 +3,7 @@ import type { Task } from '../../api';
 import { Avatar } from '../../components/ui/Person';
 import { ErrorNotice } from '../../components/ui/ErrorNotice';
 import { IconChevron, IconRefresh } from '../../components/ui/icons';
+import { AgentClientIcon, isKnownAgentClient } from '../../components/ui/AgentClientIcon';
 import { MarkdownView } from '../../components/ui/MarkdownView';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { eventKindLabel, eventSummary, isTechnicalEvent, originLabel, toolLabel } from '../../lib/activity';
@@ -58,23 +59,26 @@ type ActivityPageProps = {
 
 const emptyFilters: ActivityFilters = { search: '', kind: '', author: '', origin: '', taskId: '', projectId: '', from: '', to: '' };
 
+const zone = 'America/Sao_Paulo';
+const dayFormat = new Intl.DateTimeFormat('en-CA', { timeZone: zone });
+
 function timeOnly(value?: string) {
   if (!value) return '—';
   const date = new Date(value);
-  return Number.isNaN(date.valueOf()) ? value : new Intl.DateTimeFormat('pt-BR', { timeStyle: 'short' }).format(date);
+  return Number.isNaN(date.valueOf()) ? value : new Intl.DateTimeFormat('pt-BR', { timeStyle: 'short', timeZone: zone }).format(date);
 }
 
 function dayKey(value?: string) {
   const date = value ? new Date(value) : undefined;
-  return date && !Number.isNaN(date.valueOf()) ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}` : 'sem-data';
+  return date && !Number.isNaN(date.valueOf()) ? dayFormat.format(date) : 'sem-data';
 }
 
 function dayLabel(key: string, now = new Date()) {
   if (key === 'sem-data') return 'Data não informada';
-  const date = new Date(`${key}T00:00:00`);
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const date = new Date(`${key}T00:00:00Z`);
+  const today = new Date(`${dayFormat.format(now)}T00:00:00Z`);
   const diff = Math.round((today.valueOf() - date.valueOf()) / 86_400_000);
-  const formatted = new Intl.DateTimeFormat('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' }).format(date);
+  const formatted = new Intl.DateTimeFormat('pt-BR', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' }).format(date);
   return diff === 0 ? `Hoje · ${formatted}` : diff === 1 ? `Ontem · ${formatted}` : formatted[0].toLocaleUpperCase('pt-BR') + formatted.slice(1);
 }
 
@@ -191,7 +195,7 @@ export function ActivityPage({ events, tasks, projects, isGlobal = false, canVie
               return <article className={'activity-event' + (technical ? ' technical' : '')} key={event.sequence ?? event._id ?? `${event.at}-${event.kind}-${index}`}>
                 <Avatar identity={known ? author : '?'} size={34} />
                 <div className="activity-event-content">
-                  <div className="activity-event-heading"><strong className="activity-event-author" title={author}>{known ? personName(author) : 'Autor não identificado'}</strong><span className="activity-kind-badge">{eventKindLabel(event.kind)}</span>{event.toolName && <span className="activity-tool-badge" title={`Ferramenta MCP: ${event.toolName}`}>{event.toolName}</span>}<span className="activity-origin-badge" title="Origem do evento">{originLabel(event.origin)}</span>{isGlobal && <span className="activity-project-badge">{event.projectName || 'Projeto indisponível'}</span>}{event.taskId && <TaskLink taskId={event.taskId} projectId={event.projectId} className="activity-task-badge activity-task-link" title={`Abrir tarefa: ${taskName ?? event.taskId}`}>{taskName ?? `Tarefa ${event.taskId.slice(0, 8)}`}<span aria-hidden="true"> ↗</span></TaskLink>}{event.conversationId && <ConversationLink conversationId={event.conversationId} projectId={event.projectId} className="activity-task-badge activity-task-link" title="Abrir a conversa deste evento">Conversa <span aria-hidden="true">↗</span></ConversationLink>}</div>
+                  <div className="activity-event-heading"><strong className="activity-event-author" title={author}>{known ? personName(author) : 'Autor não identificado'}</strong><span className="activity-kind-badge">{eventKindLabel(event.kind)}</span>{event.toolName && <span className="activity-tool-badge" title={`Ferramenta MCP: ${event.toolName}`}>{event.toolName}</span>}<span className="activity-origin-badge" title="Origem do evento">{isKnownAgentClient(event.origin) && <AgentClientIcon clientName={event.origin} />}<span>{originLabel(event.origin)}</span></span>{isGlobal && <span className="activity-project-badge">{event.projectName || 'Projeto indisponível'}</span>}{event.taskId && <TaskLink taskId={event.taskId} projectId={event.projectId} className="activity-task-badge activity-task-link" title={`Abrir tarefa: ${taskName ?? event.taskId}`}>{taskName ?? `Tarefa ${event.taskId.slice(0, 8)}`}<span aria-hidden="true"> ↗</span></TaskLink>}{event.conversationId && <ConversationLink conversationId={event.conversationId} projectId={event.projectId} className="activity-task-badge activity-task-link" title="Abrir a conversa deste evento">Conversa <span aria-hidden="true">↗</span></ConversationLink>}</div>
                   {eventSummary(event) !== eventKindLabel(event.kind) && <p className="activity-event-summary">{eventSummary(event)}</p>}
                   {event.detail && <div className="activity-event-detail"><MarkdownView content={event.detail} /></div>}
                 </div>

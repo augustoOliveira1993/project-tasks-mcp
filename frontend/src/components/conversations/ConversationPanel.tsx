@@ -5,6 +5,7 @@ import { errorMessage, formatDate } from '../../lib/format';
 import { areaLabel, relativeTime } from '../../lib/labels';
 import { routeUrl } from '../../route-state';
 import { statusLabels, statusTone } from '../../features/tasks/status';
+import { AgentClientIcon } from '../ui/AgentClientIcon';
 import { Badge } from '../ui/Badge';
 import { ErrorNotice } from '../ui/ErrorNotice';
 import { IconFeature } from '../ui/icons';
@@ -13,7 +14,7 @@ import { MarkdownView } from '../ui/MarkdownView';
 import { Skeleton } from '../ui/Skeleton';
 import { confirmConversationDeletion, createProjectConversation, deleteProjectConversation, historyAfterConversationDeletion, historyAfterConversationTitleUpdate, linkConversationTask, markConversationRead, nextConversationReadAttempt, scheduleTaskSearch, searchProjectTasks, updateConversationTitle, type ConversationReadAttempt } from './conversation-actions';
 import { ConversationAside } from './ConversationAside';
-import { AgentClientIcon, authorDisplayName } from './ConversationParts';
+import { authorDisplayName } from './ConversationParts';
 import type { Conversation, ConversationDetail, ConversationPage, Feature, Proposal, TaskActivity, TaskOption } from './conversation-types';
 
 export function ConversationReadFailure({ error, retry, retrying = false }: { error: unknown; retry: () => void; retrying?: boolean }) {
@@ -266,7 +267,9 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
       {conversations.isPending ? <Skeleton rows={5} label="Carregando conversas…" /> : conversations.isError ? <div className="notice error">{errorMessage(conversations.error)}</div> : visibleConversationItems.length ? <><div className="conversation-list">{visibleConversationItems.map(item => {
         const task = item.taskId ? taskForId(item.taskId) : undefined;
         const unreadCount = item.unread?.count ?? 0;
-        return <button type="button" key={item._id} aria-current={selectedId === item._id ? 'true' : undefined} className={'conversation-list-item' + (selectedId === item._id ? ' active' : '') + (unreadCount > 0 ? ' unread' : '')} onClick={() => { setSelectedId(item._id); onConversationSelected?.(item._id); }}><div className="conversation-list-item-head"><strong>{item.title || 'Nova conversa'}</strong>{unreadCount > 0 && <span className="conversation-unread-dot" aria-label={`${unreadCount} mensagens não lidas`}>{unreadCount > 99 ? '99+' : unreadCount}</span>}</div><small>{item.taskId ? 'Tarefa vinculada · ' + (task?.name ?? item.taskId.slice(0, 8)) : 'Escopo do projeto'} · <time dateTime={item.lastMessageAt || item.updatedAt} title={formatDate(item.lastMessageAt || item.updatedAt)}>{relativeTime(item.lastMessageAt || item.updatedAt)}</time></small>{task && <div className="conversation-context-badges"><Badge tone={statusTone[task.status] ?? 'muted'}>{statusLabels[task.status] ?? task.status}</Badge></div>}</button>;
+        const hasMessages = Boolean(item.lastMessageAt || unreadCount > 0);
+        const messageStatus = unreadCount > 0 ? 'unread' : hasMessages ? 'read' : 'empty';
+        return <button type="button" key={item._id} aria-current={selectedId === item._id ? 'true' : undefined} className={'conversation-list-item' + (selectedId === item._id ? ' active' : '') + (unreadCount > 0 ? ' unread' : '')} onClick={() => { setSelectedId(item._id); onConversationSelected?.(item._id); }}><div className="conversation-list-item-head"><strong>{item.title || 'Nova conversa'}</strong>{unreadCount > 0 && <span className="conversation-unread-dot" aria-label={`${unreadCount} ${unreadCount === 1 ? 'mensagem não lida' : 'mensagens não lidas'}`}>{unreadCount > 99 ? '99+' : unreadCount}</span>}</div><small className="conversation-list-item-context">{item.taskId ? 'Tarefa vinculada · ' + (task?.name ?? item.taskId.slice(0, 8)) : 'Escopo do projeto'}</small><div className="conversation-list-item-activity"><span className={`conversation-message-state ${messageStatus}`}>{messageStatus === 'unread' ? 'Não lida' : messageStatus === 'read' ? 'Lida' : 'Sem mensagens ainda'}</span>{item.lastMessageAt && <time dateTime={item.lastMessageAt} title={formatDate(item.lastMessageAt)}>{relativeTime(item.lastMessageAt)}</time>}</div>{task && <div className="conversation-context-badges"><Badge tone={statusTone[task.status] ?? 'muted'}>{statusLabels[task.status] ?? task.status}</Badge></div>}</button>;
       })}</div>{(olderConversationPages.at(-1)?.next ?? conversations.data?.next) && <button type="button" className="button ghost" disabled={loadingOlder} onClick={() => void loadOlderConversations()}>{loadingOlder ? 'Carregando…' : 'Carregar conversas anteriores'}</button>}</> : <div className="empty-state compact"><h3>Comece uma conversa</h3><p>Crie uma conversa geral e vincule uma tarefa pelo cabeçalho do chat.</p></div>}
     </aside>
     <div className="panel-card conversation-main">
