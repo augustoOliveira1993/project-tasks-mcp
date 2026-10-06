@@ -15,14 +15,16 @@ const bundle = { format: 'project-tasks-export', schemaVersion: 1, exportedAt: '
   source: { projectId: 'project-1' }, counts: { tasks: 1 }, exclusions: [], migrationInstructions: 'Preserve IDs e não duplique.',
   data: { tasks: [{ _id: 'task-1', dependencies: ['task-2'], acceptance: ['Critério'], acceptanceProgress: [true] }] } };
 
-test('administration exposes two linked tabs, hides export initially, and preserves administrative controls', () => {
+test('administration exposes four linked tabs, hides export initially, and preserves administrative controls', () => {
   const client = new QueryClient();
   const project = { _id: 'project-1', version: 0, name: 'Projeto de teste', repositories: [] };
   const html = renderToStaticMarkup(createElement(QueryClientProvider, { client }, createElement(AdminPanel, {
-    token: 'test-token', project, projects: [project], onChanged() {}, notify() {}, canHardDelete: false, actionPending: false,
+    token: 'test-token', project, projects: [project], onChanged() {}, notify() {}, canHardDelete: false, systemAdmin: true, actionPending: false,
     onRequestHardDeleteProject() {}, onArchiveProject() {}
   })));
-  assert.equal((html.match(/role="tab"/g) ?? []).length, 2);
+  assert.equal((html.match(/role="tab"/g) ?? []).length, 4);
+  assert.match(html, /id="admin-panel-danger"[^>]*hidden/);
+  assert.match(html, /Zona de perigo/);
   assert.match(html, /aria-controls="admin-panel-tools"/);
   assert.match(html, /id="admin-panel-export"[^>]*hidden/);
   assert.match(html, /Emitir credencial de agente/);

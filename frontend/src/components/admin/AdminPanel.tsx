@@ -12,7 +12,8 @@ import './admin-panels.css';
 const adminPanelTabs = [
   { id: 'tools', label: 'Ferramentas administrativas' },
   { id: 'credentials', label: 'Credenciais' },
-  { id: 'export', label: 'Exportar/Importar Projeto' }
+  { id: 'export', label: 'Exportar/Importar Projeto' },
+  { id: 'danger', label: 'Zona de perigo' }
 ] as const;
 
 export function repositoryGitFields(project: Project, repositoryId: string) {
@@ -167,7 +168,7 @@ export function AdminPanel({ project, projects, onChanged, notify, token, canHar
       {adminPanelTabs.map(tab => <button
         key={tab.id} id={`admin-tab-${tab.id}`} type="button" role="tab" aria-selected={activePanel === tab.id}
         aria-controls={`admin-panel-${tab.id}`} tabIndex={activePanel === tab.id ? 0 : -1}
-        onClick={() => setActivePanel(tab.id)} onKeyDown={event => {
+        className={tab.id === 'danger' ? 'admin-tab-danger' : undefined} onClick={() => setActivePanel(tab.id)} onKeyDown={event => {
           if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
           event.preventDefault();
           const currentIndex = adminPanelTabs.findIndex(item => item.id === activePanel);
@@ -180,8 +181,6 @@ export function AdminPanel({ project, projects, onChanged, notify, token, canHar
 
     <div id="admin-panel-tools" role="tabpanel" aria-labelledby="admin-tab-tools" hidden={activePanel !== 'tools'} tabIndex={0}>
     <div className="admin-disclosure-content"><div className="admin-grid">
-    <section className="panel-card wide-card archive-panel"><div className="section-heading"><div><p className="eyebrow">ARQUIVAMENTO REVERSÍVEL</p><h2>Arquivar projeto</h2></div><Badge tone="amber">Preserva histórico</Badge></div><p className="muted-text">O projeto sai da lista ativa, mas pode ser restaurado depois. O servidor verifica se ainda há tarefas ativas e valida sua permissão de administrador do projeto.</p><button type="button" className="button secondary" disabled={actionPending} onClick={onArchiveProject}>{actionPending ? 'Arquivando…' : 'Arquivar projeto'}</button></section>
-    {canHardDelete && <section className="panel-card wide-card danger-zone" aria-labelledby="project-delete-title"><div className="section-heading"><div><p className="eyebrow">EXCLUSÃO PERMANENTE</p><h2 id="project-delete-title">Excluir projeto e dados relacionados</h2></div><Badge tone="red">Administrador do sistema</Badge></div><p className="muted-text">Remove permanentemente o projeto, repositórios exclusivos, funcionalidades, tarefas, histórico, documentos, eventos e dados de automação. Credenciais humanas compartilhadas com outros projetos são preservadas. Execuções ou automações ativas fazem o servidor recusar a exclusão sem remover dados.</p><button type="button" className="button danger-button" onClick={() => onRequestHardDeleteProject(project)}>Excluir projeto definitivamente</button></section>}
     <section className="panel-card wide-card"><div className="section-heading"><div><p className="eyebrow">REPOSITÓRIOS</p><h2>Vincular repositório Git</h2></div><span className="lock-mark">⌑</span></div><p className="muted-text">O vínculo identifica o repositório; as permissões continuam sendo controladas pelo projeto.</p><form className="admin-form-grid" onSubmit={bindRepository}><label>Repositório<select value={repositoryId} onChange={event => { const nextId = event.target.value; setRepositoryId(nextId); const fields = repositoryGitFields(project, nextId); setRemoteUrl(fields.remoteUrl); setRootCommit(fields.rootCommit); }} required><option value="">Selecione</option>{(project.repositories ?? []).map(repository => <option value={repository.id} key={repository.id}>{repository.name}</option>)}</select></label><label>URL Git canônica<input value={remoteUrl} onChange={event => setRemoteUrl(event.target.value)} required placeholder="https://github.com/org/repo.git" /></label><label>Commit raiz<input value={rootCommit} onChange={event => setRootCommit(event.target.value)} required minLength={40} maxLength={40} placeholder="40 caracteres hexadecimais" /><small className="git-root-help" role="note"><span>Para localizar o commit raiz, execute na pasta do repositório:</span><code>git rev-list --max-parents=0 HEAD</code><span>Copie o hash de 40 caracteres retornado.</span></small></label><button className="button secondary" disabled={busy || !repositoryId}>Salvar vínculo</button></form>
       <div className="repository-list">{(project.repositories ?? []).map(repository => <div className="resource-row static-row" key={repository.id}><span><strong>{repository.name}</strong><small>{repository.git?.canonicalRemoteUrl ?? repository.url}</small></span><Badge>{repository.git ? 'vinculado' : 'sem vínculo'}</Badge></div>)}</div>
     </section>
@@ -237,6 +236,13 @@ export function AdminPanel({ project, projects, onChanged, notify, token, canHar
       })}</tbody></table></div> : <div className="empty-state compact"><h3>Nenhuma credencial encontrada</h3><p>Ajuste os filtros ou emita a primeira credencial para este escopo.</p></div>}
       <div className="credential-pagination"><span>Página {credentialCursors.length}{credentialsQuery.data?.items.length ? ` · ${credentialsQuery.data.items.length} registro(s)` : ''}</span><div className="button-row"><button type="button" className="button secondary small-button" onClick={() => setCredentialCursors(values => values.slice(0, -1))} disabled={credentialCursors.length <= 1 || credentialsQuery.isFetching}>Anterior</button><button type="button" className="button secondary small-button" onClick={() => { if (credentialsQuery.data?.next) setCredentialCursors(values => [...values, credentialsQuery.data!.next!]); }} disabled={!credentialsQuery.data?.next || credentialsQuery.isFetching}>Próxima</button></div></div>
     </section>
+    </div>
+    <div id="admin-panel-danger" role="tabpanel" aria-labelledby="admin-tab-danger" hidden={activePanel !== 'danger'} tabIndex={0}>
+      <p className="danger-intro" role="note">Ações desta aba afetam o projeto inteiro. Arquivar é reversível; a exclusão permanente não pode ser desfeita e exige digitar o nome do projeto para confirmar.</p>
+      <div className="admin-grid danger-tab-grid">
+  <section className="panel-card wide-card archive-panel"><div className="section-heading"><div><p className="eyebrow">ARQUIVAMENTO REVERSÍVEL</p><h2>Arquivar projeto</h2></div><Badge tone="amber">Preserva histórico</Badge></div><p className="muted-text">O projeto sai da lista ativa, mas pode ser restaurado depois. O servidor verifica se ainda há tarefas ativas e valida sua permissão de administrador do projeto.</p><button type="button" className="button secondary" disabled={actionPending} onClick={onArchiveProject}>{actionPending ? 'Arquivando…' : 'Arquivar projeto'}</button></section>
+  {canHardDelete && <section className="panel-card wide-card danger-zone" aria-labelledby="project-delete-title"><div className="section-heading"><div><p className="eyebrow">EXCLUSÃO PERMANENTE</p><h2 id="project-delete-title">Excluir projeto e dados relacionados</h2></div><Badge tone="red">Administrador do sistema</Badge></div><p className="muted-text">Remove permanentemente o projeto, repositórios exclusivos, funcionalidades, tarefas, histórico, documentos, eventos e dados de automação. Credenciais humanas compartilhadas com outros projetos são preservadas. Execuções ou automações ativas fazem o servidor recusar a exclusão sem remover dados.</p><button type="button" className="button danger-button" onClick={() => onRequestHardDeleteProject(project)}>Excluir projeto definitivamente</button></section>}
+      </div>
     </div>
     <div id="admin-panel-export" role="tabpanel" aria-labelledby="admin-tab-export" hidden={activePanel !== 'export'} tabIndex={0}>
       <div className="project-transfer-grid">

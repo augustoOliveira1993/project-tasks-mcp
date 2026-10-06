@@ -47,41 +47,32 @@ test('renderiza a página pedida e os controles de paginação', () => {
     assert.doesNotMatch(html, /Task 20/);
     assert.match(html, /value="feature-1"/);
     assert.match(html, /Perguntas abertas/);
-    assert.match(html, /1 pergunta\(s\)/);
-    assert.match(html, /<button type="button" class="task-question-link" aria-label="Abrir conversa de Task 21, 1 pergunta\(s\) aberta\(s\)">/);
+    assert.match(html, /aria-label="Abrir conversa de Task 21, 1 pergunta aberta"/);
     assert.doesNotMatch(html, /task-message-thread-1|conversationId=/);
-    assert.match(html, /2 não lida\(s\)/);
-    assert.match(html, /<button type="button" class="task-unread-link" aria-label="Abrir detalhes de Task 21, 2 atividades não lidas">/);
-    assert.match(html, /Diff Git/);
+    assert.match(html, /aria-label="Abrir detalhes de Task 21, 2 atividades não lidas"/);
+    assert.match(html, /aria-label="Diff Git publicado"/);
+    assert.match(html, /href="\/tasks\?taskId=task-21&amp;projectId=project"/);
   } finally {
     if (originalWindow) Object.defineProperty(globalThis, 'window', originalWindow);
     else delete (globalThis as { window?: unknown }).window;
   }
 });
 
-test('expõe arquivamento reversível e deixa exclusão definitiva apenas para systemAdmin', () => {
-  const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
-  Object.defineProperty(globalThis, 'window', { configurable: true, value: { location: { search: '' } } });
-  const task = { _id: 'task-1', version: 1, name: 'Concluir entrega', status: 'concluida' };
-  const sharedProps = {
-    token: '', nonce: '', projectId: 'project', tasks: [task], isPending: false, isError: false, error: null, saving: false,
-    onRefresh() {}, onOpenTask() {}, onChangeStatus() {}, onToggleChecked() {}, onRequestHardDeleteTask() {}, onArchiveTask() {},
-    async onApproveSelected() { return true; }, async onSetTasksChecked() { return []; }
-  };
+test('menu da linha expõe arquivamento reversível e deixa exclusão definitiva apenas para systemAdmin', async () => {
+  const { buildTaskMenu } = await vite.ssrLoadModule('/src/features/tasks/task-actions.ts');
+  const done = { status: 'concluida', checked: false };
+  const ids = (menu: Array<{ id: string }>) => menu.map(item => item.id);
+  assert.ok(ids(buildTaskMenu(done, { canHardDelete: true, saving: false })).includes('archive'));
+  assert.ok(ids(buildTaskMenu(done, { canHardDelete: true, saving: false })).includes('delete'));
+  assert.ok(ids(buildTaskMenu(done, { canHardDelete: false, saving: false })).includes('archive'));
+  assert.ok(!ids(buildTaskMenu(done, { canHardDelete: false, saving: false })).includes('delete'));
+  assert.ok(!ids(buildTaskMenu({ status: 'pendente' }, { canHardDelete: false, saving: false })).includes('archive'));
+});
 
-  try {
-    const adminClient = new QueryClient();
-    const adminHtml = renderToStaticMarkup(createElement(QueryClientProvider, { client: adminClient }, createElement(TaskWorkspace, { ...sharedProps, canHardDelete: true })));
-    adminClient.clear();
-    assert.match(adminHtml, /Arquivar/);
-    assert.match(adminHtml, /Excluir/);
-    const memberClient = new QueryClient();
-    const memberHtml = renderToStaticMarkup(createElement(QueryClientProvider, { client: memberClient }, createElement(TaskWorkspace, { ...sharedProps, canHardDelete: false })));
-    memberClient.clear();
-    assert.match(memberHtml, /Arquivar/);
-    assert.doesNotMatch(memberHtml, /delete-row-action/);
-  } finally {
-    if (originalWindow) Object.defineProperty(globalThis, 'window', originalWindow);
-    else delete (globalThis as { window?: unknown }).window;
-  }
+test('ação primária da linha segue o estágio do fluxo', async () => {
+  const { primaryActionFor } = await vite.ssrLoadModule('/src/features/tasks/task-actions.ts');
+  assert.deepEqual(primaryActionFor({ status: 'em_revisao' }), { id: 'details', label: 'Revisar', emphasis: true });
+  assert.deepEqual(primaryActionFor({ status: 'concluida', checked: false }), { id: 'check', label: 'Conferir', emphasis: true });
+  assert.equal(primaryActionFor({ status: 'concluida', checked: true }).label, 'Abrir');
+  assert.equal(primaryActionFor({ status: 'bloqueada' }).label, 'Ver bloqueio');
 });

@@ -14,23 +14,40 @@ const [{ TaskDetailsDialog }, { TaskSummaryPanel }, { openTaskConversation }] = 
 ]);
 after(async () => { await vite.close(); });
 
-test('detalhes exibem abrir conversa e badges definidos de área, status e feature', () => {
+test('detalhes exibem ações, chips de contexto e abas da gaveta', () => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const task = { _id: 'task-1', version: 2, name: 'Task da feature', status: 'pendente', area: 'frontend', featureId: 'feature-1', priority: 1 };
-  client.setQueryData(['task-context', 'nonce', 'task-1'], {
+  client.setQueryData(['task-context', 'nonce', 'project-1', 'task-1'], {
     task: { ...task, responsible: null, updatedAt: '2026-09-30T12:00:00.000Z', acceptance: [], acceptanceProgress: [] },
     feature: { _id: 'feature-1', name: 'Conversas vinculadas' }, messages: [], executions: [], dependencies: [], markdowns: { task: { items: [] } }
   });
-  client.setQueryData(['task-diffs', 'nonce', 'task-1'], { items: [] });
-  client.setQueryData(['task-markdowns', 'nonce', 'task-1'], { items: [] });
+  client.setQueryData(['task-diffs', 'nonce', 'project-1', 'task-1'], { items: [] });
+  client.setQueryData(['task-markdowns', 'nonce', 'project-1', 'task-1'], { items: [] });
+  client.setQueryData(['project-features', 'nonce', 'project-1'], [{ _id: 'feature-1', name: 'Conversas vinculadas' }]);
   const html = renderToStaticMarkup(createElement(QueryClientProvider, { client }, createElement(TaskDetailsDialog, {
-    token: 'token', nonce: 'nonce', projectId: 'project-1', task, checking: false, onToggleChecked() {}, onOpenConversation() {}, close() {}
+    token: 'token', nonce: 'nonce', projectId: 'project-1', project: { _id: 'project-1', version: 1, name: 'Projeto' }, tasks: [task], task, checking: false,
+    notify() {}, onToggleChecked() {}, onOpenConversation() {}, onRequestTransfer() {}, close() {}
   })));
   client.clear();
   assert.match(html, /Abrir conversa/);
-  assert.match(html, /Status · Pendente/);
-  assert.match(html, /Área · frontend/);
-  assert.match(html, /Feature · Conversas vinculadas/);
+  assert.match(html, /P1 · Alta/);
+  assert.match(html, /Pendente/);
+  assert.match(html, /entity-chip[^>]*>[\s\S]*Conversas vinculadas/);
+  for (const tab of ['Resumo', 'Critérios', 'Planejamento', 'Diffs', 'Atividade', 'Conversa']) assert.match(html, new RegExp('role="tab"[^>]*>' + tab));
+  assert.match(html, /aria-label="Fechar detalhes \(Esc\)"/);
+  assert.doesNotMatch(html, /Aprovar e concluir/);
+});
+
+test('tarefa em revisão mostra a barra de revisão com aprovar e devolver', () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const task = { _id: 'task-2', version: 1, name: 'Revisar login', status: 'em_revisao', area: 'backend' };
+  const html = renderToStaticMarkup(createElement(QueryClientProvider, { client }, createElement(TaskDetailsDialog, {
+    token: 'token', nonce: 'nonce', projectId: 'project-1', project: { _id: 'project-1', version: 1, name: 'Projeto' }, tasks: [task], task, checking: false,
+    notify() {}, onToggleChecked() {}, onOpenConversation() {}, onRequestTransfer() {}, async onReview() { return true; }, close() {}
+  })));
+  client.clear();
+  assert.match(html, /Aprovar e concluir/);
+  assert.match(html, /Devolver para ajustes/);
 });
 
 test('resumo mostra atividade Markdown e atalhos para conversas específicas', () => {

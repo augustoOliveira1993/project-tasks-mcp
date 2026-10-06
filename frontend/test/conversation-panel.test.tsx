@@ -50,10 +50,9 @@ test('painel inicia conversa no escopo do projeto e oferece retomada paginada', 
   assert.doesNotMatch(html, /new-conversation-task/);
   assert.doesNotMatch(html, /Vincular a uma tarefa \(opcional\)/);
   assert.match(html, /Tarefa vinculada · Task A/);
-  assert.match(html, /Área · Backend/);
-  assert.match(html, /Status · Pendente/);
-  assert.match(html, /Feature · Colaboração por task/);
-  assert.doesNotMatch(html, /Aprovar e iniciar execução/);
+  assert.match(html, /conversation-context-badges[^>]*><span class="badge[^>]*>Pendente</);
+  assert.doesNotMatch(html, /Área · Backend|Feature · Colaboração por task/, 'a lista não repete área e feature da task');
+  assert.doesNotMatch(html, /Autorizar execução/);
 });
 
 test('painel apresenta erro de sessão retornado pela API', () => {
@@ -115,9 +114,10 @@ test('conversa vinculada mostra task e feature e mantém propostas', () => {
 
   assert.match(html, /Conversa vinculada à tarefa/);
   assert.match(html, /Task A/);
-  assert.match(html, /Feature · Colaboração por task/);
+  assert.match(html, /entity-chip[^>]*>[\s\S]*Colaboração por task/);
   assert.match(html, /Propostas de execução/);
-  assert.match(html, /Aprovar e iniciar execução/);
+  assert.match(html, /Autorizar execução/);
+  assert.match(html, /Proposta e acompanhamento da tarefa/);
   assert.match(html, /Editar título/);
   assert.doesNotMatch(html, /Vincular tarefa/);
 });

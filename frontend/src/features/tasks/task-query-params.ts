@@ -3,6 +3,8 @@ import { statusLabels } from './status';
 export const taskTypes = ['feature', 'fix', 'chore', 'docs', 'refactor', 'test', 'perf', 'build', 'ci'] as const;
 
 const pageSizes = [10, 25, 50, 100] as const;
+export const taskFlags = ['unread', 'questions', 'diff'] as const;
+export const taskSorts = ['priority', 'updated', 'created', 'name', 'status'] as const;
 
 export type TaskQueryState = {
   search: string;
@@ -16,6 +18,8 @@ export type TaskQueryState = {
   createdBefore: string;
   updatedAfter: string;
   updatedBefore: string;
+  flag: string;
+  sort: string;
   page: number;
   pageSize: number;
 };
@@ -53,6 +57,8 @@ export function readTaskQueryState(search = window.location.search): TaskQuerySt
     createdBefore: dateValue(params.get('createdBefore')),
     updatedAfter: dateValue(params.get('updatedAfter')),
     updatedBefore: dateValue(params.get('updatedBefore')),
+    flag: taskFlags.some(value => value === params.get('flag')) ? params.get('flag')! : '',
+    sort: taskSorts.some(value => value === params.get('sort')) ? params.get('sort')! : 'priority',
     page: positiveInteger(params.get('page'), 1),
     pageSize: pageSizes.some(value => value === requestedPageSize) ? requestedPageSize : 25
   };
@@ -72,6 +78,8 @@ export function syncTaskQueryState(state: TaskQueryState): void {
     ['createdBefore', state.createdBefore],
     ['updatedAfter', state.updatedAfter],
     ['updatedBefore', state.updatedBefore],
+    ['flag', state.flag],
+    ['sort', state.sort === 'priority' ? '' : state.sort],
     ['page', state.page === 1 ? '' : String(state.page)],
     ['pageSize', state.pageSize === 25 ? '' : String(state.pageSize)]
   ];

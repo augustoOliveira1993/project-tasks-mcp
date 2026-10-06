@@ -2,99 +2,29 @@ import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { allRecords, operationId, query, request } from '../../api';
 import { errorMessage, formatDate } from '../../lib/format';
+import { areaLabel, relativeTime } from '../../lib/labels';
 import { routeUrl } from '../../route-state';
+import { statusLabels, statusTone } from '../../features/tasks/status';
 import { Badge } from '../ui/Badge';
+import { ErrorNotice } from '../ui/ErrorNotice';
+import { IconFeature } from '../ui/icons';
+import { FeatureLink, FilterLink } from '../ui/Links';
 import { MarkdownView } from '../ui/MarkdownView';
+import { Skeleton } from '../ui/Skeleton';
 import { confirmConversationDeletion, createProjectConversation, deleteProjectConversation, historyAfterConversationDeletion, historyAfterConversationTitleUpdate, linkConversationTask, markConversationRead, nextConversationReadAttempt, scheduleTaskSearch, searchProjectTasks, updateConversationTitle, type ConversationReadAttempt } from './conversation-actions';
-
-type Conversation = { _id: string; projectId: string; taskId: string | null; title: string; status: string; version: number; updatedAt?: string; lastMessageAt?: string | null; unread?: { count: number; cursor: string | null } };
-type Message = { _id: string; author: string; authorType: 'human' | 'agent'; clientName?: string | null; content: string; createdAt: string };
-type Proposal = {
-  _id: string; taskId: string; expectedTaskVersion: number; title: string; summary: string;
-  taskPatch: { instructions?: string; acceptance?: string[] }; status: string; version: number; stale: boolean;
-};
-type ConversationDetail = {
-  conversation: Conversation;
-  messages: Message[];
-  next?: string | null;
-  proposals: Proposal[];
-  task: { _id: string; version: number; status: string; name: string; area?: string; featureId?: string | null } | null;
-  jobs: Array<{ _id: string; status: string; failed: boolean; permissionTitle: string | null }>;
-};
-type ConversationPage = { items: Conversation[]; next?: string | null };
-type TaskOption = { _id: string; name: string; status: string; area?: string; featureId?: string | null };
-type Feature = { _id: string; name: string };
-type TaskActivity = {
-  task: { _id: string; version: number; status: string; acceptance: string[]; acceptanceProgress: boolean[]; acceptanceEvidence: Array<string | null> };
-  messages: Array<{ _id: string; type: string; author: string; authorType: 'human' | 'agent' | 'unknown'; clientName: string | null; message: string; createdAt: string }>;
-  executions: Array<{ _id: string; status: string; startedAt: string; result?: { summary?: string; evidence?: string[] } }>;
-};
-
-function AgentClientIcon({ clientName }: { clientName?: string | null }) {
-  const client = clientName?.trim().toLocaleLowerCase('en-US');
-  const variant = client?.startsWith('codex') ? 'codex' : client?.startsWith('claude') ? 'claude' : 'generic';
-
-  return <svg className={`conversation-agent-icon ${variant}`} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-    {variant === 'codex' ? <path d="m8 6-6 6 6 6m8-12 6 6-6 6m-2-16-4 20" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.2" />
-      : variant === 'claude' ? <><path d="M12 2.25 14.15 9.85 21.75 12l-7.6 2.15L12 21.75l-2.15-7.6L2.25 12l7.6-2.15L12 2.25Z" fill="currentColor" /><path d="M19 2.5v4m2-2h-4" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.5" /></>
-        : <><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" strokeWidth="1.8" /><path d="M12 8v8m-4-4h8" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" /></>}
-  </svg>;
-}
-
-function HumanAuthorIcon() {
-  return <svg className="conversation-author-icon human" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="8" r="3.25" fill="none" stroke="currentColor" strokeWidth="1.8" /><path d="M5.5 20c.55-3.35 2.85-5.25 6.5-5.25s5.95 1.9 6.5 5.25" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" /></svg>;
-}
-
-function UnknownAuthorIcon() {
-  return <svg className="conversation-author-icon unknown" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" strokeWidth="1.8" /><path d="M9.5 9a2.6 2.6 0 1 1 4.35 1.9c-1.1.95-1.85 1.25-1.85 2.6m0 3h.01" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" /></svg>;
-}
+import { ConversationAside } from './ConversationAside';
+import { AgentClientIcon, authorDisplayName } from './ConversationParts';
+import type { Conversation, ConversationDetail, ConversationPage, Feature, Proposal, TaskActivity, TaskOption } from './conversation-types';
 
 export function ConversationReadFailure({ error, retry, retrying = false }: { error: unknown; retry: () => void; retrying?: boolean }) {
   return <div className="notice error" role="alert">{errorMessage(error)} <button type="button" className="text-button" onClick={retry} disabled={retrying}>{retrying ? 'Tentando…' : 'Tentar novamente'}</button></div>;
-}
-
-function TaskMessageAuthor({ message }: { message: TaskActivity['messages'][number] }) {
-  const isAgent = message.authorType === 'agent';
-  const isHuman = message.authorType === 'human';
-  const label = isAgent ? message.clientName?.trim() || 'IA' : isHuman ? 'Pessoa' : message.clientName?.trim() ? `Cliente MCP · ${message.clientName.trim()}` : 'Origem desconhecida';
-
-  return <div className="conversation-task-message-author">
-    <strong className="conversation-task-message-identity">
-      {isAgent ? <AgentClientIcon clientName={message.clientName} /> : isHuman ? <HumanAuthorIcon /> : <UnknownAuthorIcon />}
-      <span>{label} · {authorDisplayName(message.author)}</span>
-    </strong>
-    <small title={message.author}>{message.author}</small>
-  </div>;
-}
-
-function taskMessageTypeLabel(type: string) {
-  return type === 'resposta' ? 'Resposta' : type === 'pergunta' ? 'Pergunta' : type || 'Atualização';
-}
-
-function areaLabel(area?: string) {
-  return area === 'backend' ? 'Backend' : area === 'frontend' ? 'Frontend' : area === 'outro' ? 'Outro' : area || 'Não definida';
-}
-
-function authorDisplayName(author: string) {
-  const identity = author.trim();
-  const localPart = identity.includes('@') ? identity.slice(0, identity.indexOf('@')) : identity;
-  const firstName = localPart.split(/[._+-]/).find(Boolean) ?? localPart;
-  return firstName ? firstName[0].toLocaleUpperCase('pt-BR') + firstName.slice(1) : 'Desconhecido';
-}
-
-function statusLabel(status: string) {
-  return ({ pendente: 'Pendente', em_execucao: 'Em execução', em_revisao: 'Em revisão', concluida: 'Concluída', bloqueada: 'Bloqueada', cancelada: 'Cancelada' } as Record<string, string>)[status] ?? status;
-}
-
-function statusTone(status: string) {
-  return ({ pendente: 'blue', em_execucao: 'amber', em_revisao: 'amber', concluida: 'green', bloqueada: 'red', cancelada: 'muted' } as Record<string, string>)[status] ?? 'muted';
 }
 
 export function ConversationTaskSearch({ value, debouncedValue, isFetching, isError, error, tasks, onChange, onSelect, disabled, featureLabel }: {
   value: string; debouncedValue: string; isFetching: boolean; isError: boolean; error: unknown; tasks: TaskOption[];
   onChange: (value: string) => void; onSelect: (taskId: string) => void; disabled: boolean; featureLabel: (task: TaskOption) => string;
 }) {
-  return <section className="conversation-task-link"><label htmlFor="conversation-task-search">Buscar tarefa</label><input id="conversation-task-search" type="search" value={value} onChange={event => onChange(event.target.value)} placeholder="Digite o início do nome da tarefa…" autoComplete="off" /><small>Digite ao menos 2 caracteres. A busca considera tarefas ativas deste projeto.</small>{debouncedValue.length < 2 ? <div className="empty-state compact">Digite ao menos 2 caracteres para buscar tarefas.</div> : isFetching ? <div className="loading">Buscando tarefas…</div> : isError ? <div className="notice error">{errorMessage(error)}</div> : tasks.length ? <div className="conversation-task-options" role="listbox" aria-label="Tarefas encontradas">{tasks.map(task => <button type="button" role="option" aria-selected="false" className="conversation-task-option" key={task._id} onClick={() => onSelect(task._id)} disabled={disabled}><strong>{task.name}</strong><span className="conversation-context-badges"><Badge tone="blue">Área · {areaLabel(task.area)}</Badge><Badge tone={statusTone(task.status)}>Status · {statusLabel(task.status)}</Badge><Badge tone="muted">Feature · {featureLabel(task)}</Badge></span></button>)}</div> : <div className="empty-state compact">Nenhuma tarefa ativa corresponde à busca.</div>}</section>;
+  return <section className="conversation-task-link"><label htmlFor="conversation-task-search">Buscar tarefa</label><input id="conversation-task-search" type="search" value={value} onChange={event => onChange(event.target.value)} placeholder="Digite o início do nome da tarefa…" autoComplete="off" /><small>Digite ao menos 2 caracteres. A busca considera tarefas ativas deste projeto.</small>{debouncedValue.length < 2 ? <div className="empty-state compact">Digite ao menos 2 caracteres para buscar tarefas.</div> : isFetching ? <div className="loading">Buscando tarefas…</div> : isError ? <div className="notice error">{errorMessage(error)}</div> : tasks.length ? <div className="conversation-task-options" role="listbox" aria-label="Tarefas encontradas">{tasks.map(task => <button type="button" role="option" aria-selected="false" className="conversation-task-option" key={task._id} onClick={() => onSelect(task._id)} disabled={disabled}><strong>{task.name}</strong><span className="conversation-context-badges"><Badge tone="blue">Área · {areaLabel(task.area)}</Badge><Badge tone={statusTone[task.status] ?? 'muted'}>Status · {statusLabels[task.status] ?? task.status}</Badge><Badge tone="muted">Feature · {featureLabel(task)}</Badge></span></button>)}</div> : <div className="empty-state compact">Nenhuma tarefa ativa corresponde à busca.</div>}</section>;
 }
 
 export function ConversationTitleEditor({ title, editing, draft, editable, saving, error, onEdit, onDraftChange, onSave, onCancel }: {
@@ -173,7 +103,7 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
     const featureId = taskForId(taskId)?.featureId;
     return featureId ? features.data?.find(feature => feature._id === featureId)?.name : undefined;
   };
-  const featureBadgeForTask = (taskId: string) => {
+  const featureLabelForTask = (taskId: string) => {
     const task = taskForId(taskId);
     if (!task) return features.isPending ? 'Carregando feature…' : 'Feature indisponível';
     if (!task.featureId) return 'Sem feature';
@@ -325,31 +255,34 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
     confirmConversationDeletion(message => window.confirm(message), () => deleteConversation.mutate());
   }
 
-  return <section className="conversation-layout">
+  const showAside = Boolean(latest && (latest.task || latest.proposals.length));
+  const pendingProposal = latest?.proposals.find(proposal => proposal.status === 'pending' && !proposal.stale);
+
+  return <section className={'conversation-layout' + (showAside ? ' has-aside' : '')}>
     <aside className="panel-card conversation-sidebar">
       <div className="section-heading"><div><h2>Conversas</h2><p className="muted-text">Histórico compartilhado do projeto</p></div></div>
-      <button className="button primary conversation-new-button" onClick={() => create.mutate()} disabled={create.isPending}>{create.isPending ? 'Criando…' : 'Nova conversa'}</button>
+      <button type="button" className="button primary conversation-new-button" onClick={() => create.mutate()} disabled={create.isPending}>{create.isPending ? 'Criando…' : 'Nova conversa'}</button>
       <div className="conversation-filters" role="group" aria-label="Filtrar conversas"><button type="button" className={'conversation-filter' + (!unreadOnly ? ' active' : '')} aria-pressed={!unreadOnly} onClick={() => setUnreadOnly(false)}>Tudo</button><button type="button" className={'conversation-filter' + (unreadOnly ? ' active' : '')} aria-pressed={unreadOnly} onClick={() => setUnreadOnly(true)}>Não lidas{unreadConversationCount > 0 && <span className="conversation-filter-count">{unreadConversationCount}</span>}</button></div>
-      {conversations.isPending ? <div className="loading">Carregando conversas…</div> : conversations.isError ? <div className="notice error">{errorMessage(conversations.error)}</div> : visibleConversationItems.length ? <><div className="conversation-list">{visibleConversationItems.map(item => {
+      {conversations.isPending ? <Skeleton rows={5} label="Carregando conversas…" /> : conversations.isError ? <div className="notice error">{errorMessage(conversations.error)}</div> : visibleConversationItems.length ? <><div className="conversation-list">{visibleConversationItems.map(item => {
         const task = item.taskId ? taskForId(item.taskId) : undefined;
         const unreadCount = item.unread?.count ?? 0;
-        return <button key={item._id} aria-current={selectedId === item._id ? 'true' : undefined} className={'conversation-list-item' + (selectedId === item._id ? ' active' : '') + (unreadCount > 0 ? ' unread' : '')} onClick={() => { setSelectedId(item._id); onConversationSelected?.(item._id); }}><div className="conversation-list-item-head"><strong>{item.title || 'Nova conversa'}</strong>{unreadCount > 0 && <span className="conversation-unread-dot" aria-label={`${unreadCount} mensagens não lidas`}>{unreadCount > 99 ? '99+' : unreadCount}</span>}</div><small>{item.taskId ? 'Tarefa vinculada · ' + (task?.name ?? item.taskId.slice(0, 8)) : 'Escopo do projeto'} · {formatDate(item.lastMessageAt || item.updatedAt)}</small>{item.taskId && <div className="conversation-context-badges">{task && <Badge tone="blue">Área · {areaLabel(task.area)}</Badge>}{task && <Badge tone={statusTone(task.status)}>Status · {statusLabel(task.status)}</Badge>}<Badge tone="muted">Feature · {featureBadgeForTask(item.taskId)}</Badge></div>}</button>;
-      })}</div>{(olderConversationPages.at(-1)?.next ?? conversations.data?.next) && <button className="button ghost" disabled={loadingOlder} onClick={() => void loadOlderConversations()}>{loadingOlder ? 'Carregando…' : 'Carregar conversas anteriores'}</button>}</> : <div className="empty-state compact"><h3>Comece uma conversa</h3><p>Crie uma conversa geral e vincule uma tarefa pelo cabeçalho do chat.</p></div>}
+        return <button type="button" key={item._id} aria-current={selectedId === item._id ? 'true' : undefined} className={'conversation-list-item' + (selectedId === item._id ? ' active' : '') + (unreadCount > 0 ? ' unread' : '')} onClick={() => { setSelectedId(item._id); onConversationSelected?.(item._id); }}><div className="conversation-list-item-head"><strong>{item.title || 'Nova conversa'}</strong>{unreadCount > 0 && <span className="conversation-unread-dot" aria-label={`${unreadCount} mensagens não lidas`}>{unreadCount > 99 ? '99+' : unreadCount}</span>}</div><small>{item.taskId ? 'Tarefa vinculada · ' + (task?.name ?? item.taskId.slice(0, 8)) : 'Escopo do projeto'} · <time dateTime={item.lastMessageAt || item.updatedAt} title={formatDate(item.lastMessageAt || item.updatedAt)}>{relativeTime(item.lastMessageAt || item.updatedAt)}</time></small>{task && <div className="conversation-context-badges"><Badge tone={statusTone[task.status] ?? 'muted'}>{statusLabels[task.status] ?? task.status}</Badge></div>}</button>;
+      })}</div>{(olderConversationPages.at(-1)?.next ?? conversations.data?.next) && <button type="button" className="button ghost" disabled={loadingOlder} onClick={() => void loadOlderConversations()}>{loadingOlder ? 'Carregando…' : 'Carregar conversas anteriores'}</button>}</> : <div className="empty-state compact"><h3>Comece uma conversa</h3><p>Crie uma conversa geral e vincule uma tarefa pelo cabeçalho do chat.</p></div>}
     </aside>
     <div className="panel-card conversation-main">
       {!selectedId ? <div className="empty-state"><h2>Conversa do projeto</h2><p>Selecione uma conversa ou crie uma nova para começar.</p></div> : <>
-        <header className="conversation-header"><div><ConversationTitleEditor title={latest?.conversation.title ?? 'Conversa'} editing={titleEditing} draft={titleDraft} editable={Boolean(latest)} saving={renameConversation.isPending} error={renameConversation.isError ? renameConversation.error : undefined} onEdit={beginTitleEdit} onDraftChange={setTitleDraft} onSave={submitTitle} onCancel={cancelTitleEdit} /><p className="muted-text">{latest?.conversation.taskId ? 'Conversa vinculada à tarefa' : 'Escopo do projeto'}</p>{latest && <div className="conversation-id"><small>ID da conversa</small><code>{latest.conversation._id}</code></div>}{latest?.task && <div className="conversation-context-badges"><a className="conversation-task-anchor" href={routeUrl('tasks', `taskId=${encodeURIComponent(latest.task._id)}`, projectId)} aria-label={`Abrir tarefa ${latest.task.name} na listagem`} onClick={event => { if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); onOpenTask(latest.task!._id); }}>{latest.task.name}</a><Badge tone="blue">Área · {areaLabel(latest.task.area)}</Badge><Badge tone={statusTone(latest.task.status)}>Status · {statusLabel(latest.task.status)}</Badge><Badge tone="muted">Feature · {featureBadgeForTask(latest.task._id)}</Badge></div>}</div><div className="conversation-header-actions">{latest && !latest.conversation.taskId && <button type="button" className="button secondary" onClick={() => setLinkTaskOpen(open => !open)} disabled={linkTask.isPending}>{linkTaskOpen ? 'Fechar busca' : 'Vincular tarefa'}</button>}<button type="button" className="button secondary" onClick={() => void copyConversationId()}>Copiar ID</button><button type="button" className="button danger-button" onClick={confirmDeleteConversation} disabled={!latest || deleteConversation.isPending}>{deleteConversation.isPending ? 'Excluindo…' : 'Excluir conversa'}</button></div></header>
+        <header className="conversation-header"><div className="conversation-header-main"><ConversationTitleEditor title={latest?.conversation.title ?? 'Conversa'} editing={titleEditing} draft={titleDraft} editable={Boolean(latest)} saving={renameConversation.isPending} error={renameConversation.isError ? renameConversation.error : undefined} onEdit={beginTitleEdit} onDraftChange={setTitleDraft} onSave={submitTitle} onCancel={cancelTitleEdit} /><p className="muted-text">{latest?.conversation.taskId ? 'Conversa vinculada à tarefa' : 'Escopo do projeto'}</p>{latest?.task && <div className="conversation-task-card"><a className="conversation-task-anchor" href={routeUrl('tasks', `taskId=${encodeURIComponent(latest.task._id)}`, projectId)} aria-label={`Abrir tarefa ${latest.task.name} na listagem`} onClick={event => { if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); onOpenTask(latest.task!._id); }}>{latest.task.name}</a><Badge tone={statusTone[latest.task.status] ?? 'muted'}>{statusLabels[latest.task.status] ?? latest.task.status}</Badge>{latest.task.area ? <FilterLink param="area" value={latest.task.area} projectId={projectId} className={`chip chip-area chip-area-${latest.task.area} entity-chip`} title={`Filtrar tarefas pela área ${areaLabel(latest.task.area)}`}>{areaLabel(latest.task.area)}</FilterLink> : <span className="chip chip-area chip-area-none">{areaLabel(latest.task.area)}</span>}{latest.task.featureId ? <FeatureLink featureId={latest.task.featureId} projectId={projectId} className="chip chip-feature entity-chip" title="Ver todas as tarefas desta feature"><IconFeature size={11} /><span>{featureLabelForTask(latest.task._id)}</span></FeatureLink> : <span className="chip chip-feature"><IconFeature size={11} /><span>Sem feature</span></span>}<small>v{taskContext.data?.task.version ?? latest.task.version}</small></div>}</div><div className="conversation-header-actions">{latest && !latest.conversation.taskId && <button type="button" className="button secondary" onClick={() => setLinkTaskOpen(open => !open)} disabled={linkTask.isPending}>{linkTaskOpen ? 'Fechar busca' : 'Vincular tarefa'}</button>}<button type="button" className="button ghost small-button" title={latest ? `Copiar ID: ${latest.conversation._id}` : undefined} onClick={() => void copyConversationId()}>Copiar ID</button><button type="button" className="button ghost small-button danger-text" onClick={confirmDeleteConversation} disabled={!latest || deleteConversation.isPending}>{deleteConversation.isPending ? 'Excluindo…' : 'Excluir conversa'}</button></div></header>
+        {pendingProposal && <a className="conversation-pending-banner" href="#conversation-proposals">Há uma proposta aguardando sua autorização. <strong>Ver proposta</strong></a>}
         {linkTaskOpen && latest && !latest.conversation.taskId && <ConversationTaskSearch value={taskSearch} debouncedValue={debouncedTaskSearch} isFetching={taskSearchResults.isFetching} isError={taskSearchResults.isError} error={taskSearchResults.error} tasks={taskSearchResults.data?.items ?? []} onChange={setTaskSearch} onSelect={taskId => linkTask.mutate(taskId)} disabled={linkTask.isPending} featureLabel={task => task.featureId ? features.data?.find(feature => feature._id === task.featureId)?.name ?? 'Carregando…' : 'Sem feature'} />}
-        {latest?.task && <section className="conversation-task-progress"><div className="proposal-heading"><div><strong>{latest.task.name}</strong><small>Versão {taskContext.data?.task.version ?? latest.task.version}</small></div><div className="conversation-context-badges">{latest.task.area && <Badge tone="blue">Área · {areaLabel(latest.task.area)}</Badge>}<Badge tone={statusTone(latest.task.status)}>Status · {statusLabel(latest.task.status)}</Badge></div></div>{latest.jobs.map(job => <div className="conversation-job-state" key={job._id}><Badge tone={job.failed ? 'amber' : job.status === 'completed' ? 'green' : 'blue'}>{job.failed ? 'Falha na execução' : job.status === 'waiting_human' ? 'Aguardando autorização' : job.status === 'completed' ? 'Enviado para revisão' : job.status === 'queued' ? 'Na fila' : job.status === 'running' || job.status === 'reserved' ? 'Em execução' : job.status === 'blocked' ? 'Bloqueado' : job.status}</Badge>{job.permissionTitle && <small>{job.permissionTitle}</small>}{job.status === 'waiting_human' && <button className="button ghost" onClick={onOpenAdmin}>Abrir automações</button>}</div>)}{taskContext.isPending ? <small>Carregando acompanhamento…</small> : taskContext.isError ? <div className="notice error">{errorMessage(taskContext.error)}</div> : <><div className="conversation-acceptance">{taskContext.data?.task.acceptance.map((criterion, index) => <div key={index}><Badge tone={taskContext.data?.task.acceptanceProgress[index] ? 'green' : 'blue'}>{taskContext.data?.task.acceptanceProgress[index] ? 'Atendido' : 'Pendente'}</Badge><MarkdownView content={criterion} />{taskContext.data?.task.acceptanceEvidence[index] && <small>Evidência: {taskContext.data.task.acceptanceEvidence[index]}</small>}</div>)}</div>{taskContext.data?.messages.length ? <div className="conversation-task-messages"><strong>Progresso e decisões recentes</strong>{taskContext.data.messages.slice(0, 5).map(message => <article key={message._id}><div className="conversation-task-message-meta"><TaskMessageAuthor message={message} /><div className="conversation-task-message-state"><Badge tone={message.type === 'resposta' ? 'green' : 'blue'}>{taskMessageTypeLabel(message.type)}</Badge><small>{formatDate(message.createdAt)}</small></div></div><MarkdownView content={message.message} /></article>)}</div> : null}{taskContext.data?.executions[0] && <div className="conversation-execution"><Badge>{taskContext.data.executions[0].status}</Badge><small>Execução iniciada em {formatDate(taskContext.data.executions[0].startedAt)}</small>{taskContext.data.executions[0].result?.summary && <MarkdownView content={taskContext.data.executions[0].result.summary} />}</div>}</>}</section>}
-        {notice && <div className="notice">{notice}</div>}
+        {notice && <div className="notice" role="status">{notice}</div>}
         {markRead.isError && readAttempt.current?.conversationId === selectedId && <ConversationReadFailure error={markRead.error} retrying={markRead.isPending} retry={() => { if (readAttempt.current) markRead.mutate(readAttempt.current); }} />}
-        {detail.isPending ? <div className="loading">Carregando mensagens…</div> : detail.isError ? <div className="notice error">{errorMessage(detail.error)}</div> : <>
-          {(olderMessagePages.at(-1)?.next ?? latest?.next) && <button className="button ghost" disabled={loadingOlder} onClick={() => void loadOlderMessages()}>{loadingOlder ? 'Carregando…' : 'Carregar mensagens anteriores'}</button>}
-          <div className="conversation-messages" aria-live="polite">{orderedMessages.length ? orderedMessages.map(message => <article key={message._id} className={`conversation-message ${message.authorType}`}><div className="conversation-message-meta"><strong className={message.authorType === 'agent' ? 'conversation-agent-identity' : undefined}>{message.authorType === 'agent' ? <><AgentClientIcon clientName={message.clientName} /><span>{message.clientName?.trim() || 'IA'} ({authorDisplayName(message.author)})</span></> : `Pessoa (${authorDisplayName(message.author)})`}</strong><small>{formatDate(message.createdAt)}</small></div><MarkdownView content={message.content} /></article>) : <div className="empty-state compact"><h3>Sem mensagens</h3><p>Envie o objetivo e os detalhes conhecidos para iniciar.</p></div>}</div>
-          <form className="conversation-composer" onSubmit={submitMessage}><label htmlFor="conversation-message">Mensagem</label><textarea id="conversation-message" rows={4} maxLength={20000} value={draft} onChange={event => setDraft(event.target.value)} onKeyDown={sendMessageOnEnter} placeholder="Descreva o objetivo, restrições e dúvidas…" /><div className="conversation-composer-footer"><small>Enter envia · Shift+Enter quebra a linha</small><button className="button primary" disabled={!draft.trim() || send.isPending}>Enviar</button></div></form>
-          {latest?.proposals.length ? <section className="conversation-proposals"><div className="section-heading"><div><h3>Propostas de execução</h3><p className="muted-text">A aprovação inicia a automação configurada e envia o resultado para revisão.</p></div></div>{latest.proposals.map(proposal => <article className="proposal-card" key={proposal._id}><div className="proposal-heading"><h4>{proposal.title}</h4><Badge tone={proposal.status === 'pending' && !proposal.stale ? 'amber' : proposal.status === 'approved' ? 'green' : 'blue'}>{proposal.stale ? 'contexto desatualizado' : proposal.status}</Badge></div><MarkdownView content={proposal.summary} />{proposal.taskPatch.instructions && <div className="detail-section"><h4>Instruções propostas</h4><MarkdownView content={proposal.taskPatch.instructions} /></div>}{proposal.taskPatch.acceptance?.length ? <div className="detail-section"><h4>Critérios propostos</h4><ul>{proposal.taskPatch.acceptance.map((criterion, index) => <li key={index}><MarkdownView content={criterion} /></li>)}</ul></div> : null}<small>Tarefa {proposal.taskId} · versão esperada {proposal.expectedTaskVersion}</small><div className="button-row end-row"><button className="button primary" disabled={proposal.status !== 'pending' || proposal.stale || approve.isPending || !latest.task || latest.task.version !== proposal.expectedTaskVersion} onClick={() => approve.mutate(proposal)}>Aprovar e iniciar execução</button></div></article>)}</section> : null}
+        {detail.isPending ? <Skeleton rows={6} label="Carregando mensagens…" /> : detail.isError ? <ErrorNotice error={detail.error} onRetry={() => void detail.refetch()} retrying={detail.isFetching} title="Não foi possível carregar a conversa" /> : <>
+          {(olderMessagePages.at(-1)?.next ?? latest?.next) && <button type="button" className="button ghost" disabled={loadingOlder} onClick={() => void loadOlderMessages()}>{loadingOlder ? 'Carregando…' : 'Carregar mensagens anteriores'}</button>}
+          <div className="conversation-messages" aria-live="polite">{orderedMessages.length ? orderedMessages.map(message => <article key={message._id} className={`conversation-message ${message.authorType}`}><div className="conversation-message-meta"><strong className={message.authorType === 'agent' ? 'conversation-agent-identity' : undefined}>{message.authorType === 'agent' ? <><AgentClientIcon clientName={message.clientName} /><span>{message.clientName?.trim() || 'IA'} ({authorDisplayName(message.author)})</span></> : `Pessoa (${authorDisplayName(message.author)})`}</strong><small title={formatDate(message.createdAt)}>{relativeTime(message.createdAt)}</small></div><MarkdownView content={message.content} /></article>) : <div className="empty-state compact"><h3>Sem mensagens</h3><p>Envie o objetivo e os detalhes conhecidos para iniciar.</p></div>}</div>
+          <form className="conversation-composer" onSubmit={submitMessage}><label htmlFor="conversation-message">Mensagem</label><textarea id="conversation-message" rows={4} maxLength={20000} value={draft} onChange={event => setDraft(event.target.value)} onKeyDown={sendMessageOnEnter} placeholder="Descreva o objetivo, restrições e dúvidas…" /><div className="conversation-composer-footer"><small>Enter envia · Shift+Enter quebra a linha</small><button className="button primary" disabled={!draft.trim() || send.isPending}>{send.isPending ? 'Enviando…' : 'Enviar'}</button></div></form>
         </>}
       </>}
     </div>
+    {showAside && latest && <ConversationAside detail={latest} taskContext={taskContext} approving={approve.isPending} onApprove={proposal => approve.mutate(proposal)} onOpenAdmin={onOpenAdmin} />}
   </section>;
 }
