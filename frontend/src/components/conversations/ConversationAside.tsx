@@ -1,11 +1,13 @@
 import { useState, type ReactNode } from 'react';
-import type { UseQueryResult } from '@tanstack/react-query';
+import { useMutation, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
+import { ApiRequestError, operationId, request } from '../../api';
+import type { Task } from '../../api';
 import { Badge } from '../ui/Badge';
 import { ErrorNotice } from '../ui/ErrorNotice';
 import { IconCheck } from '../ui/icons';
 import { MarkdownView } from '../ui/MarkdownView';
 import { Skeleton } from '../ui/Skeleton';
-import { formatDate } from '../../lib/format';
+import { errorMessage, formatDate } from '../../lib/format';
 import { relativeTime } from '../../lib/labels';
 import { filterCriteria, jobStatusLabel, shortCriterionTitle, type CriteriaFilter } from '../../lib/conversation-ui';
 import { TaskMessageAuthor, taskMessageTypeLabel } from './ConversationParts';
@@ -16,10 +18,45 @@ export type ConversationAsideProps = {
   taskContext: UseQueryResult<TaskActivity>;
   onOpenAdmin: () => void;
   tabs?: ReactNode;
+  /** Necessários para marcar critérios direto da conversa. */
+  token?: string;
+  nonce?: string;
+  projectId?: string;
+  hasPendingProposal?: boolean;
 };
 
 /** Coluna "Critérios da tarefa": resumo, barra segmentada, filtros e itens expansíveis. */
-export function ConversationAside({ detail, taskContext, onOpenAdmin, tabs }: ConversationAsideProps) {
+export function ConversationAside({ detail, taskContext, onOpenAdmin, tabs, token = '', nonce = '', projectId = '', hasPendingProposal = false }: ConversationAsideProps) {
+  const client = useQueryClient();
+  const [drafts, setDrafts] = useState<Record<number, string>>({});
+  const [feedback, setFeedback] = useState<{ index: number; kind: 'success' | 'error'; message: string } | null>(null);
+  const canMark = Boolean(token && projectId);
+  const mark = useMutation({
+    mutationFn: ({ index, complete, evidence }: { index: number; complete: boolean; evidence: string }) => request<{ task: Task }>(token, '/admin/tasks/acceptance', { body: {
+      operationId: operationId(), projectId, taskId: taskContext.data!.task._id, version: taskContext.data!.task.version, criterionIndex: index, complete, evidence
+    } }),
+    onSuccess: async (result, { index, complete, evidence }) => {
+      const taskId = taskContext.data!.task._id;
+      client.setQueryData<TaskActivity>(['conversation-task-context', nonce, projectId, taskId], current => {
+        if (!current) return current;
+        const evidences = [...current.task.acceptanceEvidence];
+        evidences[index] = complete ? evidence : null;
+        return { ...current, task: { ...current.task, version: result.task.version, acceptanceProgress: result.task.acceptanceProgress ?? current.task.acceptanceProgress, acceptanceEvidence: evidences } };
+      });
+      setDrafts(current => { const next = { ...current }; delete next[index]; return next; });
+      setFeedback({ index, kind: 'success', message: complete ? 'Critério marcado como atendido.' : 'Critério desmarcado.' });
+      await Promise.all([
+        client.invalidateQueries({ queryKey: ['conversation', nonce, projectId] }),
+        client.invalidateQueries({ queryKey: ['task-context', nonce, projectId, taskId] }),
+        client.invalidateQueries({ queryKey: ['project-tasks', nonce, projectId] })
+      ]);
+    },
+    onError: async (error, { index }) => {
+      const conflict = error instanceof ApiRequestError && error.status === 409;
+      setFeedback({ index, kind: 'error', message: conflict ? 'A tarefa mudou em outra ação. Recarreguei os critérios; confira e tente de novo.' : errorMessage(error) });
+      await taskContext.refetch();
+    }
+  });
   const [filter, setFilter] = useState<CriteriaFilter>('all');
   const [openState, setOpenState] = useState<Record<number, boolean>>({});
   const context = taskContext.data;
@@ -50,7 +87,13 @@ export function ConversationAside({ detail, taskContext, onOpenAdmin, tabs }: Co
             </button>
             {open && <div className="criterion-body" id={`criterion-body-${item.index}`}>
               <MarkdownView content={item.text} />
-              <div className="criterion-evidence-block"><strong>Evidência</strong>{item.evidence ? <p>{item.evidence}</p> : <p className="muted-text">ainda sem evidência registrada</p>}</div>
+              <div className="criterion-evidence-block"><strong>Evidência</strong>{item.evidence ? <p>{item.evidence}</p> : item.done || !canMark ? <p className="muted-text">ainda sem evidência registrada</p> : null}</div>
+              {canMark && (item.done && item.evidence ? <div className="criterion-actions"><button type="button" className="button secondary small-button" disabled={mark.isPending} onClick={() => mark.mutate({ index: item.index, complete: false, evidence: item.evidence })}>{mark.isPending && mark.variables?.index === item.index ? 'Salvando…' : 'Desmarcar'}</button></div> : <div className="criterion-mark">
+                <label>{item.done ? 'Motivo para desmarcar' : 'Evidência objetiva'}<textarea rows={3} value={drafts[item.index] ?? ''} disabled={mark.isPending} placeholder={item.done ? 'Informe o motivo para desmarcar este critério.' : 'Como foi validado? Cole o comando, o teste ou o trecho de diff.'} onChange={event => setDrafts(current => ({ ...current, [item.index]: event.target.value }))} /></label>
+                <button type="button" className={item.done ? 'button secondary small-button' : 'button primary small-button'} disabled={mark.isPending || !(drafts[item.index] ?? '').trim()} onClick={() => mark.mutate({ index: item.index, complete: !item.done, evidence: (drafts[item.index] ?? '').trim() })}>{mark.isPending && mark.variables?.index === item.index ? 'Salvando…' : item.done ? 'Desmarcar' : 'Marcar como atendido'}</button>
+              </div>)}
+              {canMark && hasPendingProposal && <small className="criterion-warning">Atenção: marcar um critério altera a versão da tarefa e deixa a proposta pendente desatualizada; peça uma nova versão à IA se precisar.</small>}
+              {feedback?.index === item.index && <p className={feedback.kind === 'error' ? 'field-error' : 'criterion-ok'} role={feedback.kind === 'error' ? 'alert' : 'status'}>{feedback.message}</p>}
             </div>}
           </li>;
         })}</ul> : <p className="empty-inline">Nenhum critério nesse filtro.</p>}

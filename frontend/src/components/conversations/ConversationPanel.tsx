@@ -373,6 +373,6 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
         </>}
       </>}
     </section>
-    {showAside && latest && <ConversationAside detail={latest} taskContext={taskContext} onOpenAdmin={onOpenAdmin} tabs={tabs} />}
+    {showAside && latest && <ConversationAside detail={latest} taskContext={taskContext} onOpenAdmin={onOpenAdmin} tabs={tabs} token={token} nonce={nonce} projectId={projectId} hasPendingProposal={Boolean(pendingProposal)} />}
   </section>;
 }

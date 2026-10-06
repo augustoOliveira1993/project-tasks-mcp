@@ -88,3 +88,35 @@ test('critérios: resumo "N de M", barra segmentada, filtros e disclosure', () =
   assert.match(html, /aria-label="Atendido"/);
   assert.match(html, /aria-label="Pendente"/);
 });
+
+test('critérios marcáveis na conversa: evidência para marcar, desmarcar com a evidência salva e aviso de proposta', () => {
+  const taskContext = { isPending: false, isError: false, error: null, refetch() {}, data: {
+    task: { _id: 't', version: 4, status: 'pendente', acceptance: ['Pendente sem prova', 'Atendido com prova'], acceptanceProgress: [false, true], acceptanceEvidence: [null, 'Teste verde'] },
+    messages: [], executions: []
+  } };
+  const props = (extra: Record<string, unknown>) => ({ detail: { conversation: {}, messages: [], proposals: [], task: { _id: 't', version: 4, status: 'pendente', name: 'T' }, jobs: [] }, taskContext, onOpenAdmin() {}, ...extra });
+  const render = (extra: Record<string, unknown>) => renderToStaticMarkup(createElement(QueryClientProvider, { client: new QueryClient() }, createElement(ConversationAside, props(extra))));
+  const readOnly = render({});
+  assert.doesNotMatch(readOnly, /Marcar como atendido|Evidência objetiva/, 'sem token a coluna continua só de leitura');
+  const editable = render({ token: 't', nonce: 'n', projectId: 'p', hasPendingProposal: true });
+  assert.match(editable, /Evidência objetiva/);
+  assert.match(editable, /<button[^>]*disabled[^>]*>Marcar como atendido</, 'só habilita com evidência escrita');
+  assert.match(editable, /altera a versão da tarefa e deixa a proposta pendente desatualizada/);
+});
+
+test('marcar critério envia versão, índice, evidência e atualiza a task', async () => {
+  const { request } = await vite.ssrLoadModule('/src/api.ts');
+  const original = globalThis.fetch;
+  let seen: { url: string; body: Record<string, unknown> } | undefined;
+  globalThis.fetch = (async (input: string, init?: RequestInit) => {
+    seen = { url: String(input), body: JSON.parse(String(init?.body)) };
+    return new Response(JSON.stringify({ task: { _id: 't', version: 5, acceptanceProgress: [true, true] } }), { status: 200, headers: { 'content-type': 'application/json' } });
+  }) as typeof fetch;
+  try {
+    const result = await request('tok', '/admin/tasks/acceptance', { body: { operationId: 'op', projectId: 'p', taskId: 't', version: 4, criterionIndex: 0, complete: true, evidence: 'ok' } });
+    assert.match(seen!.url, /\/admin\/tasks\/acceptance$/);
+    assert.equal(seen!.body.criterionIndex, 0);
+    assert.equal(seen!.body.version, 4);
+    assert.equal((result as { task: { version: number } }).task.version, 5);
+  } finally { globalThis.fetch = original; }
+});

@@ -722,3 +722,15 @@ a.task-name:hover { color: var(--tone-blue); text-decoration: underline; }
 .responsible-kinds { display: inline-flex; flex-wrap: wrap; gap: 4px; }
 .responsible-projects { display: block; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .catalogs-heading { margin-bottom: var(--space-3); }
+
+.criterion-mark { display: grid; gap: 8px; }
+.criterion-mark label { display: grid; gap: 4px; color: var(--ink-2); font-size: 12px; font-weight: 700; }
+.criterion-mark textarea { width: 100%; min-height: 64px; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: 8px; font-size: 13px; resize: vertical; }
+.criterion-mark .button, .criterion-actions .button { justify-self: start; min-height: 36px; }
+.criterion-warning { color: var(--tone-amber); font-size: 11.5px; line-height: 1.45; }
+.criterion-ok { margin: 0; color: var(--tone-green); font-size: 12px; font-weight: 600; }
+
+.message-head { align-items: flex-start; }
+.message-head .conversation-task-message-author { flex: 1; min-width: 0; }
+.message-head .conversation-task-message-identity { font-size: var(--text-sm); }
+.message-head .conversation-task-message-author > small { font-size: var(--text-xs); }
