@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { listAdminCredentials, operationId, request } from '../../api';
 import type { AdminCredential, Project } from '../../api';
 import { Badge } from '../ui/Badge';
+import { copyToClipboard } from '../../lib/clipboard';
 import { errorMessage } from '../../lib/format';
 import { makeToken } from '../../lib/token';
 import { ProjectExportPanel } from './ProjectExportPanel';
@@ -159,8 +160,8 @@ export function AdminPanel({ project, projects, onChanged, notify, token, canHar
 
   async function copyIssued() {
     if (!issued) return;
-    try { await navigator.clipboard.writeText(issued.token); notify('Token copiado.', 'success'); }
-    catch { notify('Não foi possível copiar automaticamente. Selecione e copie o token.', 'error'); }
+    if (await copyToClipboard(issued.token)) notify('Token copiado.', 'success');
+    else notify('Não foi possível copiar automaticamente. Selecione e copie o token.', 'error');
   }
 
   return <div className="admin-panels">

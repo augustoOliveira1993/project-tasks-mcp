@@ -3,15 +3,19 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { operationId, request } from '../../api';
 import type { Project, Task } from '../../api';
 import { errorMessage } from '../../lib/format';
+import { AssigneePicker } from '../ui/AssigneePicker';
+import { useAssignees } from '../../features/tasks/assignees';
 
 type Feature = { _id: string; name: string };
 const taskTypes = ['feature', 'fix', 'chore', 'docs', 'refactor', 'test', 'perf', 'build', 'ci', 'revert'];
 
-export function TaskEditorDialog({ token, nonce, project, tasks, features, task, close, notify, onSaved }: {
+export function TaskEditorDialog({ token, nonce, project, tasks, features, task, systemAdmin = false, close, notify, onSaved }: {
+  systemAdmin?: boolean;
   token: string; nonce: string; project: Project; tasks: Task[]; features: Feature[]; task: Task; close: () => void; notify: (message: string, kind?: string) => void; onSaved: () => void;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const client = useQueryClient();
+  const assignees = useAssignees(token, nonce, project._id, systemAdmin);
   const [dependencies, setDependencies] = useState<string[]>(task.dependencies ?? []);
   useEffect(() => { const dialog = dialogRef.current; if (dialog && !dialog.open) dialog.showModal(); return () => { if (dialog?.open) dialog.close(); }; }, []);
   const mutation = useMutation({
@@ -63,7 +67,7 @@ export function TaskEditorDialog({ token, nonce, project, tasks, features, task,
         <label>Feature<select name="featureId" defaultValue={task.featureId ?? ''}><option value="">Sem feature</option>{features.map(feature => <option key={feature._id} value={feature._id}>{feature.name}</option>)}</select></label>
         <label>Tipo<select name="type" defaultValue={task.type ?? 'feature'}>{taskTypes.map(type => <option key={type} value={type}>{type}</option>)}</select></label>
         <label>Prioridade<select name="priority" defaultValue={task.priority ?? 2}>{[0, 1, 2, 3, 4, 5].map(priority => <option key={priority} value={priority}>{priority}</option>)}</select></label>
-        <label>Responsável<input name="responsible" maxLength={320} defaultValue={task.responsible ?? ''} /><small>Deixe vazio somente quando o campo já estiver sem responsável.</small></label>
+        <div><AssigneePicker name="responsible" assignees={assignees.data ?? []} isPending={assignees.isPending} isError={assignees.isError} defaultValue={task.responsible} allowEmpty={!task.responsible} /><small>Escolha entre as credenciais ativas de pessoas e agentes. O responsável só pode ser trocado, não removido.</small></div>
       </div>
       <div className="dependency-picker" role="group" aria-labelledby="edit-task-dependencies-label"><strong id="edit-task-dependencies-label">Dependências</strong><div className="dependency-options">{tasks.filter(item => item._id !== task._id).map(item => <label className="dependency-option" key={item._id}><input type="checkbox" checked={dependencies.includes(item._id)} onChange={event => setDependencies(current => event.target.checked ? [...current, item._id] : current.filter(id => id !== item._id))} /><span>{item.name} · {item.status}</span></label>)}</div></div>
       <div className="button-row end-row"><button type="button" className="button secondary" onClick={close} disabled={mutation.isPending}>Cancelar</button><button className="button primary" disabled={mutation.isPending || repositories.length === 0}>{mutation.isPending ? 'Salvando…' : 'Salvar tarefa'}</button></div>

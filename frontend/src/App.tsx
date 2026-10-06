@@ -5,6 +5,7 @@ import { allRecords, ApiRequestError, listProjects, operationId, query, request 
 import type { AdminCapabilities, Project, ProjectSummary, Task } from './api';
 import { ProjectPickerDialog } from './components/projects/ProjectPickerDialog';
 import type { HardDeleteTarget } from './components/ui/HardDeleteDialog';
+import { copyToClipboard } from './lib/clipboard';
 import { errorMessage } from './lib/format';
 import { openTaskConversation } from './features/tasks/task-conversation';
 import type { ActivityEvent } from './features/activity/ActivityPage';
@@ -29,7 +30,7 @@ const ActivityPage = lazy(() => import('./features/activity/ActivityPage').then(
 
 const tokenKey = 'project-tasks.human-token';
 const sidebarKey = 'project-tasks.sidebar-collapsed';
-type TaskDetailsAction = 'details' | 'edit' | 'summary' | 'json' | 'criteria';
+type TaskDetailsAction = 'details' | 'edit' | 'summary' | 'json' | 'criteria' | 'assign';
 
 function App() {
   const queryClient = useQueryClient();
@@ -429,10 +430,8 @@ function App() {
   }
   async function copyProjectId() {
     if (!project) return;
-    try {
-      await navigator.clipboard.writeText(project._id);
-      setCopiedProjectId(true); window.setTimeout(() => setCopiedProjectId(false), 1500);
-    } catch { notify('Não foi possível copiar o ID do projeto.', 'error'); }
+    if (await copyToClipboard(project._id)) { setCopiedProjectId(true); window.setTimeout(() => setCopiedProjectId(false), 1500); }
+    else notify('Não foi possível copiar o ID do projeto.', 'error');
   }
   function requestProjectHardDelete(targetProject: Project) {
     setHardDeleteError('');
@@ -559,7 +558,7 @@ function App() {
         {catalogScreen && <CatalogsPage section={catalogSectionForRoute(activeRoute)} token={token} nonce={nonce} projects={projects.map(item => item.project)} project={project} tasks={tasks} notify={notify} onProjectCreated={async created => { await projectsQuery.refetch(); navigateToRoute(routeForCatalogSection('projects'), created._id, false); }} onSelectProject={projectId => navigateToRoute(activeRoute, projectId, false)} onNavigateSection={section => navigateToRoute(routeForCatalogSection(section))} onChanged={() => { void projectsQuery.refetch(); void tasksQuery.refetch(); }} />}
         {activeRoute !== 'projects' && !catalogScreen && (project || globalActivityRoute) && <>
           <div className="page-heading"><div><p className="eyebrow">{activeTab === 'tasks' ? 'ACOMPANHAMENTO' : activeTab === 'chat' ? 'COLABORAÇÃO' : activeTab === 'activity' ? 'ATIVIDADE' : activeTab === 'admin' ? 'CONFIGURAÇÃO' : 'DOCUMENTAÇÃO'}</p><h1>{activeTab === 'tasks' ? 'Tarefas do projeto' : activeTab === 'chat' ? 'Conversas com IA' : activeTab === 'activity' ? 'Atividade' : activeTab === 'admin' ? 'Administração' : 'Ajuda do Project Tasks'}</h1><p className="muted-text">{activeTab === 'tasks' ? 'Acompanhe execução, revisão e conclusão do trabalho.' : activeTab === 'chat' ? 'Esclareça pedidos com a IA e autorize a execução quando a proposta estiver pronta.' : activeTab === 'activity' ? globalActivityRoute ? 'Acompanhe eventos recentes de todos os projetos.' : 'Acompanhe eventos, mudanças e colaboração neste projeto.' : activeTab === 'admin' ? 'Credenciais e configurações restritas do workspace.' : 'Referência rápida para os servidores e ferramentas MCP.'}</p></div>{activeTab === 'tasks' && <div className="button-row"><button className="button secondary" onClick={() => setSummaryOpen(true)}>Resumo do projeto</button></div>}</div>
-          {activeTab === 'tasks' && <TaskWorkspace key={activeProjectId} token={token} nonce={nonce} projectId={activeProjectId} repositories={project?.repositories ?? []} projectAreas={project?.areas ?? ['backend', 'frontend', 'outro']} tasks={tasks} isPending={tasksQuery.isPending} isError={tasksQuery.isError} error={tasksQuery.error} saving={saving} updatedAt={tasksQuery.dataUpdatedAt || undefined} refreshing={tasksQuery.isFetching} canHardDelete={canHardDelete} onRefresh={() => { void projectsQuery.refetch(); void tasksQuery.refetch(); }} onOpenTask={openTaskDetails} onOpenTaskConversation={openTaskConversationFromTable} onTransferTask={setTransferTask} onChangeStatus={setStatusTask} onToggleChecked={toggleChecked} onRequestHardDeleteTask={requestTaskHardDelete} onArchiveTask={archiveTask} onApproveSelected={approveSelected} onSetTasksChecked={setTasksChecked} />}
+          {activeTab === 'tasks' && <TaskWorkspace key={activeProjectId} token={token} nonce={nonce} projectId={activeProjectId} repositories={project?.repositories ?? []} projectAreas={project?.areas ?? ['backend', 'frontend', 'outro']} tasks={tasks} isPending={tasksQuery.isPending} isError={tasksQuery.isError} error={tasksQuery.error} saving={saving} updatedAt={tasksQuery.dataUpdatedAt || undefined} refreshing={tasksQuery.isFetching} canHardDelete={canHardDelete} systemAdmin={capabilitiesQuery.data?.systemAdmin === true} onRefresh={() => { void projectsQuery.refetch(); void tasksQuery.refetch(); }} onOpenTask={openTaskDetails} onOpenTaskConversation={openTaskConversationFromTable} onTransferTask={setTransferTask} onChangeStatus={setStatusTask} onToggleChecked={toggleChecked} onRequestHardDeleteTask={requestTaskHardDelete} onArchiveTask={archiveTask} onApproveSelected={approveSelected} onSetTasksChecked={setTasksChecked} />}
           {activeTab === 'chat' && <ConversationPanel token={token} nonce={nonce} projectId={activeProjectId} tasks={tasks} requestedConversationId={conversationToOpen || undefined} onConversationSelected={rememberConversation} onOpenTask={openTaskFromConversation} onOpenAdmin={() => setActiveTab('admin')} />}
           {activeTab === 'activity' && (globalActivityRoute && capabilitiesQuery.data?.systemAdmin !== true
             ? <div className="notice error" role="alert">{capabilitiesQuery.isPending ? 'Verificando acesso administrativo…' : capabilitiesQuery.isError ? errorMessage(capabilitiesQuery.error) : 'A atividade global é restrita a administradores do sistema.'}</div>
@@ -589,7 +588,7 @@ function App() {
       <footer className="app-footer"><span>Project Tasks MCP</span><span>{project?.name ?? ''}</span></footer>
     </main>
     <Suspense fallback={null}>
-    {selectedTask && project && <TaskDetailsDialog key={`${project._id}:${selectedTask._id}:${selectedTaskAction}`} token={token} nonce={nonce} projectId={project._id} project={project} tasks={tasks} task={selectedTask} initialAction={selectedTaskAction} checking={adminMutation.isPending || saving} notify={notify} onToggleChecked={toggleChecked} onOpenConversation={openConversation} onRequestTransfer={setTransferTask} onReview={reviewTask} onChangeStatus={setStatusTask} close={closeTaskDetails} />}
+    {selectedTask && project && <TaskDetailsDialog key={`${project._id}:${selectedTask._id}:${selectedTaskAction}`} token={token} nonce={nonce} projectId={project._id} project={project} tasks={tasks} task={selectedTask} initialAction={selectedTaskAction} checking={adminMutation.isPending || saving} notify={notify} onToggleChecked={toggleChecked} onOpenConversation={openConversation} onRequestTransfer={setTransferTask} systemAdmin={capabilitiesQuery.data?.systemAdmin === true} onReview={reviewTask} onChangeStatus={setStatusTask} close={closeTaskDetails} />}
     {transferTask && project && <TransferTaskDialog key={`${project._id}:${transferTask._id}`} token={token} nonce={nonce} projectId={project._id} task={transferTask} projects={projects.map(item => item.project)} close={() => setTransferTask(null)} onTransferred={onTaskTransferred} />}
     {statusTask && <TaskStatusDialog task={statusTask} saving={saving} onClose={() => setStatusTask(null)} onSubmit={updateStatus} />}
     <ProjectPickerDialog projects={currentProjectPage} activeProjectId={activeProjectId} search={allProjectsSearch} currentPage={projectPage} pages={projectPages} total={filteredProjects.length} onSearchChange={value => { setAllProjectsSearch(value); setProjectPage(1); }} onPageChange={setProjectPage} onSelect={id => { selectProject(id); (document.getElementById('projects-dialog') as HTMLDialogElement | null)?.close(); }} />

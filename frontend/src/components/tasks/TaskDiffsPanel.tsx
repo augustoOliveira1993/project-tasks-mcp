@@ -5,6 +5,7 @@ import { Badge } from '../ui/Badge';
 import { ErrorNotice } from '../ui/ErrorNotice';
 import { IconChevron, IconCopy } from '../ui/icons';
 import { Skeleton } from '../ui/Skeleton';
+import { copyToClipboard } from '../../lib/clipboard';
 import { formatDate } from '../../lib/format';
 import { plural, relativeTime } from '../../lib/labels';
 import { diffTotals, parsePatch, statusLabels, type FileDiff } from '../../lib/patch';
@@ -75,7 +76,7 @@ function DiffDetail({ token, nonce, projectId, taskId, summary }: { token: strin
   }
 
   async function copyPatch() {
-    try { await navigator.clipboard.writeText(patch); setCopied(true); window.setTimeout(() => setCopied(false), 1500); } catch { /* sem permissão de área de transferência */ }
+    if (await copyToClipboard(patch)) { setCopied(true); window.setTimeout(() => setCopied(false), 1500); }
   }
 
   function downloadPatch() {

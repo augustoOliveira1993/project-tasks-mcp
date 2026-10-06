@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { operationId, request } from '../../api';
 import type { Project } from '../../api';
+import { copyToClipboard } from '../../lib/clipboard';
 import { errorMessage } from '../../lib/format';
 
 export function ProjectCreateForm({ token, nonce, project, onSaved, notify, inDialog = false, dialogTitleId = 'create-project-dialog-title', onCancel, onSavingChange }: {
@@ -171,8 +172,8 @@ export function ProjectCreateForm({ token, nonce, project, onSaved, notify, inDi
           }}>{accessToken ? 'Gerar novo token' : 'Gerar token'}</button>
           <button type="button" className="button secondary" disabled={!accessToken} aria-pressed={showAccessToken} onClick={() => setShowAccessToken(current => !current)}>{showAccessToken ? 'Ocultar' : 'Mostrar'}</button>
           <button type="button" className="button secondary" disabled={!accessToken} onClick={async () => {
-            try { await navigator.clipboard.writeText(accessToken); notify('Token copiado.', 'success'); }
-            catch { notify('Não foi possível copiar. Use Mostrar e copie o token manualmente.', 'error'); }
+            if (await copyToClipboard(accessToken)) notify('Token copiado.', 'success');
+            else notify('Não foi possível copiar. Use Mostrar e copie o token manualmente.', 'error');
           }}>Copiar token</button>
         </div>
         <small id="project-token-help" className="muted-text">Gere um token ou informe pelo menos 16 caracteres. Cada geração substitui o valor atual. Guarde o token: o servidor armazena somente o hash.</small>

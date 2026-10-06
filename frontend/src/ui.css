@@ -494,3 +494,18 @@ a.task-name:hover { color: var(--tone-blue); text-decoration: underline; }
 .criteria-glance > li { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 10px; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: #fbfcfe; }
 .criteria-glance > li.done { border-color: #cbe8d9; background: #f8fcfa; }
 .criteria-glance .task-summary-content { gap: 4px; font-size: var(--text-sm); line-height: 1.5; color: var(--ink-2); }
+
+/* ---------- Atribuição de responsável ---------- */
+.assignee-picker { display: grid; gap: 6px; min-width: 0; }
+.assignee-picker label { display: grid; gap: 5px; color: inherit; font-size: inherit; font-weight: inherit; }
+.assignee-picker select, .assignee-picker input[type="text"] { width: 100%; min-height: 34px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); padding: 0 8px; background: #fff; font-size: var(--text-sm); }
+.assignee-picker small { color: var(--muted-strong); font-size: var(--text-xs); }
+.assign-form { display: grid; gap: var(--space-2); font-weight: 400; }
+.assignee-line { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.fact-assignee { grid-column: span 2; }
+@media (max-width: 760px) { .fact-assignee { grid-column: auto; } }
+
+/* Cabeçalho, barra de ações e abas nunca encolhem; só o corpo da gaveta rola. */
+.task-drawer > .drawer-header, .task-drawer > .drawer-actionbar, .task-drawer > .drawer-tabs, .task-drawer > .review-panel, .task-drawer > .drawer-notice, .task-drawer > .drawer-notices { flex: 0 0 auto; }
+.drawer-tabs { min-height: 41px; }
+.drawer-body { flex: 1 1 0; }

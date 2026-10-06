@@ -1,6 +1,6 @@
 import type { Task } from '../../api';
 
-export type TaskRowAction = 'details' | 'status' | 'edit' | 'conversation' | 'transfer' | 'summary' | 'json' | 'check' | 'archive' | 'delete';
+export type TaskRowAction = 'details' | 'status' | 'edit' | 'conversation' | 'transfer' | 'summary' | 'json' | 'assign' | 'check' | 'archive' | 'delete';
 
 export type TaskMenuAction = { id: TaskRowAction; label: string; danger?: boolean; disabled?: boolean; dividerBefore?: boolean };
 
@@ -20,7 +20,8 @@ export function buildTaskMenu(task: Pick<Task, 'status' | 'checked'>, { canHardD
   return [
     { id: 'details', label: 'Abrir detalhes' },
     { id: 'conversation', label: 'Abrir conversa' },
-    { id: 'edit', label: 'Editar tarefa', dividerBefore: true },
+    { id: 'assign', label: 'Atribuir responsável…', dividerBefore: true },
+    { id: 'edit', label: 'Editar tarefa' },
     { id: 'status', label: 'Alterar status…' },
     { id: 'transfer', label: 'Transferir tarefa' },
     { id: 'summary', label: 'Resumo completo', dividerBefore: true },

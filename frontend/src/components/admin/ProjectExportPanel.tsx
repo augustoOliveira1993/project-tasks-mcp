@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { request, type Project } from '../../api';
+import { copyToClipboard } from '../../lib/clipboard';
 import { errorMessage } from '../../lib/format';
 
 export type ProjectExport = {
@@ -24,8 +25,7 @@ export function downloadProjectExport(bundle: ProjectExport) {
 }
 
 export async function copyProjectExport(bundle: ProjectExport): Promise<boolean> {
-  try { await navigator.clipboard.writeText(exportChatText(bundle)); return true; }
-  catch { return false; }
+  return copyToClipboard(exportChatText(bundle));
 }
 
 export function ProjectExportPanel({ project, token }: { project: Project; token: string }) {

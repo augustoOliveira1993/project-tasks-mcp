@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { allRecords, operationId, query, request } from '../../api';
+import { copyToClipboard } from '../../lib/clipboard';
 import { errorMessage, formatDate } from '../../lib/format';
 import { areaLabel, relativeTime } from '../../lib/labels';
 import { routeUrl } from '../../route-state';
@@ -229,28 +230,7 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
   async function copyConversationId() {
     const conversationId = latest?.conversation._id ?? selectedId;
     if (!conversationId) return;
-    const copyWithFallback = () => {
-      const field = document.createElement('textarea');
-      field.value = conversationId;
-      field.setAttribute('readonly', '');
-      field.style.position = 'fixed';
-      field.style.top = '-1000px';
-      field.style.left = '0';
-      field.style.opacity = '0';
-      document.body.appendChild(field);
-      field.select();
-      const copied = document.execCommand('copy');
-      field.remove();
-      if (!copied) throw new Error('Clipboard copy failed');
-    };
-    try {
-      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(conversationId);
-      else copyWithFallback();
-      setNotice('ID da conversa copiado.');
-    } catch {
-      try { copyWithFallback(); setNotice('ID da conversa copiado.'); }
-      catch { setNotice(`Não foi possível copiar. ID da conversa: ${conversationId}`); }
-    }
+    setNotice(await copyToClipboard(conversationId) ? 'ID da conversa copiado.' : `Não foi possível copiar. ID da conversa: ${conversationId}`);
   }
   function confirmDeleteConversation() {
     confirmConversationDeletion(message => window.confirm(message), () => deleteConversation.mutate());

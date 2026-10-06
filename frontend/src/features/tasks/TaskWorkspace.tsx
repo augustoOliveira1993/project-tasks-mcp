@@ -38,12 +38,13 @@ type TaskWorkspaceProps = {
   updatedAt?: number;
   refreshing?: boolean;
   onRefresh: () => void;
-  onOpenTask: (task: Task, action?: 'details' | 'edit' | 'summary' | 'json' | 'criteria') => void;
+  onOpenTask: (task: Task, action?: 'details' | 'edit' | 'summary' | 'json' | 'criteria' | 'assign') => void;
   onOpenTaskConversation: (task: Task) => void;
   onTransferTask: (task: Task) => void;
   onChangeStatus: (task: Task) => void;
   onToggleChecked: (task: Task) => void;
   canHardDelete: boolean;
+  systemAdmin?: boolean;
   onRequestHardDeleteTask: (task: Task) => void;
   onArchiveTask: (task: Task) => void;
   onApproveSelected: (taskIds: string[], reason: string) => Promise<boolean>;
@@ -58,7 +59,7 @@ type SyncReport = {
 
 const flagLabels: Record<string, string> = { unread: 'Com novidades não lidas', questions: 'Com perguntas abertas', diff: 'Com diff Git' };
 
-export function TaskWorkspace({ token, nonce, projectId, repositories = [], projectAreas = ['backend', 'frontend', 'outro'], tasks, isPending, isError, error, saving, updatedAt, refreshing = false, onRefresh, onOpenTask, onOpenTaskConversation, onTransferTask, onChangeStatus, onToggleChecked, canHardDelete, onRequestHardDeleteTask, onArchiveTask, onApproveSelected, onSetTasksChecked }: TaskWorkspaceProps) {
+export function TaskWorkspace({ token, nonce, projectId, repositories = [], projectAreas = ['backend', 'frontend', 'outro'], tasks, isPending, isError, error, saving, updatedAt, refreshing = false, onRefresh, onOpenTask, onOpenTaskConversation, onTransferTask, onChangeStatus, onToggleChecked, canHardDelete, systemAdmin = false, onRequestHardDeleteTask, onArchiveTask, onApproveSelected, onSetTasksChecked }: TaskWorkspaceProps) {
   const [createTaskOpen, setCreateTaskOpen] = useState(false);
   const [createFeatureOpen, setCreateFeatureOpen] = useState(false);
   const [createdTaskNotice, setCreatedTaskNotice] = useState('');
@@ -124,6 +125,7 @@ export function TaskWorkspace({ token, nonce, projectId, repositories = [], proj
   function runTaskAction(task: Task, action: TaskRowAction) {
     if (action === 'details') onOpenTask(task);
     else if (action === 'edit') onOpenTask(task, 'edit');
+    else if (action === 'assign') onOpenTask(task, 'assign');
     else if (action === 'status') onChangeStatus(task);
     else if (action === 'conversation') onOpenTaskConversation(task);
     else if (action === 'transfer') onTransferTask(task);
@@ -387,7 +389,7 @@ export function TaskWorkspace({ token, nonce, projectId, repositories = [], proj
 
       <footer className="table-footer"><span>Mostrando {pagination.firstItem}–{pagination.lastItem} de {filtered.length}</span><span className="shortcut-hint" aria-hidden="true"><kbd>/</kbd> buscar · <kbd>↑</kbd><kbd>↓</kbd> navegar · <kbd>Enter</kbd> abrir · <kbd>Esc</kbd> fechar</span><div className="pagination"><label>Por página <select value={state.pageSize} onChange={event => { setState(current => ({ ...current, pageSize: Number(event.target.value), page: 1 })); setSelectedIds([]); }}><option>10</option><option>25</option><option>50</option><option>100</option></select></label><button type="button" className="small-icon" disabled={currentPage <= 1} onClick={() => { setState(current => ({ ...current, page: currentPage - 1 })); setSelectedIds([]); }} aria-label="Página anterior">‹</button><span>Página {currentPage} de {pages}</span><button type="button" className="small-icon" disabled={currentPage >= pages} onClick={() => { setState(current => ({ ...current, page: currentPage + 1 })); setSelectedIds([]); }} aria-label="Próxima página">›</button></div></footer>
     </section>
-    {createTaskOpen && <CreateTaskDialog key={projectId} token={token} nonce={nonce} projectId={projectId} repositories={repositories ?? []} areas={projectAreas} tasks={tasks} defaultFeatureId={state.featureId} close={() => setCreateTaskOpen(false)} onCreated={task => { setCreateTaskOpen(false); setCreatedTaskNotice(`Task “${task.name}” criada.`); }} />}
+    {createTaskOpen && <CreateTaskDialog key={projectId} token={token} nonce={nonce} projectId={projectId} repositories={repositories ?? []} areas={projectAreas} tasks={tasks} defaultFeatureId={state.featureId} systemAdmin={systemAdmin} close={() => setCreateTaskOpen(false)} onCreated={task => { setCreateTaskOpen(false); setCreatedTaskNotice(`Task “${task.name}” criada.`); }} />}
     {createFeatureOpen && <CreateFeatureDialog key={projectId} token={token} nonce={nonce} projectId={projectId} close={() => setCreateFeatureOpen(false)} onCreated={feature => { setCreateFeatureOpen(false); setCreatedFeatureNotice(`Feature “${feature.name}” criada.`); }} />}
   </>;
 }

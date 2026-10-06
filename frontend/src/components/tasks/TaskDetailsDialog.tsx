@@ -8,8 +8,11 @@ import { DropdownMenu } from '../ui/DropdownMenu';
 import { ErrorNotice } from '../ui/ErrorNotice';
 import { IconAlert, IconCheck, IconClose, IconCopy, IconFeature, IconMore } from '../ui/icons';
 import { ConversationLink, FeatureLink, FilterLink, TaskLink } from '../ui/Links';
+import { AssigneePicker } from '../ui/AssigneePicker';
 import { Person } from '../ui/Person';
+import { useAssignees } from '../../features/tasks/assignees';
 import { Skeleton } from '../ui/Skeleton';
+import { copyToClipboard } from '../../lib/clipboard';
 import { errorMessage, formatDate } from '../../lib/format';
 import { areaLabel, plural, priorityInfo, relativeTime, shortId, typeLabel } from '../../lib/labels';
 import { statusLabels, statusTone } from '../../features/tasks/status';
@@ -24,7 +27,7 @@ import { routeUrl } from '../../route-state';
 import { openTaskConversation } from '../../features/tasks/task-conversation';
 
 type Feature = { _id: string; name: string };
-export type TaskDetailsAction = 'details' | 'edit' | 'summary' | 'json' | 'criteria';
+export type TaskDetailsAction = 'details' | 'edit' | 'summary' | 'json' | 'criteria' | 'assign';
 export type TaskReviewDecision = 'approve' | 'return' | 'unblock';
 type TaskDiff = TaskDiffSummary;
 type TaskMarkdown = { _id: string; name: string; summary: string; revision: number };
@@ -40,7 +43,8 @@ const reviewCopy: Record<TaskReviewDecision, { title: string; confirm: string; r
 
 const focusableSelector = 'button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), summary, [tabindex]:not([tabindex="-1"])';
 
-export function TaskDetailsDialog({ token, nonce, projectId, project, tasks, task, initialAction = 'details', checking, notify, onToggleChecked, onOpenConversation, onRequestTransfer, onReview, onChangeStatus, close }: {
+export function TaskDetailsDialog({ token, nonce, projectId, project, tasks, task, initialAction = 'details', checking, notify, onToggleChecked, onOpenConversation, onRequestTransfer, onReview, onChangeStatus, systemAdmin = false, close }: {
+  systemAdmin?: boolean;
   token: string; nonce: string; projectId: string; project: Project; tasks: Task[]; task: Task; initialAction?: TaskDetailsAction; checking: boolean;
   notify: (message: string, kind?: string) => void; onToggleChecked: (task: Task) => void; onOpenConversation: (conversationId: string) => void;
   onRequestTransfer: (task: Task) => void; onReview?: (task: Task, decision: TaskReviewDecision, reason: string) => Promise<boolean>; onChangeStatus?: (task: Task) => void; close: () => void;
@@ -48,9 +52,11 @@ export function TaskDetailsDialog({ token, nonce, projectId, project, tasks, tas
   const [markdown, setMarkdown] = useState<{ name: string; content: string } | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [editing, setEditing] = useState(initialAction === 'edit');
-  const [tab, setTab] = useState<Tab>(initialAction === 'criteria' || task.status === 'em_revisao' ? 'criteria' : 'summary');
+  const [tab, setTab] = useState<Tab>(initialAction === 'assign' ? 'summary' : initialAction === 'criteria' || task.status === 'em_revisao' ? 'criteria' : 'summary');
   const [special, setSpecial] = useState<'full' | 'json' | null>(initialAction === 'summary' ? 'full' : initialAction === 'json' ? 'json' : null);
   const [review, setReview] = useState<TaskReviewDecision | null>(null);
+  const [assigning, setAssigning] = useState(initialAction === 'assign');
+  const [assignee, setAssignee] = useState('');
   const [reviewReason, setReviewReason] = useState('');
   const [reviewBusy, setReviewBusy] = useState(false);
   const [savingCriterion, setSavingCriterion] = useState<number | null>(null);
@@ -145,6 +151,19 @@ export function TaskDetailsDialog({ token, nonce, projectId, project, tasks, tas
     queryKey: ['task-markdowns', nonce, projectId, task._id],
     queryFn: () => query<{ items: TaskMarkdown[] }>(token, 'list_markdowns', { projectId, targetKind: 'task', targetId: task._id, limit: 20 })
   });
+  const assignees = useAssignees(token, nonce, projectId, systemAdmin);
+  const assign = useMutation({
+    mutationFn: (responsible: string) => request<Task>(token, '/admin/records/edit', { body: { operationId: operationId(), projectId, kind: 'task', id: task._id, version: taskData.version, data: { responsible } } }),
+    onSuccess: async result => {
+      setAssigning(false);
+      notify(`Responsável atualizado para ${result.responsible ?? 'o novo valor'}.`, 'success');
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['task-context', nonce, projectId, task._id] }),
+        queryClient.invalidateQueries({ queryKey: ['task-activity', nonce, projectId, task._id] }),
+        queryClient.invalidateQueries({ queryKey: ['project-tasks', nonce, projectId] })
+      ]);
+    }
+  });
   const openConversation = useMutation({
     mutationFn: () => openTaskConversation(token, projectId, task._id),
     onSuccess: async result => {
@@ -222,8 +241,8 @@ export function TaskDetailsDialog({ token, nonce, projectId, project, tasks, tas
   }
 
   async function copyText(text: string, message: string) {
-    try { await navigator.clipboard.writeText(text); notify(message, 'success'); }
-    catch { notify('Não foi possível copiar automaticamente.', 'error'); }
+    if (await copyToClipboard(text)) notify(message, 'success');
+    else notify('Não foi possível copiar automaticamente.', 'error');
   }
 
   function startReview(decision: TaskReviewDecision) {
@@ -303,11 +322,13 @@ export function TaskDetailsDialog({ token, nonce, projectId, project, tasks, tas
         <DropdownMenu ariaLabel="Mais ações da tarefa" triggerClassName="button secondary" items={[
           { id: 'transfer', label: 'Transferir tarefa' },
           ...(onChangeStatus ? [{ id: 'status', label: 'Alterar status…' }] : []),
+          { id: 'assign', label: 'Atribuir responsável…' },
           { id: 'full', label: 'Resumo completo', dividerBefore: true },
           { id: 'json', label: 'Ver JSON' }
         ]} onSelect={id => {
           if (id === 'transfer') onRequestTransfer(taskData as Task);
           else if (id === 'status') onChangeStatus?.(taskData as Task);
+          else if (id === 'assign') { setSpecial(null); setTab('summary'); setAssignee(taskData.responsible ?? ''); setAssigning(true); }
           else setSpecial(id as 'full' | 'json');
         }}><IconMore size={14} /> Mais</DropdownMenu>
       </div>
@@ -338,7 +359,7 @@ export function TaskDetailsDialog({ token, nonce, projectId, project, tasks, tas
                 <section className="drawer-section task-description-section"><h3>Descrição</h3>{taskData.description || taskData.instructions ? <MarkdownView content={taskData.description || taskData.instructions} /> : <p className="empty-inline">Sem descrição cadastrada.</p>}</section>
                 <section className="drawer-section" aria-label="Critérios de aceite"><div className="drawer-section-head"><h3>Critérios de aceite{acceptance.length > 0 && <span className="aside-count"> · {completedCriteria}/{acceptance.length} atendidos</span>}</h3>{acceptance.length > 0 && <button type="button" className="text-button" onClick={() => setTab('criteria')}>Ver evidências e marcar →</button>}</div>{acceptance.length ? <ul className="criteria-glance">{acceptance.map((item: string, index: number) => <li key={index} className={acceptanceProgress[index] ? 'done' : undefined}><span className={acceptanceProgress[index] ? 'criterion-state criterion-complete' : 'criterion-state'}>{acceptanceProgress[index] ? 'Atendido' : 'Pendente'}</span><MarkdownView content={item} /></li>)}</ul> : <p className="empty-inline">Nenhum critério de aceite cadastrado.</p>}</section>
                 <section className="drawer-section" aria-label="Dados da tarefa"><h3>Dados</h3><dl className="facts-grid">
-                  <div><dt>Responsável</dt><dd><Person identity={taskData.responsible} /></dd></div>
+                  <div className="fact-assignee"><dt>Responsável</dt><dd>{assigning ? <form className="assign-form" onSubmit={event => { event.preventDefault(); if (assignee.trim()) assign.mutate(assignee.trim()); }}><AssigneePicker assignees={assignees.data ?? []} isPending={assignees.isPending} isError={assignees.isError} defaultValue={taskData.responsible} allowEmpty={!taskData.responsible} label="Atribuir a" onChange={setAssignee} />{assign.isError && <p className="field-error" role="alert">{errorMessage(assign.error)}</p>}<div className="button-row"><button className="button primary small-button" disabled={assign.isPending || !assignee.trim() || assignee.trim() === (taskData.responsible ?? '')}>{assign.isPending ? 'Salvando…' : 'Atribuir'}</button><button type="button" className="button ghost small-button" disabled={assign.isPending} onClick={() => { setAssigning(false); assign.reset(); }}>Cancelar</button></div></form> : <span className="assignee-line"><Person identity={taskData.responsible} /><button type="button" className="text-button" onClick={() => { setAssignee(taskData.responsible ?? ''); setAssigning(true); }}>{taskData.responsible ? 'Alterar' : 'Atribuir'}</button></span>}</dd></div>
                   <div><dt>Atualizada</dt><dd title={formatDate(taskData.updatedAt)}>{relativeTime(taskData.updatedAt, now)}</dd></div>
                   <div><dt>Criada</dt><dd>{formatDate(taskData.createdAt)}</dd></div>
                   <div><dt>Prazo da execução</dt><dd>{taskData.leaseUntil ? formatDate(taskData.leaseUntil) : '—'}</dd></div>
@@ -370,6 +391,6 @@ export function TaskDetailsDialog({ token, nonce, projectId, project, tasks, tas
         {markRead.isError && <div className="notice error" role="alert"><span>Não foi possível marcar as atividades como lidas: {errorMessage(markRead.error)}</span><button type="button" className="text-button" disabled={markRead.isPending} onClick={() => { const attempt = readAttempt.current; if (attempt?.taskId === task._id) markRead.mutate(attempt); }}>Tentar novamente</button></div>}
       </div>
     </section>
-    {editing && !features.isPending && <TaskEditorDialog token={token} nonce={nonce} project={project} tasks={tasks} features={editorFeatures} task={taskData as Task} close={() => setEditing(false)} notify={notify} onSaved={() => setEditing(false)} />}
+    {editing && !features.isPending && <TaskEditorDialog token={token} nonce={nonce} project={project} tasks={tasks} features={editorFeatures} task={taskData as Task} systemAdmin={systemAdmin} close={() => setEditing(false)} notify={notify} onSaved={() => setEditing(false)} />}
   </div>;
 }

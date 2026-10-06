@@ -3,12 +3,15 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { allRecords } from '../../api';
 import type { Project, Task } from '../../api';
 import { errorMessage } from '../../lib/format';
+import { AssigneePicker } from '../../components/ui/AssigneePicker';
+import { useAssignees } from './assignees';
 import { submitNewTask } from './task-create';
 
 type Feature = { _id: string; name: string; archived?: boolean };
 type Repository = NonNullable<Project['repositories']>[number];
 
-export function CreateTaskDialog({ token, nonce, projectId, repositories, areas, tasks, defaultFeatureId, close, onCreated }: {
+export function CreateTaskDialog({ token, nonce, projectId, repositories, areas, tasks, defaultFeatureId, systemAdmin = false, close, onCreated }: {
+  systemAdmin?: boolean;
   token: string;
   nonce: string;
   projectId: string;
@@ -20,6 +23,7 @@ export function CreateTaskDialog({ token, nonce, projectId, repositories, areas,
   onCreated: (task: Task) => void;
 }) {
   const client = useQueryClient();
+  const assignees = useAssignees(token, nonce, projectId, systemAdmin);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [dependencies, setDependencies] = useState<string[]>([]);
   const defaultArea = areas.includes('frontend') ? 'frontend' : areas[0] ?? '';
