@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { allRecords, operationId, query, request } from '../../api';
 import { errorMessage, formatDate } from '../../lib/format';
 import { routeUrl } from '../../route-state';
+import { AgentClientIcon } from '../ui/AgentClientIcon';
 import { Badge } from '../ui/Badge';
 import { MarkdownView } from '../ui/MarkdownView';
 import { confirmConversationDeletion, createProjectConversation, deleteProjectConversation, historyAfterConversationDeletion, historyAfterConversationTitleUpdate, linkConversationTask, markConversationRead, nextConversationReadAttempt, scheduleTaskSearch, searchProjectTasks, updateConversationTitle, type ConversationReadAttempt } from './conversation-actions';
@@ -29,17 +30,6 @@ type TaskActivity = {
   messages: Array<{ _id: string; type: string; author: string; authorType: 'human' | 'agent' | 'unknown'; clientName: string | null; message: string; createdAt: string }>;
   executions: Array<{ _id: string; status: string; startedAt: string; result?: { summary?: string; evidence?: string[] } }>;
 };
-
-function AgentClientIcon({ clientName }: { clientName?: string | null }) {
-  const client = clientName?.trim().toLocaleLowerCase('en-US');
-  const variant = client?.startsWith('codex') ? 'codex' : client?.startsWith('claude') ? 'claude' : 'generic';
-
-  return <svg className={`conversation-agent-icon ${variant}`} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-    {variant === 'codex' ? <path d="m8 6-6 6 6 6m8-12 6 6-6 6m-2-16-4 20" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.2" />
-      : variant === 'claude' ? <><path d="M12 2.25 14.15 9.85 21.75 12l-7.6 2.15L12 21.75l-2.15-7.6L2.25 12l7.6-2.15L12 2.25Z" fill="currentColor" /><path d="M19 2.5v4m2-2h-4" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.5" /></>
-        : <><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" strokeWidth="1.8" /><path d="M12 8v8m-4-4h8" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" /></>}
-  </svg>;
-}
 
 function HumanAuthorIcon() {
   return <svg className="conversation-author-icon human" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="8" r="3.25" fill="none" stroke="currentColor" strokeWidth="1.8" /><path d="M5.5 20c.55-3.35 2.85-5.25 6.5-5.25s5.95 1.9 6.5 5.25" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" /></svg>;
@@ -333,7 +323,27 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
       {conversations.isPending ? <div className="loading">Carregando conversas…</div> : conversations.isError ? <div className="notice error">{errorMessage(conversations.error)}</div> : visibleConversationItems.length ? <><div className="conversation-list">{visibleConversationItems.map(item => {
         const task = item.taskId ? taskForId(item.taskId) : undefined;
         const unreadCount = item.unread?.count ?? 0;
-        return <button key={item._id} aria-current={selectedId === item._id ? 'true' : undefined} className={'conversation-list-item' + (selectedId === item._id ? ' active' : '') + (unreadCount > 0 ? ' unread' : '')} onClick={() => { setSelectedId(item._id); onConversationSelected?.(item._id); }}><div className="conversation-list-item-head"><strong>{item.title || 'Nova conversa'}</strong>{unreadCount > 0 && <span className="conversation-unread-dot" aria-label={`${unreadCount} mensagens não lidas`}>{unreadCount > 99 ? '99+' : unreadCount}</span>}</div><small>{item.taskId ? 'Tarefa vinculada · ' + (task?.name ?? item.taskId.slice(0, 8)) : 'Escopo do projeto'} · {formatDate(item.lastMessageAt || item.updatedAt)}</small>{item.taskId && <div className="conversation-context-badges">{task && <Badge tone="blue">Área · {areaLabel(task.area)}</Badge>}{task && <Badge tone={statusTone(task.status)}>Status · {statusLabel(task.status)}</Badge>}<Badge tone="muted">Feature · {featureBadgeForTask(item.taskId)}</Badge></div>}</button>;
+        const hasMessages = Boolean(item.lastMessageAt || unreadCount > 0);
+        const messageStatus = unreadCount > 0 ? 'unread' : hasMessages ? 'read' : 'empty';
+        return <button
+          key={item._id}
+          aria-current={selectedId === item._id ? 'true' : undefined}
+          className={'conversation-list-item' + (selectedId === item._id ? ' active' : '') + (unreadCount > 0 ? ' unread' : '')}
+          onClick={() => { setSelectedId(item._id); onConversationSelected?.(item._id); }}
+        >
+          <div className="conversation-list-item-head">
+            <strong>{item.title || 'Nova conversa'}</strong>
+            {unreadCount > 0 && <span className="conversation-unread-dot" aria-label={`${unreadCount} ${unreadCount === 1 ? 'mensagem não lida' : 'mensagens não lidas'}`}>{unreadCount > 99 ? '99+' : unreadCount}</span>}
+          </div>
+          <small className="conversation-list-item-context">{item.taskId ? 'Tarefa vinculada · ' + (task?.name ?? item.taskId.slice(0, 8)) : 'Escopo do projeto'}</small>
+          <div className="conversation-list-item-activity">
+            <span className={`conversation-message-state ${messageStatus}`}>
+              {messageStatus === 'unread' ? 'Não lida' : messageStatus === 'read' ? 'Lida' : 'Sem mensagens ainda'}
+            </span>
+            {item.lastMessageAt && <time dateTime={item.lastMessageAt}>{formatDate(item.lastMessageAt)}</time>}
+          </div>
+          {item.taskId && <div className="conversation-context-badges">{task && <Badge tone="blue">Área · {areaLabel(task.area)}</Badge>}{task && <Badge tone={statusTone(task.status)}>Status · {statusLabel(task.status)}</Badge>}<Badge tone="muted">Feature · {featureBadgeForTask(item.taskId)}</Badge></div>}
+        </button>;
       })}</div>{(olderConversationPages.at(-1)?.next ?? conversations.data?.next) && <button className="button ghost" disabled={loadingOlder} onClick={() => void loadOlderConversations()}>{loadingOlder ? 'Carregando…' : 'Carregar conversas anteriores'}</button>}</> : <div className="empty-state compact"><h3>Comece uma conversa</h3><p>Crie uma conversa geral e vincule uma tarefa pelo cabeçalho do chat.</p></div>}
     </aside>
     <div className="panel-card conversation-main">

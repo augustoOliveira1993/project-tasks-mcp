@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Task } from '../../api';
+import { AgentClientIcon, isKnownAgentClient } from '../../components/ui/AgentClientIcon';
 import { MarkdownView } from '../../components/ui/MarkdownView';
 import { errorMessage } from '../../lib/format';
 
@@ -91,7 +92,7 @@ function activityTimestamp(value?: string) {
   if (!value) return 'Data não informada';
   const date = new Date(value);
   if (Number.isNaN(date.valueOf())) return value;
-  return new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(date);
+  return new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Sao_Paulo' }).format(date);
 }
 
 function isWithinDateRange(value: string | undefined, from: string, to: string) {
@@ -187,7 +188,7 @@ export function ActivityPage({ events, tasks, projects, isGlobal = false, canVie
               return <article className="activity-event" key={event.sequence ?? event._id ?? `${event.at}-${event.kind}-${index}`}>
                 <span className={`activity-avatar activity-avatar-tone-${avatarTone(author)}`} aria-hidden="true">{initials(author)}</span>
                 <div className="activity-event-content">
-                  <div className="activity-event-heading"><strong className="activity-event-author">{author}</strong><span className="activity-kind-badge">{kindLabel(event.kind)}</span>{channelLabel && <span className="activity-channel-badge">{channelLabel}</span>}{event.toolName && <span className="activity-tool-badge">{event.toolName}</span>}<span className="activity-origin-badge">{origin}</span>{isGlobal && <span className="activity-project-badge">{event.projectName || 'Projeto indisponível'}</span>}{event.taskId && <span className="activity-task-badge">{taskName ?? `Tarefa ${event.taskId.slice(0, 8)}`}</span>}</div>
+                  <div className="activity-event-heading"><strong className="activity-event-author">{author}</strong><span className="activity-kind-badge">{kindLabel(event.kind)}</span>{channelLabel && <span className="activity-channel-badge">{channelLabel}</span>}{event.toolName && <span className="activity-tool-badge">{event.toolName}</span>}<span className="activity-origin-badge">{isKnownAgentClient(origin) && <AgentClientIcon clientName={origin} />}<span>{origin}</span></span>{isGlobal && <span className="activity-project-badge">{event.projectName || 'Projeto indisponível'}</span>}{event.taskId && <span className="activity-task-badge">{taskName ?? `Tarefa ${event.taskId.slice(0, 8)}`}</span>}</div>
                   <p className="activity-event-summary">{event.summary || 'Atualização do projeto'}</p>
                   {event.detail && <div className="activity-event-detail"><MarkdownView content={event.detail} /></div>}
                 </div>
