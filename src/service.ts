@@ -1090,7 +1090,11 @@ export class Service {
       return { status: projectsMatched.length ? 'ambiguous' : 'not_found', projectId: null, matches: projectsMatched.map(projectMatches => ({ projectId: projectMatches[0].projectId, projectName: projectMatches[0].projectName, repositories: projectMatches.map(({ repositoryId, repositoryName }) => ({ repositoryId, repositoryName })) })) };
     }
     if (name === 'list_markdowns') return this.markdowns(a.projectId, a.targetKind, a.targetId, a.after, a.limit);
-    if (name === 'list_task_diffs') return page(TaskDiff, { projectId: a.projectId, taskId: a.taskId });
+    if (name === 'list_task_diffs') {
+      // A listagem não carrega o patch (até 100 KB por item); use get_task_diff para o conteúdo de um diff.
+      const result = await page(TaskDiff, { projectId: a.projectId, taskId: a.taskId });
+      return { ...result, items: result.items.map(({ patch, ...diff }: any) => ({ ...diff, hasPatch: typeof patch === 'string' && patch.length > 0 })) };
+    }
     if (name === 'get_task_diff') {
       const diff = await TaskDiff.findOne({ _id: a.id, projectId: a.projectId, taskId: a.taskId }).lean(); requireThat(diff, 'Task diff not found', 404); return diff;
     }

@@ -630,7 +630,10 @@ test('Git bindings, task diffs, novelties and concurrent Markdown updates are co
   assert.equal(bound.repositories[0].git.canonicalRemoteUrl, 'https://example.com/repo');
   const task = await create('Diff task');
   const diff = await service.call(agent, 'record_task_diff', { operationId: op(), projectId: p._id, taskId: task._id, repositoryId: p.repositories[0].id, baseCommit: 'a'.repeat(40), commit: 'b'.repeat(40), branch: 'codex/task-diff', files: ['src/example.ts'], patch: '+export const value = 1;\n', truncated: false, agent: 'Codex' });
-  assert.equal((await service.call(agent, 'list_task_diffs', { projectId: p._id, taskId: task._id, limit: 10 })).items[0]._id, diff._id);
+  const listedDiffs = await service.call(agent, 'list_task_diffs', { projectId: p._id, taskId: task._id, limit: 10 });
+  assert.equal(listedDiffs.items[0]._id, diff._id);
+  assert.equal('patch' in listedDiffs.items[0], false, 'a listagem não carrega o patch');
+  assert.equal(listedDiffs.items[0].hasPatch, true);
   assert.match((await service.call(agent, 'get_task_diff', { projectId: p._id, taskId: task._id, id: diff._id })).patch, /value/);
   const saved = await service.call(agent, 'save_markdown', { operationId: op(), projectId: p._id, targetKind: 'task', targetId: task._id, name: 'git.md', summary: 'Initial', content: 'one' });
   const updated = await service.call(agent, 'update_markdown', { operationId: op(), projectId: p._id, documentId: saved._id, baseRevision: saved.revision, summary: 'Updated', content: 'two' });

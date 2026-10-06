@@ -7,6 +7,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import { id, tools } from '../schema.js';
+import { DIFF_FLAGS, limitPatch } from './diff.js';
 import { listAccessibleProjects, matchGitProjects } from './project-resolution.js';
 
 const exec = promisify(execFile);
@@ -15,7 +16,19 @@ const token = process.env.PTM_BRIDGE_TOKEN ?? process.env.PTM_TOKEN;
 if (!serviceUrl || !token) throw new Error('PTM_SERVICE_URL and PTM_BRIDGE_TOKEN (or PTM_TOKEN) are required');
 
 type Context = { root: string; remoteUrl: string; rootCommit: string; branch: string; commit: string };
-async function git(root: string, ...args: string[]) { return (await exec('git', ['-C', root, ...args], { windowsHide: true })).stdout.trim(); }
+// Diffs grandes passam do buffer padrão de 1 MB do execFile; o limite de armazenamento é aplicado depois, em limitPatch.
+const GIT_MAX_BUFFER = 64 * 1024 * 1024;
+async function gitRaw(root: string, ...args: string[]) { return (await exec('git', ['-C', root, ...args], { windowsHide: true, maxBuffer: GIT_MAX_BUFFER })).stdout; }
+async function git(root: string, ...args: string[]) { return (await gitRaw(root, ...args)).trim(); }
+async function isAncestor(root: string, ancestor: string, descendant: string) { try { await git(root, 'merge-base', '--is-ancestor', ancestor, descendant); return true; } catch { return false; } }
+// Base do diff: o commit do diff anterior quando ainda é ancestral; após rebase/amend/force-push cai para o ponto de partida da branch.
+async function resolveDiffBase(root: string, previousCommit: string | undefined, commit: string) {
+  if (previousCommit && await isAncestor(root, previousCommit, commit)) return previousCommit;
+  for (const ref of ['origin/HEAD', 'origin/main', 'origin/master']) {
+    try { return await git(root, 'merge-base', ref, commit); } catch { /* tenta a próxima referência */ }
+  }
+  return git(root, 'rev-parse', commit + '~1');
+}
 function canonical(url: string) { return url.trim().replace(/^git@([^:]+):/, 'https://$1/').replace(/\.git$/i, '').replace(/\/$/, '').toLowerCase(); }
 async function context(): Promise<Context> {
   const workingDirectory = process.env.CLAUDE_PROJECT_DIR || process.env.PTM_GIT_WORKDIR || process.cwd();
@@ -76,17 +89,16 @@ const server = new McpServer({ name: 'project-tasks-bridge', version: '0.2.0' },
   'Messages in the shared conversation do not wake another agent session. Their displayed identity comes from the authenticated user and MCP client name announced at initialize; send only the content and do not spoof another author. Use only tools announced by this connection and follow the Project Tasks agent guide.'
 ].join(' ') });
 server.registerTool('status', { description: 'Read local Git context and project matches. ready:true means one binding matched; ready:false explains missing or ambiguous scope, not necessarily a disconnected MCP session.', inputSchema: z.object({}).strict(), annotations: { readOnlyHint: true } }, async () => ({ content: [{ type: 'text', text: JSON.stringify(await status()) }] }));
-server.registerTool('publish_task_diff', { description: 'Publish a Git diff for a task in the uniquely matched project. Patch storage is opt-in.', inputSchema: z.object({ taskId: z.string().uuid(), baseCommit: z.string().regex(/^[0-9a-f]{40}$/i).optional(), commit: z.string().regex(/^[0-9a-f]{40}$/i).optional(), includePatch: z.boolean().default(false), agent: z.string().min(1).max(100).optional() }).strict() }, async input => {
+server.registerTool('publish_task_diff', { description: 'Publish a Git diff for a task in the uniquely matched project. The patch is stored by default so the review panel can show each file (pass includePatch:false to store only the file list); files that do not fit the 100 KB limit are omitted whole and flagged with truncated.', inputSchema: z.object({ taskId: z.string().uuid(), baseCommit: z.string().regex(/^[0-9a-f]{40}$/i).optional(), commit: z.string().regex(/^[0-9a-f]{40}$/i).optional(), includePatch: z.boolean().default(true), agent: z.string().min(1).max(100).optional() }).strict() }, async input => {
   try {
     const { repo, matches } = await resolve(); if (matches.length !== 1) throw new Error(matches.length ? `Git repository is ambiguous: ${matches.map(({ project, repository }: any) => `${project.name} (${project._id}) · ${repository.name} (${repository.id})`).join('; ')}` : 'Git repository does not resolve to a Project Tasks project');
     const { project, repository } = matches[0]; const commit = input.commit ?? repo.commit;
     const previous = await call('list_task_diffs', { projectId: project._id, taskId: input.taskId, limit: 1 });
-    const baseCommit = input.baseCommit ?? previous.items?.[0]?.commit ?? await git(repo.root, 'merge-base', 'HEAD', 'origin/HEAD').catch(() => git(repo.root, 'rev-parse', 'HEAD~1'));
+    const baseCommit = input.baseCommit ?? await resolveDiffBase(repo.root, previous.items?.[0]?.commit, commit);
     await git(repo.root, 'merge-base', '--is-ancestor', baseCommit, commit);
-    const files = (await git(repo.root, 'diff', '--name-only', `${baseCommit}..${commit}`)).split(/\r?\n/).filter(Boolean);
-    const fullPatch = input.includePatch ? await git(repo.root, 'diff', '--no-ext-diff', `${baseCommit}..${commit}`) : undefined;
-    const tooLarge = !!fullPatch && Buffer.byteLength(fullPatch, 'utf8') > 100 * 1024;
-    const result = await call('record_task_diff', { operationId: randomUUID(), projectId: project._id, taskId: input.taskId, repositoryId: repository.id, baseCommit, commit, branch: repo.branch, files, ...(fullPatch && !tooLarge ? { patch: fullPatch } : {}), truncated: tooLarge, agent: input.agent });
+    const files = (await git(repo.root, 'diff', '--name-only', ...DIFF_FLAGS, `${baseCommit}..${commit}`)).split(/\r?\n/).filter(Boolean);
+    const limited = input.includePatch ? limitPatch(await gitRaw(repo.root, 'diff', ...DIFF_FLAGS, `${baseCommit}..${commit}`)) : undefined;
+    const result = await call('record_task_diff', { operationId: randomUUID(), projectId: project._id, taskId: input.taskId, repositoryId: repository.id, baseCommit, commit, branch: repo.branch, files, ...(limited?.patch ? { patch: limited.patch } : {}), truncated: limited?.truncated ?? false, agent: input.agent });
     const novidades = await call('get_project_novelties', { projectId: project._id, limit: 25 });
     return { content: [{ type: 'text', text: JSON.stringify({ result, novidades }) }] };
   } catch (error) { return { isError: true, content: [{ type: 'text', text: (error as Error).message }] }; }
