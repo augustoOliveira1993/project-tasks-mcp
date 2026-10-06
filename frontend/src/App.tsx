@@ -29,7 +29,7 @@ const ActivityPage = lazy(() => import('./features/activity/ActivityPage').then(
 
 const tokenKey = 'project-tasks.human-token';
 const sidebarKey = 'project-tasks.sidebar-collapsed';
-type TaskDetailsAction = 'details' | 'edit' | 'summary' | 'json';
+type TaskDetailsAction = 'details' | 'edit' | 'summary' | 'json' | 'criteria';
 
 function App() {
   const queryClient = useQueryClient();

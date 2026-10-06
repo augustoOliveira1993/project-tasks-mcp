@@ -77,7 +77,7 @@ export function CreateTaskDialog({ token, nonce, projectId, repositories, areas,
         <label>Feature<select name="featureId" defaultValue={defaultFeatureId}><option value="">Sem feature</option>{(features.data ?? []).map(feature => <option key={feature._id} value={feature._id}>{feature.name}</option>)}</select>{features.isPending && <small>Carregando features…</small>}</label>
         <label>Tipo<select name="type" defaultValue="feature">{['feature', 'fix', 'chore', 'docs', 'refactor', 'test', 'perf', 'build', 'ci', 'revert'].map(type => <option key={type} value={type}>{type}</option>)}</select></label>
         <label>Prioridade<select name="priority" defaultValue="2">{[0, 1, 2, 3, 4, 5].map(priority => <option key={priority} value={priority}>{priority}</option>)}</select></label>
-        <label>Responsável (opcional)<input name="responsible" maxLength={320} placeholder="Nome ou e-mail" /></label>
+        <AssigneePicker name="responsible" label="Responsável (opcional)" assignees={assignees.data ?? []} isPending={assignees.isPending} isError={assignees.isError} />
       </div>
       <div className="dependency-picker" role="group" aria-labelledby="task-dependencies-label">
         <strong id="task-dependencies-label">Dependências (opcional)</strong>

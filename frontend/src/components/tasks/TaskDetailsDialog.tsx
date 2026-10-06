@@ -24,7 +24,7 @@ import { routeUrl } from '../../route-state';
 import { openTaskConversation } from '../../features/tasks/task-conversation';
 
 type Feature = { _id: string; name: string };
-export type TaskDetailsAction = 'details' | 'edit' | 'summary' | 'json';
+export type TaskDetailsAction = 'details' | 'edit' | 'summary' | 'json' | 'criteria';
 export type TaskReviewDecision = 'approve' | 'return' | 'unblock';
 type TaskDiff = TaskDiffSummary;
 type TaskMarkdown = { _id: string; name: string; summary: string; revision: number };
@@ -48,7 +48,7 @@ export function TaskDetailsDialog({ token, nonce, projectId, project, tasks, tas
   const [markdown, setMarkdown] = useState<{ name: string; content: string } | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [editing, setEditing] = useState(initialAction === 'edit');
-  const [tab, setTab] = useState<Tab>(task.status === 'em_revisao' ? 'criteria' : 'summary');
+  const [tab, setTab] = useState<Tab>(initialAction === 'criteria' || task.status === 'em_revisao' ? 'criteria' : 'summary');
   const [special, setSpecial] = useState<'full' | 'json' | null>(initialAction === 'summary' ? 'full' : initialAction === 'json' ? 'json' : null);
   const [review, setReview] = useState<TaskReviewDecision | null>(null);
   const [reviewReason, setReviewReason] = useState('');
@@ -336,6 +336,7 @@ export function TaskDetailsDialog({ token, nonce, projectId, project, tasks, tas
               : tab === 'summary' ? <>
                 {status === 'bloqueada' && <section className="blocked-reason-panel" aria-labelledby="blocked-reason-title"><h3 id="blocked-reason-title">Motivo do bloqueio</h3>{blockingReasons.length ? <ul>{blockingReasons.map((reason, index) => <li key={index}><MarkdownView content={reason} /></li>)}</ul> : <p>Não há um motivo registrado para este bloqueio.</p>}</section>}
                 <section className="drawer-section task-description-section"><h3>Descrição</h3>{taskData.description || taskData.instructions ? <MarkdownView content={taskData.description || taskData.instructions} /> : <p className="empty-inline">Sem descrição cadastrada.</p>}</section>
+                <section className="drawer-section" aria-label="Critérios de aceite"><div className="drawer-section-head"><h3>Critérios de aceite{acceptance.length > 0 && <span className="aside-count"> · {completedCriteria}/{acceptance.length} atendidos</span>}</h3>{acceptance.length > 0 && <button type="button" className="text-button" onClick={() => setTab('criteria')}>Ver evidências e marcar →</button>}</div>{acceptance.length ? <ul className="criteria-glance">{acceptance.map((item: string, index: number) => <li key={index} className={acceptanceProgress[index] ? 'done' : undefined}><span className={acceptanceProgress[index] ? 'criterion-state criterion-complete' : 'criterion-state'}>{acceptanceProgress[index] ? 'Atendido' : 'Pendente'}</span><MarkdownView content={item} /></li>)}</ul> : <p className="empty-inline">Nenhum critério de aceite cadastrado.</p>}</section>
                 <section className="drawer-section" aria-label="Dados da tarefa"><h3>Dados</h3><dl className="facts-grid">
                   <div><dt>Responsável</dt><dd><Person identity={taskData.responsible} /></dd></div>
                   <div><dt>Atualizada</dt><dd title={formatDate(taskData.updatedAt)}>{relativeTime(taskData.updatedAt, now)}</dd></div>

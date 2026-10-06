@@ -38,7 +38,7 @@ type TaskWorkspaceProps = {
   updatedAt?: number;
   refreshing?: boolean;
   onRefresh: () => void;
-  onOpenTask: (task: Task, action?: 'details' | 'edit' | 'summary' | 'json') => void;
+  onOpenTask: (task: Task, action?: 'details' | 'edit' | 'summary' | 'json' | 'criteria') => void;
   onOpenTaskConversation: (task: Task) => void;
   onTransferTask: (task: Task) => void;
   onChangeStatus: (task: Task) => void;
@@ -362,6 +362,7 @@ export function TaskWorkspace({ token, nonce, projectId, repositories = [], proj
             <div className="task-meta">
               <code className="task-id" title={task._id}>{shortId(task._id)}</code>
               {task.area ? <FilterLink param="area" value={task.area} projectId={projectId} className={`chip chip-area chip-area-${task.area} entity-chip`} title={`Filtrar pela área ${areaLabel(task.area)}`}>{areaLabel(task.area)}</FilterLink> : <span className="chip chip-area chip-area-none">{areaLabel(task.area)}</span>}
+              {(task.acceptance?.length ?? 0) > 0 && (() => { const total = task.acceptance!.length; const done = task.acceptance!.filter((_item, index) => task.acceptanceProgress?.[index] === true).length; return <button type="button" className={'flag-chip flag-criteria' + (done === total ? ' complete' : '')} title={`Critérios de aceite: ${done} de ${total} atendidos. Abrir critérios`} aria-label={`Ver critérios de aceite de ${task.name}, ${done} de ${total} atendidos`} onClick={() => onOpenTask(task, 'criteria')}><IconCheck size={12} />{done}/{total} critérios</button>; })()}
               {task.type && <FilterLink param="type" value={task.type} projectId={projectId} className="chip chip-type entity-chip" title={`Filtrar pelo tipo ${typeLabel(task.type)}`}>{typeLabel(task.type)}</FilterLink>}
               {featureName && task.featureId && <FeatureLink featureId={task.featureId} projectId={projectId} className="chip chip-feature entity-chip" title={`Ver todas as tarefas da feature “${featureName}”`}><IconFeature size={11} /><span>{featureName}</span></FeatureLink>}
               {unread > 0 && <button type="button" className="task-unread-link flag-chip flag-unread" title={`${plural(unread, 'atividade não lida', 'atividades não lidas')}. Abrir detalhes`} aria-label={`Abrir detalhes de ${task.name}, ${plural(unread, 'atividade não lida', 'atividades não lidas')}`} onClick={() => onOpenTask(task)}><IconMail size={12} />{unread}</button>}
