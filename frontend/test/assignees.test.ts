@@ -88,3 +88,25 @@ test('cadastro de responsável: tipos de token, projetos e restrição para quem
   assert.match(text, /Token de agente[^\n]*: AG/);
   assert.match(text, /projetos: AVBOne, Portal RH\nPE/);
 });
+
+test('membros do projeto: agrupa tokens por e-mail e mostra avatares com cartão de detalhes', async () => {
+  const { groupMembers } = await vite.ssrLoadModule('/src/features/projects/members.ts');
+  const { AvatarStack } = await vite.ssrLoadModule('/src/components/ui/AvatarStack.tsx');
+  const members = groupMembers([
+    { credentialId: '1', email: 'Maria@x.com', scope: 'human', systemAdmin: false, state: 'active', createdAt: '2026-10-02T10:00:00Z', projects: [{ projectId: 'p1', projectName: 'AVBOne', role: 'colaborador' }, { projectId: 'p2', projectName: 'Portal RH', role: 'colaborador' }] },
+    { credentialId: '2', email: 'maria@x.com', scope: 'human', systemAdmin: false, state: 'active', createdAt: '2026-09-01T10:00:00Z', projectId: 'p1', role: 'administrador' },
+    { credentialId: '3', email: 'revogado@x.com', scope: 'human', systemAdmin: false, state: 'revoked', createdAt: null }
+  ], 'p1');
+  assert.equal(members.length, 1);
+  assert.equal(members[0].credentials, 2);
+  assert.deepEqual(members[0].roles, ['colaborador', 'administrador']);
+  assert.equal(members[0].since, '2026-09-01T10:00:00Z');
+  assert.deepEqual(members[0].otherProjects, ['Portal RH']);
+  const people = ['a@x.com', 'b@x.com', 'c@x.com', 'd@x.com', 'e@x.com', 'f@x.com'].map(email => ({ email, lines: ['Papel: Colaborador'] }));
+  const html = renderToStaticMarkup(createElement(AvatarStack, { people, max: 4, label: 'Responsáveis de AVBOne' }));
+  assert.equal((html.match(/role="listitem"/g) ?? []).length, 5);
+  assert.match(html, /role="tooltip"/);
+  assert.match(html, />\+2</);
+  assert.match(html, /Papel: Colaborador/);
+  assert.match(renderToStaticMarkup(createElement(AvatarStack, { people: [], label: 'x' })), /Sem responsáveis/);
+});
