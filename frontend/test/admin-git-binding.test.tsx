@@ -30,8 +30,30 @@ test('carrega e renderiza os campos Git salvos para o repositório selecionado',
     onRequestHardDeleteProject() {}, onArchiveProject() {}
   })));
 
-  assert.ok(html.includes('value="https://example.com/backend.git"'));
-  assert.ok(html.includes(`value="${rootCommit}"`));
-  assert.match(html, /vinculado/);
+  // Vinculado: resumo somente leitura com URL e commit raiz; edição só sob demanda.
+  assert.match(html, /aria-label="Repositório backend"/);
+  assert.ok(html.includes('https://example.com/backend.git'));
+  assert.ok(html.includes(rootCommit.slice(0, 12)));
+  assert.match(html, /✓ vinculado/);
+  assert.match(html, />Editar vínculo</);
+  // Sem vínculo: formulário já aberto, com a URL do cadastro sugerida e o comando para achar o commit raiz.
   assert.match(html, /sem vínculo/);
+  assert.ok(html.includes('value="file:///frontend"'));
+  assert.match(html, /git rev-list --max-parents=0 HEAD/);
+  assert.match(html, /<button[^>]*disabled[^>]*>Salvar vínculo</, 'salvar só habilita com URL e commit válidos');
+  assert.match(html, /Sem vínculo, a ponte Git não reconhece este repositório/);
+  assert.match(html, /1 de 2 repositórios vinculados/);
+});
+
+test('validação do vínculo: commit raiz de 40 hex e URL de remoto', async () => {
+  const { isValidRootCommit, isValidRemoteUrl } = await vite.ssrLoadModule('/src/components/admin/RepositoryGitBinding.tsx');
+  assert.equal(isValidRootCommit('a'.repeat(40)), true);
+  assert.equal(isValidRootCommit(' ' + 'A1'.repeat(20) + ' '), true);
+  assert.equal(isValidRootCommit('a'.repeat(39)), false);
+  assert.equal(isValidRootCommit('g'.repeat(40)), false);
+  assert.equal(isValidRemoteUrl('https://github.com/org/repo.git'), true);
+  assert.equal(isValidRemoteUrl('git@github.com:org/repo.git'), true);
+  assert.equal(isValidRemoteUrl('ssh://git@host/org/repo.git'), true);
+  assert.equal(isValidRemoteUrl('github.com/org/repo'), false);
+  assert.equal(isValidRemoteUrl(''), false);
 });

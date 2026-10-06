@@ -28,7 +28,7 @@ test('administration exposes four linked tabs, hides export initially, and prese
   assert.match(html, /aria-controls="admin-panel-tools"/);
   assert.match(html, /id="admin-panel-export"[^>]*hidden/);
   assert.match(html, /Emitir credencial de agente/);
-  assert.match(html, /Vincular repositório Git/);
+  assert.match(html, /Vincular repositórios Git/);
   assert.match(html, /Baixar JSON completo/);
   assert.match(html, /Copiar para o chat/);
   assert.match(html, /Projeto de teste/);

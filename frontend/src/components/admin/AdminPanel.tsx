@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { listAdminCredentials, operationId, request } from '../../api';
 import type { AdminCredential, Project } from '../../api';
@@ -7,6 +7,7 @@ import { copyToClipboard } from '../../lib/clipboard';
 import { errorMessage } from '../../lib/format';
 import { makeToken } from '../../lib/token';
 import { ProjectExportPanel } from './ProjectExportPanel';
+import { RepositoryGitBinding } from './RepositoryGitBinding';
 import { ProjectImportPanel } from './ProjectImportPanel';
 import './admin-panels.css';
 
@@ -31,9 +32,6 @@ export function AdminPanel({ project, projects, onChanged, notify, token, canHar
   const [agentEmail, setAgentEmail] = useState('');
   const [agentIssueConfirmed, setAgentIssueConfirmed] = useState(false);
   const [memberEmail, setMemberEmail] = useState('');
-  const [repositoryId, setRepositoryId] = useState(project.repositories?.[0]?.id ?? '');
-  const [remoteUrl, setRemoteUrl] = useState(() => repositoryGitFields(project, project.repositories?.[0]?.id ?? '').remoteUrl);
-  const [rootCommit, setRootCommit] = useState(() => repositoryGitFields(project, project.repositories?.[0]?.id ?? '').rootCommit);
   const [issued, setIssued] = useState<{ token: string; id: string; email: string; scope: string; projectName?: string } | null>(null);
   const [credentialEmail, setCredentialEmail] = useState('');
   const [credentialScope, setCredentialScope] = useState<'all' | 'human' | 'agent'>('all');
@@ -41,14 +39,6 @@ export function AdminPanel({ project, projects, onChanged, notify, token, canHar
   const [credentialProjectId, setCredentialProjectId] = useState(systemAdmin ? '' : project._id);
   const [credentialLimit, setCredentialLimit] = useState(25);
   const [credentialCursors, setCredentialCursors] = useState<Array<string | undefined>>([undefined]);
-  useEffect(() => {
-    const repository = project.repositories?.find(item => item.id === repositoryId) ?? project.repositories?.[0];
-    const selectedId = repository?.id ?? '';
-    if (selectedId !== repositoryId) setRepositoryId(selectedId);
-    const fields = repositoryGitFields(project, selectedId);
-    setRemoteUrl(fields.remoteUrl);
-    setRootCommit(fields.rootCommit);
-  }, [project._id, project.repositories, repositoryId]);
   useEffect(() => {
     setCredentialProjectId(systemAdmin ? '' : project._id);
     setCredentialCursors([undefined]);
@@ -146,16 +136,13 @@ export function AdminPanel({ project, projects, onChanged, notify, token, canHar
     } catch (error) { notify(errorMessage(error), 'error'); }
   }
 
-  async function bindRepository(event: FormEvent) {
-    event.preventDefault();
+  async function bindRepository(repositoryId: string, remoteUrl: string, rootCommit: string): Promise<boolean> {
     try {
-      const updated = await bindingMutation.mutateAsync({ action: 'bind_repository_git', operationId: operationId(), projectId: project._id, version: project.version, repositoryId, canonicalRemoteUrl: remoteUrl.trim(), rootCommit: rootCommit.trim() });
-      const fields = repositoryGitFields(updated, repositoryId);
-      setRemoteUrl(fields.remoteUrl || remoteUrl.trim());
-      setRootCommit(fields.rootCommit || rootCommit.trim().toLowerCase());
+      await bindingMutation.mutateAsync({ action: 'bind_repository_git', operationId: operationId(), projectId: project._id, version: project.version, repositoryId, canonicalRemoteUrl: remoteUrl, rootCommit });
       notify('Vínculo Git salvo.', 'success');
-      onChanged();
-    } catch (error) { notify(errorMessage(error), 'error'); }
+      await onChanged();
+      return true;
+    } catch (error) { notify(errorMessage(error), 'error'); return false; }
   }
 
   async function copyIssued() {
@@ -182,9 +169,7 @@ export function AdminPanel({ project, projects, onChanged, notify, token, canHar
 
     <div id="admin-panel-tools" role="tabpanel" aria-labelledby="admin-tab-tools" hidden={activePanel !== 'tools'} tabIndex={0}>
     <div className="admin-disclosure-content"><div className="admin-grid">
-    <section className="panel-card wide-card"><div className="section-heading"><div><p className="eyebrow">REPOSITÓRIOS</p><h2>Vincular repositório Git</h2></div><span className="lock-mark">⌑</span></div><p className="muted-text">O vínculo identifica o repositório; as permissões continuam sendo controladas pelo projeto.</p><form className="admin-form-grid" onSubmit={bindRepository}><label>Repositório<select value={repositoryId} onChange={event => { const nextId = event.target.value; setRepositoryId(nextId); const fields = repositoryGitFields(project, nextId); setRemoteUrl(fields.remoteUrl); setRootCommit(fields.rootCommit); }} required><option value="">Selecione</option>{(project.repositories ?? []).map(repository => <option value={repository.id} key={repository.id}>{repository.name}</option>)}</select></label><label>URL Git canônica<input value={remoteUrl} onChange={event => setRemoteUrl(event.target.value)} required placeholder="https://github.com/org/repo.git" /></label><label>Commit raiz<input value={rootCommit} onChange={event => setRootCommit(event.target.value)} required minLength={40} maxLength={40} placeholder="40 caracteres hexadecimais" /><small className="git-root-help" role="note"><span>Para localizar o commit raiz, execute na pasta do repositório:</span><code>git rev-list --max-parents=0 HEAD</code><span>Copie o hash de 40 caracteres retornado.</span></small></label><button className="button secondary" disabled={busy || !repositoryId}>Salvar vínculo</button></form>
-      <div className="repository-list">{(project.repositories ?? []).map(repository => <div className="resource-row static-row" key={repository.id}><span><strong>{repository.name}</strong><small>{repository.git?.canonicalRemoteUrl ?? repository.url}</small></span><Badge>{repository.git ? 'vinculado' : 'sem vínculo'}</Badge></div>)}</div>
-    </section>
+    <RepositoryGitBinding project={project} busy={busy} onSave={bindRepository} />
     </div></div>
     </div>
     <div id="admin-panel-credentials" role="tabpanel" aria-labelledby="admin-tab-credentials" hidden={activePanel !== 'credentials'} tabIndex={0}>
