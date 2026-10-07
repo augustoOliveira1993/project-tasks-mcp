@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { allRecords, operationId, query, request } from '../../api';
 import { copyToClipboard } from '../../lib/clipboard';
@@ -61,6 +62,9 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
   const [mobileView, setMobileView] = useState<'list' | 'detail'>(requestedConversationId ? 'detail' : 'list');
   const [detailTab, setDetailTab] = useState<'chat' | 'criteria'>('chat');
   const [asideOpen, setAsideOpen] = useState(true);
+  // O App expõe um slot no cabeçalho da página; sem ele (testes, SSR) o botão fica na lista.
+  const [headingSlot, setHeadingSlot] = useState<HTMLElement | null>(null);
+  useEffect(() => { setHeadingSlot(document.getElementById('conversation-heading-actions')); }, []);
   const [idCopied, setIdCopied] = useState(false);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
@@ -313,6 +317,7 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
   function chooseConversation(id: string) { setSelectedId(id); setMobileView('detail'); setDetailTab('chat'); onConversationSelected?.(id); }
   function fillDraft(text: string) { setDraft(text); window.requestAnimationFrame(() => composerRef.current?.focus()); }
 
+  const newConversationButton = <button type="button" className="button primary conversation-new-button" onClick={() => create.mutate()} disabled={create.isPending}>{create.isPending ? 'Criando…' : 'Nova conversa'}</button>;
   const taskCard = latest?.task ? <div className="conversation-task-card">
     <p className="conversation-task-name">{renderInlineCode(stripTaskPrefix(latest.task.name))}</p>
     <div className="conversation-task-meta">
@@ -327,7 +332,7 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
   return <section className={'conversation-layout' + (showAside ? ' has-aside' : '') + (showAside && !asideOpen ? ' aside-collapsed' : '')} data-view={mobileView} data-tab={detailTab}>
     <aside className="panel-card conversation-sidebar" aria-label="Lista de conversas">
       <div className="section-heading conversation-sidebar-heading"><div><h2>Conversas</h2><p className="muted-text">Histórico compartilhado do projeto</p></div>
-        <button type="button" className="button primary conversation-new-button" onClick={() => create.mutate()} disabled={create.isPending}>{create.isPending ? 'Criando…' : 'Nova conversa'}</button></div>
+        {headingSlot ? null : newConversationButton}</div>
       <input type="search" className="conversation-search" value={listSearch} onChange={event => setListSearch(event.target.value)} placeholder="Buscar conversas" aria-label="Buscar conversas" />
       <div className="conversation-filters" role="group" aria-label="Filtrar conversas">{listFilters.map(item => <button type="button" key={item.id} className={'conversation-filter' + (listFilter === item.id ? ' active' : '')} aria-pressed={listFilter === item.id} onClick={() => setListFilter(item.id)}>{item.label}{item.count > 0 && item.id !== 'all' && <span className="conversation-filter-count">{item.count}</span>}</button>)}</div>
       {conversations.isPending ? <Skeleton rows={5} label="Carregando conversas…" /> : conversations.isError ? <div className="notice error">{errorMessage(conversations.error)}</div> : visibleConversationItems.length ? <><div className="conversation-list">{visibleConversationItems.map(item => {
@@ -378,6 +383,7 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
         </>}
       </>}
     </section>
+    {headingSlot && createPortal(newConversationButton, headingSlot)}
     {showAside && latest && <ConversationAside detail={latest} taskContext={taskContext} onOpenAdmin={onOpenAdmin} tabs={tabs} token={token} nonce={nonce} projectId={projectId} hasPendingProposal={Boolean(pendingProposal)} taskCard={taskCard} />}
   </section>;
 }
