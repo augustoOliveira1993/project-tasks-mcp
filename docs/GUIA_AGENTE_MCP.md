@@ -86,7 +86,7 @@ Erros de ferramenta retornam `code`, `error`, `reason`, `recoverable` e `nextAct
 - Conflito de versão: consulte `get_task_context`, use a versão nova e gere outro `operationId`.
 - Dependência não aprovada: consulte o contexto e aguarde aprovação humana.
 - Tarefa indisponível: confirme o status antes de repetir `claim_task`.
-- Execução expirada ou inativa: não reutilize o `executionId`; pode ser necessária recuperação humana.
+- Execução expirada ou inativa: não reutilize o `executionId`; consulte `get_task_context` e, se a tarefa estiver pendente e as dependências permitirem, faça uma nova reivindicação. Se estiver bloqueada, resolva o bloqueio explicitamente antes de continuar.
 - Outra credencial: não repita a mutação; o agente responsável ou uma pessoa deve decidir o próximo passo.
 - Credencial ou acesso: valide token, projeto e escopo antes de tentar de novo.
 

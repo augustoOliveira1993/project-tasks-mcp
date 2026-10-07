@@ -134,9 +134,11 @@ export const approveTasksSchema = z.object({
   reason: text.default('Aprovado manualmente em lote')
 }).strict();
 export const changeTaskStatusSchema = z.object({
+  operationId: id.optional(),
   projectId: id,
   taskId: id,
-  status: z.enum(['pendente', 'em_revisao', 'concluida', 'cancelada']),
+  version: z.number().int().nonnegative(),
+  status: z.enum(['pendente', 'bloqueada', 'em_revisao', 'concluida', 'cancelada']),
   reason: text
 }).strict();
 export const setTaskCheckedSchema = z.object({ ...op, projectId: id, taskId: id, version: z.number().int().nonnegative(), checked: z.boolean() }).strict();

@@ -1589,23 +1589,32 @@ export class Service {
   async changeTaskStatus(actor: Actor, input: unknown) {
     requireThat(actor.scope === 'human', 'Human credential required', 403);
     const body = changeTaskStatusSchema.parse(input);
-    const operationId = randomUUID();
+    const operationId = body.operationId ?? randomUUID();
     return this.mutate(actor, 'admin', { action: 'change_task_status', operationId, ...body }, async s => {
       const task = await Task.findOne({ _id: body.taskId, projectId: body.projectId, archived: false }).session(s);
-      requireThat(task, 'Task not found', 404);
+      requireThat(task && task.version === body.version, 'Task version conflict or not found');
       return this.applyTaskStatus(actor, task, body, s, 'manual_status_change', operationId);
     }, false);
   }
   private async applyTaskStatus(actor: Actor, task: any, body: any, s: ClientSession, eventAction: string, operationId: string) {
     const allowed: Record<string, string[]> = {
       pendente: ['em_revisao', 'concluida', 'cancelada'],
+      em_execucao: ['bloqueada'],
       bloqueada: ['pendente', 'em_revisao', 'concluida', 'cancelada'],
       em_revisao: ['pendente', 'concluida', 'cancelada'],
       concluida: ['pendente']
     };
     requireThat(allowed[task.status!]?.includes(body.status), 'Invalid administrative status transition');
     task.status = body.status; task.leaseUntil = undefined; task.version! += 1;
-    if (task.executionId && ['concluida', 'cancelada'].includes(body.status)) await Execution.updateOne({ _id: task.executionId }, { status: body.status === 'concluida' ? 'approve' : 'cancel', endedAt: new Date() }, { session: s });
+    if (body.status === 'bloqueada') {
+      requireThat(task.executionId, 'Active execution not found');
+      const execution = await Execution.findOne({ _id: task.executionId, projectId: body.projectId, taskId: task._id }).session(s);
+      requireThat(execution, 'Execution not found');
+      execution.status = 'bloqueada'; execution.endedAt = new Date(); execution.impediments.push(body.reason);
+      await execution.save({ session: s });
+    } else if (task.executionId && ['concluida', 'cancelada'].includes(body.status)) {
+      await Execution.updateOne({ _id: task.executionId }, { status: body.status === 'concluida' ? 'approve' : 'cancel', endedAt: new Date() }, { session: s });
+    }
     await AutomationJob.updateMany({ taskId: task._id }, { $set: { authorizationValid: false }, $inc: { version: 1 } }, { session: s });
     await task.save({ session: s });
     await this.event(s, actor, eventAction, body.projectId, body.taskId, { action: eventAction === 'manual_status_change' ? 'change_task_status' : eventAction, operationId, ...body, task: plain(task) });
@@ -1644,9 +1653,9 @@ export class Service {
   async expire() {
     const expired = await Task.find({ status: 'em_execucao', leaseUntil: { $lte: new Date() } }).select('_id').limit(100).lean();
     for (const row of expired) await mongoose.connection.transaction(async s => {
-      const t = await Task.findOneAndUpdate({ _id: row._id, status: 'em_execucao', leaseUntil: { $lte: new Date() } }, { $set: { status: 'bloqueada' }, $unset: { leaseUntil: 1 }, $inc: { version: 1 } }, { returnDocument: 'after', session: s });
+      const t = await Task.findOneAndUpdate({ _id: row._id, status: 'em_execucao', leaseUntil: { $lte: new Date() } }, { $set: { status: 'pendente' }, $unset: { leaseUntil: 1 }, $inc: { version: 1 } }, { returnDocument: 'after', session: s });
       if (!t) return;
-      await Execution.updateOne({ _id: t.executionId }, { $set: { status: 'expired', endedAt: new Date() }, $push: { impediments: 'Execution lease expired; explicit human recovery required' } }, { session: s });
+      await Execution.updateOne({ _id: t.executionId }, { $set: { status: 'expired', endedAt: new Date() }, $push: { impediments: 'Execution lease expired; task returned to pending' } }, { session: s });
       await this.event(s, { id: 'system', userId: 'system', scope: 'system', systemAdmin: false }, 'expired', t.projectId!, t._id!, { executionId: t.executionId });
     });
   }

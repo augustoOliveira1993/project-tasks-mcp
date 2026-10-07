@@ -382,11 +382,22 @@ function App() {
     const form = new FormData(event.currentTarget);
     setSaving(true);
     try {
-      await adminMutation.mutateAsync({ path: '/admin/tasks/status', body: { projectId: activeProjectId, taskId: statusTask._id, status: String(form.get('status')), reason: String(form.get('reason')).trim() } });
+      await adminMutation.mutateAsync({ path: '/admin/tasks/status', body: { operationId: operationId(), projectId: activeProjectId, taskId: statusTask._id, version: statusTask.version, status: String(form.get('status')), reason: String(form.get('reason')).trim() } });
       setStatusTask(null);
-      await queryClient.invalidateQueries({ queryKey: ['project-tasks', nonce, activeProjectId] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['project-tasks', nonce, activeProjectId] }),
+        queryClient.invalidateQueries({ queryKey: ['task-context', nonce, activeProjectId, statusTask._id] }),
+        queryClient.invalidateQueries({ queryKey: ['task-activity', nonce, activeProjectId, statusTask._id] }),
+        queryClient.invalidateQueries({ queryKey: ['project-sync-report', nonce, activeProjectId] })
+      ]);
       notify('Status atualizado.', 'success');
-    } catch (error) { notify(errorMessage(error), 'error'); await queryClient.invalidateQueries({ queryKey: ['project-tasks', nonce, activeProjectId] }); }
+    } catch (error) {
+      notify(errorMessage(error), 'error');
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['project-tasks', nonce, activeProjectId] }),
+        queryClient.invalidateQueries({ queryKey: ['task-context', nonce, activeProjectId, statusTask._id] })
+      ]);
+    }
     finally { setSaving(false); }
   }
   async function approveSelected(taskIds: string[], reason: string): Promise<boolean> {
@@ -440,7 +451,7 @@ function App() {
     ]);
     try {
       if (decision === 'approve') await adminMutation.mutateAsync({ path: '/admin/tasks/approve', body: { projectId: activeProjectId, taskIds: [task._id], ...(reason ? { reason } : {}) } });
-      else await adminMutation.mutateAsync({ path: '/admin/tasks/status', body: { projectId: activeProjectId, taskId: task._id, status: 'pendente', reason } });
+      else await adminMutation.mutateAsync({ path: '/admin/tasks/status', body: { operationId: operationId(), projectId: activeProjectId, taskId: task._id, version: task.version, status: 'pendente', reason } });
       await refresh();
       notify(decision === 'approve' ? 'Tarefa aprovada e concluída.' : decision === 'return' ? 'Tarefa devolvida para ajustes.' : 'Tarefa desbloqueada.', 'success');
       return true;

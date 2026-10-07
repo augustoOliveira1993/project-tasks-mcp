@@ -369,7 +369,7 @@ export function TaskDetailsContent({ variant, token, nonce, projectId, project, 
         <button type="button" className={actionSecondary} disabled={features.isPending} onClick={() => setEditing(true)}>Editar</button>
         <DropdownMenu ariaLabel="Mais ações da tarefa" triggerClassName={actionSecondary} items={[
           { id: 'transfer', label: 'Transferir tarefa' },
-          ...(onChangeStatus ? [{ id: 'status', label: 'Alterar status…' }] : []),
+          ...(onChangeStatus ? [{ id: 'status', label: status === 'em_execucao' ? 'Bloquear tarefa…' : 'Alterar status…' }] : []),
           { id: 'assign', label: 'Atribuir responsável…' },
           { id: 'full', label: 'Resumo completo', dividerBefore: true },
           { id: 'json', label: 'Ver JSON' }

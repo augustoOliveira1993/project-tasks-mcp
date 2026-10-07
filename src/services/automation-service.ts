@@ -162,7 +162,7 @@ export class Automation {
     const job = await AutomationJob.findOne({ _id: a.jobId, projectId: a.projectId, runnerId: a.runnerId, credentialId: actor.id }).session(s ?? null);
     ensure(job, 'Job belongs to another runner', 403);
     ensure(runner.repositories.includes(job.repositoryId!) && runner.providers.includes(job.provider!), 'Runner capability was removed', 403);
-    ensure(allowTerminal && ['completed', 'blocked', 'cancelled'].includes(job.status!) || job.reservationUntil && job.reservationUntil > new Date() && active.includes(job.status!), 'Reservation inactive or expired');
+    ensure(allowTerminal && ['completed', 'blocked', 'failed', 'cancelled'].includes(job.status!) || job.reservationUntil && job.reservationUntil > new Date() && active.includes(job.status!), 'Reservation inactive or expired');
     return job;
   }
   async runner(actor: Actor, input: unknown): Promise<any> {
@@ -294,8 +294,9 @@ export class Automation {
         ensure(a.outcome !== 'completed' || task?.status === 'em_revisao' || task?.status === 'concluida' || job.mode === 'consultation', 'Submit task before completing work');
         job.status = a.outcome; job.error = a.error;
         if (task?.status === 'em_execucao' && task.executionId === job.executionId) {
-          task.status = 'bloqueada'; task.leaseUntil = undefined; task.version!++; await task.save({ session: s });
-          await Execution.updateOne({ _id: job.executionId }, { $set: { status: 'bloqueada', endedAt: new Date() }, $push: { impediments: a.error ?? 'Runner stopped' } }, { session: s });
+          const explicitlyBlocked = a.outcome === 'blocked';
+          task.status = explicitlyBlocked ? 'bloqueada' : 'pendente'; task.leaseUntil = undefined; task.version!++; await task.save({ session: s });
+          await Execution.updateOne({ _id: job.executionId }, { $set: { status: explicitlyBlocked ? 'bloqueada' : 'failed', endedAt: new Date() }, $push: { impediments: a.error ?? (explicitlyBlocked ? 'Runner requested a block' : 'Runner ended; task returned to pending') } }, { session: s });
         }
       }
       job.version!++; await job.save({ session: s });
@@ -310,9 +311,9 @@ export class Automation {
       try { await session.withTransaction(async () => {
         const job = await AutomationJob.findOne({ _id: row._id, status: { $in: active } }).session(session);
         if (!job || job.reservationUntil! > new Date() && job.startedAt! > new Date(Date.now() - 30 * 60000)) return;
-        job.status = 'blocked'; job.error = 'Runner reservation/budget expired; human recovery required'; job.version!++; await job.save({ session });
+        job.status = 'failed'; job.error = 'Runner reservation/budget expired; task returned to pending'; job.version!++; await job.save({ session });
         const task = job.executionId ? await Task.findOne({ _id: job.taskId, executionId: job.executionId, status: 'em_execucao' }).session(session) : null;
-        if (task) { task.status = 'bloqueada'; task.leaseUntil = undefined; task.version!++; await task.save({ session }); await Execution.updateOne({ _id: job.executionId }, { $set: { status: 'expired', endedAt: new Date() }, $push: { impediments: job.error } }, { session }); }
+        if (task) { task.status = 'pendente'; task.leaseUntil = undefined; task.version!++; await task.save({ session }); await Execution.updateOne({ _id: job.executionId }, { $set: { status: 'expired', endedAt: new Date() }, $push: { impediments: job.error } }, { session }); }
         await this.service.event(session, { id: 'system', userId: 'system', scope: 'system', systemAdmin: false }, 'automation_expired', job.projectId!, job._id!, { taskId: job.taskId });
       }); } finally { await session.endSession(); }
     }
