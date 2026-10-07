@@ -177,7 +177,7 @@ test('painel mostra previews por tipo e exige confirmação antes de excluir', a
   const tick = () => new Promise(resolve => setTimeout(resolve, 0));
   const select = (selector: string) => host.querySelector(selector) as unknown as HTMLElement | null;
   const findButton = (label: string) => select(`button[aria-label="${label}"]`) as HTMLButtonElement | null;
-  const listedNames = () => (Array.from(host.querySelectorAll('.task-attachment-card > .task-attachment-info > strong')) as unknown as HTMLElement[]).map(node => node.textContent);
+  const listedNames = () => (Array.from(host.querySelectorAll('li[aria-busy] > div > strong')) as unknown as HTMLElement[]).map(node => node.textContent);
   try {
     await act(async () => root.render(createElement(QueryClientProvider, { client }, createElement(TaskAttachmentsPanel, {
       token: 'token', nonce: 'nonce', projectId: 'project-1', taskId: 'task-1'
@@ -206,7 +206,7 @@ test('painel mostra previews por tipo e exige confirmação antes de excluir', a
       Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value')?.set?.call(input, 'foto renomeada.jpg');
       input.dispatchEvent(new dom.Event('input', { bubbles: true }) as unknown as Event);
       input.dispatchEvent(new dom.Event('change', { bubbles: true }) as unknown as Event);
-      (select('.task-attachment-edit') as HTMLFormElement | null)?.dispatchEvent(new dom.Event('submit', { bubbles: true, cancelable: true }) as unknown as Event);
+      (select('form') as HTMLFormElement | null)?.dispatchEvent(new dom.Event('submit', { bubbles: true, cancelable: true }) as unknown as Event);
       for (let i = 0; i < 20 && !host.textContent?.includes('foto renomeada.jpg'); i++) await tick();
     });
     assert.ok(listedNames().includes('foto renomeada.jpg'));

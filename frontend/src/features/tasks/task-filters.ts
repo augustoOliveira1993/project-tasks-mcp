@@ -16,6 +16,10 @@ export type TaskFilterOptions = {
   priority: TaskFacetOption[];
 };
 
+/** Valores especiais de filtro (usados pelo dashboard) para tarefas sem responsável / sem área. */
+export const noResponsibleFilter = 'sem-responsavel';
+export const noAreaFilter = 'sem-area';
+
 type FilterKey = keyof TaskFilters;
 
 export function filterTasks(tasks: Task[], filters: TaskFilters, excluded?: FilterKey): Task[] {
@@ -25,10 +29,10 @@ export function filterTasks(tasks: Task[], filters: TaskFilters, excluded?: Filt
       .filter(Boolean).join(' ').toLocaleLowerCase('pt-BR');
     return (excluded === 'search' || !filters.search || haystack.includes(search))
       && (excluded === 'status' || filters.status === 'todos' || task.status === filters.status)
-      && (excluded === 'area' || filters.area === 'todos' || task.area === filters.area)
+      && (excluded === 'area' || filters.area === 'todos' || (filters.area === noAreaFilter ? !task.area : task.area === filters.area))
       && (excluded === 'type' || filters.type === 'todos' || task.type === filters.type)
       && (excluded === 'priority' || !filters.priority || String(task.priority ?? '') === filters.priority)
-      && (excluded === 'responsible' || !filters.responsible || (task.responsible ?? '').toLocaleLowerCase('pt-BR').includes(filters.responsible.toLocaleLowerCase('pt-BR')))
+      && (excluded === 'responsible' || !filters.responsible || (filters.responsible === noResponsibleFilter ? !task.responsible?.trim() : (task.responsible ?? '').toLocaleLowerCase('pt-BR').includes(filters.responsible.toLocaleLowerCase('pt-BR'))))
       && (excluded === 'featureId' || !filters.featureId || (task.featureId ?? '').toLocaleLowerCase('pt-BR').includes(filters.featureId.toLocaleLowerCase('pt-BR')))
       && (excluded === 'createdAfter' || !filters.createdAfter || String(task.createdAt ?? '').slice(0, 10) >= filters.createdAfter)
       && (excluded === 'createdBefore' || !filters.createdBefore || String(task.createdAt ?? '').slice(0, 10) <= filters.createdBefore)

@@ -1,19 +1,28 @@
-export type AppRoute = 'projects' | 'tasks' | 'conversations' | 'activity' | 'globalActivity' | 'catalogs' | 'catalogProjects' | 'catalogFeatures' | 'catalogTasks' | 'catalogAreas' | 'catalogResponsibles' | 'settings' | 'help';
-export type AppTab = 'tasks' | 'chat' | 'activity' | 'catalogs' | 'admin' | 'help';
+export type AppRoute = 'projects' | 'tasks' | 'task' | 'dashboard' | 'conversations' | 'activity' | 'globalActivity' | 'catalogs' | 'catalogProjects' | 'catalogFeatures' | 'catalogTasks' | 'catalogAreas' | 'catalogResponsibles' | 'settings' | 'help';
+export type AppTab = 'tasks' | 'dashboard' | 'chat' | 'activity' | 'catalogs' | 'admin' | 'help';
 export type CatalogSection = 'projects' | 'features' | 'tasks' | 'responsibles';
 
-const routePaths: Record<AppRoute, string> = {
-  projects: '/projects', tasks: '/tasks', conversations: '/conversations',
+const routePaths: Record<Exclude<AppRoute, 'task'>, string> = {
+  projects: '/projects', tasks: '/tasks', dashboard: '/dashboard', conversations: '/conversations',
   activity: '/activity', globalActivity: '/activity/global', catalogs: '/catalogs', catalogProjects: '/catalogs/projects', catalogFeatures: '/catalogs/features',
   catalogTasks: '/catalogs/tasks', catalogAreas: '/catalogs/areas', catalogResponsibles: '/catalogs/responsibles', settings: '/settings', help: '/help'
 };
 
 const tabRoutes: Record<AppTab, AppRoute> = {
-  tasks: 'tasks', chat: 'conversations', activity: 'activity', catalogs: 'catalogs', admin: 'settings', help: 'help'
+  tasks: 'tasks', dashboard: 'dashboard', chat: 'conversations', activity: 'activity', catalogs: 'catalogs', admin: 'settings', help: 'help'
 };
+
+const taskPagePattern = /^\/tasks\/([^/]+)$/;
+
+export function taskIdFromPath(pathname: string): string {
+  const match = taskPagePattern.exec(pathname.replace(/\/+$/, ''));
+  if (!match) return '';
+  try { return decodeURIComponent(match[1]); } catch { return ''; }
+}
 
 export function routeFromPath(pathname: string): AppRoute {
   const path = pathname.replace(/\/+$/, '') || '/';
+  if (taskIdFromPath(path)) return 'task';
   const route = (Object.entries(routePaths) as Array<[AppRoute, string]>).find(([, value]) => value === path)?.[0];
   // /admin remains the existing SPA entry point; its default view is the task workspace.
   return route ?? 'tasks';
@@ -24,6 +33,7 @@ export function routeForTab(tab: AppTab): AppRoute {
 }
 
 export function tabForRoute(route: AppRoute): AppTab {
+  if (route === 'task') return 'tasks';
   if (route === 'conversations') return 'chat';
   if (route === 'globalActivity') return 'activity';
   if (route === 'settings') return 'admin';
@@ -45,7 +55,12 @@ export function routeForCatalogSection(section: CatalogSection): AppRoute {
 }
 
 export function pathForRoute(route: AppRoute): string {
-  return routePaths[route];
+  return route === 'task' ? routePaths.tasks : routePaths[route];
+}
+
+/** Página dedicada de uma tarefa: /tasks/:taskId?projectId=… */
+export function taskPageUrl(projectId: string, taskId: string): string {
+  return `${routePaths.tasks}/${encodeURIComponent(taskId)}${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ''}`;
 }
 
 export function projectIdFromSearch(search: string): string {

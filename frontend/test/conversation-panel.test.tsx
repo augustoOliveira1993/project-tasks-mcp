@@ -53,7 +53,7 @@ test('painel inicia conversa no escopo do projeto e oferece retomada paginada', 
   assert.match(html, /Sem mensagens ainda/);
   assert.match(html, /aria-label="Buscar conversas"/);
   assert.match(html, /aria-label="Lista de conversas"/);
-  assert.match(html, /conversation-list-item-meta[^>]*><span class="badge[^>]*>Pendente</);
+  assert.match(html, /<span class="inline-flex [^"]*"[^>]*>Pendente</);
   assert.doesNotMatch(html, /Área · Backend|Feature · Colaboração por task/, 'a lista não repete área e feature da task');
   assert.doesNotMatch(html, /Autorizar execução/);
 });
@@ -61,7 +61,7 @@ test('painel inicia conversa no escopo do projeto e oferece retomada paginada', 
 test('painel apresenta erro de sessão retornado pela API', () => {
   const html = renderPanel([], null, new Error('Sessão expirada'));
 
-  assert.match(html, /notice error/);
+  assert.match(html, /bg-\[#fff6f6\][^"]*"[^>]*>Sessão expirada</);
   assert.match(html, /Sessão expirada/);
 });
 
@@ -69,9 +69,9 @@ test('lista mostra a contagem não lida e só agenda leitura para cada novo curs
   const html = renderPanel([
     { _id: 'conversation-unread', projectId: 'project-id', taskId: null, title: 'Conversa pendente', status: 'open', unread: { count: 3, cursor: 'message-3' } }
   ]);
-  assert.match(html, /conversation-unread-dot[^>]*>3</);
+  assert.match(html, /aria-label="3 mensagens não lidas">3</);
   assert.match(html, /aria-label="3 mensagens não lidas"/);
-  assert.match(html, /conversation-filter-count">1</);
+  assert.match(html, /font-bold text-\[#1f6b3a\]">1</);
 
   const first = conversationActions.nextConversationReadAttempt(null, 'conversation-1', { count: 2, cursor: 'message-2' });
   assert.equal(first?.cursor, 'message-2');
@@ -89,7 +89,7 @@ test('falha ao marcar leitura oferece alerta acessível e retry', () => {
   }));
   assert.match(html, /role="alert"/);
   assert.match(html, /Falha de rede/);
-  assert.match(html, /<button type="button" class="text-button">Tentar novamente<\/button>/);
+  assert.match(html, /<button type="button" class="[^"]*text-\[#5c6bd5\][^"]*">Tentar novamente<\/button>/);
 });
 
 test('conversa vazia mantém criação geral e conversa sem vínculo oferece vincular tarefa', () => {
@@ -105,9 +105,9 @@ test('conversa vazia mantém criação geral e conversa sem vínculo oferece vin
   assert.match(unlinkedHtml, /aria-label="Mais ações da conversa"/, 'excluir e editar título ficam no menu ⋯');
   assert.doesNotMatch(unlinkedHtml, />Excluir conversa</);
   assert.match(unlinkedHtml, /Comece pelo objetivo da conversa/);
-  assert.match(unlinkedHtml, /class="suggestion"/);
-  assert.match(unlinkedHtml, /nav class="conversation-stepper" aria-label="Fases da conversa"/);
-  assert.match(unlinkedHtml, /send-button is-empty"[^>]*disabled/, 'Enviar desabilitado com o campo vazio');
+  assert.match(unlinkedHtml, /aria-label="Sugestões de mensagem"[^>]*><button type="button"/);
+  assert.match(unlinkedHtml, /<nav class="[^"]*" aria-label="Fases da conversa"/);
+  assert.match(unlinkedHtml, /<button class="[^"]*bg-\[#e3e6ec\][^"]*"[^>]*disabled[^>]*>Enviar</, 'Enviar desabilitado com o campo vazio');
   assert.doesNotMatch(unlinkedHtml, /new-conversation-task/);
 });
 
@@ -122,7 +122,7 @@ test('conversa vinculada mostra task e feature e mantém propostas', () => {
 
   assert.match(html, /Conversa vinculada à tarefa/);
   assert.match(html, /Task A/);
-  assert.match(html, /entity-chip[^>]*>[\s\S]*Colaboração por task/);
+  assert.match(html, /title="Ver todas as tarefas desta feature"[^>]*>[\s\S]*Colaboração por task/);
   assert.match(html, /PROPOSTA DE EXECUÇÃO · VERSÃO 0/);
   assert.match(html, /Aguardando autorização/);
   assert.match(html, />Autorizar execução</);
@@ -307,7 +307,7 @@ test('painel seleciona a conversa pedida pela navegação da task', () => {
     { _id: 'conversation-2', projectId: 'project-id', taskId: 'task-1', title: 'Conversa da task', status: 'open' }
   ], null, undefined, 'conversation-2');
 
-  assert.match(html, /aria-current="true" class="conversation-list-item active"><div class="conversation-list-item-head"><strong>Conversa da task/);
+  assert.match(html, /aria-current="true"[^>]*><div[^>]*><strong[^>]*>Conversa da task/);
 });
 
 test('chat mostra ícones de Codex e Claude, fallback acessível e identidade humana', () => {
@@ -322,18 +322,18 @@ test('chat mostra ícones de Codex e Claude, fallback acessível e identidade hu
     { _id: 'codex-message', author: 'augusto.oliveira@ferroeste.com.br', authorType: 'agent', clientName: 'Codex', content: 'Resposta Codex', createdAt: '2026-10-01T12:00:00.000Z' }
   ]);
 
-  assert.match(html, /conversation-agent-icon codex/);
-  assert.match(html, /conversation-agent-icon claude/);
+  assert.match(html, /text-\[#16836f\]/);
+  assert.match(html, /text-\[#cf6848\]/);
   assert.match(html, /Codex \(Augusto\)/);
   assert.match(html, /Claude \(Augusto\)/);
   assert.ok(html.indexOf('Resposta Codex') >= 0 && html.indexOf('Resposta Claude') > html.indexOf('Resposta Codex'));
   assert.match(html, /aria-hidden="true"/);
-  assert.match(html, /conversation-agent-icon generic/);
+  assert.match(html, /text-\[#647087\]/);
   assert.match(html, /IA \(Augusto\)/);
   assert.match(html, /Agente local \(Augusto\)/);
 
-  const humanArticle = html.match(/<article class="conversation-message human">[\s\S]*?<\/article>/)?.[0];
+  const humanArticle = html.match(/<article class="[^"]*flex-row-reverse[^"]*">[\s\S]*?<\/article>/)?.[0];
   assert.ok(humanArticle);
   assert.match(humanArticle, /Pessoa \(Augusto\)/);
-  assert.doesNotMatch(humanArticle, /conversation-agent-icon/);
+  assert.doesNotMatch(humanArticle, /size-\[15px\]/);
 });

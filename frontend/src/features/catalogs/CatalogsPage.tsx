@@ -4,6 +4,8 @@ import { FeaturesCatalog } from './FeaturesCatalog';
 import { ProjectsCatalog } from './ProjectsCatalog';
 import { ResponsiblesCatalog } from './ResponsiblesCatalog';
 import { TasksCatalog } from './TasksCatalog';
+import { catalogsDescription, catalogsHeading, catalogsTitle } from './catalogClasses';
+import { eyebrow } from '../../components/ui/classes';
 
 const titles: Record<CatalogSection, { title: string; description: string }> = {
   projects: { title: 'Projetos', description: 'Workspaces, visibilidade e repositórios' },
@@ -19,8 +21,8 @@ export function CatalogsPage({ section, token, nonce, projects, project, tasks, 
   onSelectProject: (projectId: string) => void; onChanged: () => void;
 }) {
   const heading = titles[section];
-  return <section className="catalogs-page">
-    <header className="page-heading catalogs-heading"><div><p className="eyebrow">WORKSPACE · CADASTROS</p><h1>{heading.title}</h1><p className="muted-text">{heading.description}. {section === 'projects' || section === 'responsibles' && systemAdmin ? 'Telas independentes para consultar e administrar os registros.' : project ? `Projeto ativo: ${project.name}.` : 'Selecione um projeto no menu lateral.'}</p></div></header>
+  return <section className="grid min-w-0 gap-3.5">
+    <header className={catalogsHeading}><div><p className={eyebrow}>WORKSPACE · CADASTROS</p><h1 className={catalogsTitle}>{heading.title}</h1><p className={catalogsDescription}>{heading.description}. {section === 'projects' || section === 'responsibles' && systemAdmin ? 'Telas independentes para consultar e administrar os registros.' : project ? `Projeto ativo: ${project.name}.` : 'Selecione um projeto no menu lateral.'}</p></div></header>
     {section === 'projects' && <ProjectsCatalog token={token} nonce={nonce} projects={projects} activeProjectId={project?._id ?? ''} notify={notify} onChanged={onChanged} onProjectCreated={onProjectCreated} onSelectProject={onSelectProject} />}
     {section === 'features' && <FeaturesCatalog token={token} nonce={nonce} projectId={project?._id ?? ''} notify={notify} onChanged={onChanged} />}
     {section === 'tasks' && <TasksCatalog token={token} nonce={nonce} project={project} tasks={tasks} notify={notify} onChanged={onChanged} />}

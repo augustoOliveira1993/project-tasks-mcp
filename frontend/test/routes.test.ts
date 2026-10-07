@@ -35,3 +35,17 @@ test('cada cadastro tem a própria rota e entrada no menu', async () => {
   for (const section of ['projects', 'features', 'tasks', 'responsibles'] as const) assert.equal(catalogSectionForRoute(routeForCatalogSection(section)), section);
   assert.equal(tabForRoute('catalogResponsibles'), 'catalogs');
 });
+
+test('página dedicada da tarefa tem rota /tasks/:id e preserva o projeto', async () => {
+  const { taskIdFromPath, taskPageUrl } = await import('../src/route-state.js');
+  assert.equal(routeFromPath('/tasks/task-1'), 'task');
+  assert.equal(routeFromPath('/tasks/task-1/'), 'task');
+  assert.equal(routeFromPath('/tasks'), 'tasks');
+  assert.equal(taskIdFromPath('/tasks/task%201'), 'task 1');
+  assert.equal(taskIdFromPath('/tasks'), '');
+  assert.equal(taskIdFromPath('/tasks/a/b'), '');
+  assert.equal(tabForRoute('task'), 'tasks');
+  assert.equal(pathForRoute('task'), '/tasks');
+  assert.equal(taskPageUrl('project-1', 'task 1'), '/tasks/task%201?projectId=project-1');
+  assert.equal(taskPageUrl('', 'task-1'), '/tasks/task-1');
+});

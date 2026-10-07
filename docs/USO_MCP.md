@@ -26,7 +26,7 @@ Use `get_project_novelties` para obter eventos de outros participantes após o c
 
 Fluxo recomendado para uma solicitação de trabalho:
 
-1. Resolva o projeto e a área. Use `list_records` para procurar tasks, features ou projetos existentes; use `list_pending` apenas para tasks pendentes executáveis e resumos para visão geral. Não crie registros duplicados.
+1. Se o pedido referenciar uma task por UUID/prefixo curto sem indicar projeto, use `resolve_task_context` para assumir o projeto e a área da task; depois confira `get_session_context` e carregue `get_task_context`. Se a referência for ambígua, peça o UUID completo; se não for encontrada, não substitua pelo projeto do workspace. Projeto indicado explicitamente tem precedência. Sem referência a task, resolva o projeto e a área normalmente. Use `list_records` para procurar tasks, features ou projetos existentes; use `list_pending` apenas para tasks pendentes executáveis e resumos para visão geral. Não crie registros duplicados.
 2. Para a task que corresponde claramente ao pedido, leia `get_task_context` e confira status, dependências, instruções, `acceptance` e `acceptanceProgress` antes de alterar estado ou arquivos. Se não houver correspondência clara, apresente o que encontrou e peça direção.
 3. Assuma uma task executável com `claim_task`; registre marcos com `record_progress`, mantenha o lease com `heartbeat_task` e marque cada critério com evidência objetiva em `set_acceptance_criterion` assim que for comprovado.
 4. Se outra task precisar coordenar contratos ou dependências, use as ferramentas de colaboração adequadas e inclua o ID relacionado. Não use o chat compartilhado como se ele despertasse outro agente.

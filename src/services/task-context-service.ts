@@ -69,7 +69,7 @@ function eventTaskStatus(event: any): string | undefined {
   return typeof status === 'string' ? status : undefined;
 }
 
-function buildStatusHistory(events: any[], task: { status: string; createdAt: Date; updatedAt: Date }, now = new Date()): TaskContextDto['task']['statusHistory'] {
+export function buildStatusHistory(events: any[], task: { status: string; createdAt: Date; updatedAt: Date }, now = new Date()): TaskContextDto['task']['statusHistory'] {
   const creation = events.find(event => event.action === 'create_task');
   const initialStatus = eventTaskStatus(creation) ?? (events.length ? 'pendente' : task.status);
   const states: Array<{ status: string; startedAt: Date }> = [{ status: initialStatus, startedAt: new Date(task.createdAt) }];

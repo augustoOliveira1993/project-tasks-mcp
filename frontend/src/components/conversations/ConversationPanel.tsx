@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { allRecords, operationId, query, request } from '../../api';
 import { copyToClipboard } from '../../lib/clipboard';
@@ -15,6 +16,7 @@ import { IconChevron, IconFeature, IconMore } from '../ui/icons';
 import { FeatureLink, FilterLink } from '../ui/Links';
 import { MarkdownView } from '../ui/MarkdownView';
 import { Skeleton } from '../ui/Skeleton';
+import { buttonBase, buttonGhost, buttonSecondarySmall, notice as noticeTone, textButton } from '../ui/classes';
 import { confirmConversationDeletion, createProjectConversation, deleteProjectConversation, historyAfterConversationDeletion, historyAfterConversationTitleUpdate, linkConversationTask, markConversationRead, nextConversationReadAttempt, scheduleTaskSearch, searchProjectTasks, updateConversationTitle, type ConversationReadAttempt } from './conversation-actions';
 import { ConversationAside } from './ConversationAside';
 import { ConversationStepper } from './ConversationStepper';
@@ -22,28 +24,67 @@ import { ProposalCard } from './ProposalCard';
 import { authorDisplayName } from './ConversationParts';
 import type { Conversation, ConversationDetail, ConversationPage, Feature, Proposal, TaskActivity, TaskOption } from './conversation-types';
 
+const buttonGhostSmall = `${buttonBase} min-h-[29px] px-2.5 border-transparent bg-transparent text-[#758093]`;
+const buttonPrimarySmall = `${buttonBase} min-h-[29px] px-2.5 border-transparent bg-accent text-white shadow-[0_3px_8px_#5364dd2a] hover:bg-accent-dark`;
+const emptyStateBox = 'grid justify-items-center gap-2 px-3.5 py-[30px] text-center';
+const emptyHeading = 'font-display text-[13px] leading-[normal] font-bold text-[#394558]';
+const emptyText = 'mb-2 text-[11px] text-[#8993a3]';
+const fieldLabel = 'text-[10px] font-semibold text-[#566275]';
+const fieldInput = 'w-full rounded-[7px] border border-[#d9deea] px-2.5 py-[9px] text-[11px] text-[#344054]';
+const entityChipBase = 'inline-flex max-w-full cursor-pointer items-center gap-1 rounded-ui-sm px-2 py-0.5 text-[10.5px] leading-normal font-semibold whitespace-nowrap no-underline hover:bg-tone-blue-bg hover:text-tone-blue';
+const areaChipTones: Record<string, string> = {
+  backend: `${entityChipBase} bg-[#eaeeff] text-[#3544a8]`,
+  frontend: `${entityChipBase} bg-[#e1f4f1] text-[#136059]`
+};
+const areaChipDefault = `${entityChipBase} bg-tone-slate-bg text-tone-slate`;
+const featureChip = 'inline-flex max-w-[240px] cursor-pointer items-center gap-1 rounded-ui-sm border border-line-strong bg-white px-2 py-0.5 text-[10.5px] leading-normal font-semibold whitespace-nowrap text-ink-2 no-underline hover:border-focus hover:bg-tone-blue-bg hover:text-tone-blue';
+const searchIcon = `bg-[url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%20fill='none'%20stroke='%23596077'%20stroke-width='1.75'%20stroke-linecap='round'%3E%3Ccircle%20cx='11'%20cy='11'%20r='6.5'/%3E%3Cpath%20d='M20%2020l-4-4'/%3E%3C/svg%3E")] bg-[length:16px] bg-[position:12px_center] bg-no-repeat`;
+
+// Grade do painel: 3 colunas com contexto, 2 sem; recolhido só vale a partir de 1280px. max-[N+1px] reproduz `max-width: Npx`.
+const layoutBase = 'group/conv grid h-[calc(100dvh_-_255px)] min-h-[560px] items-stretch gap-0 overflow-hidden rounded-[16px] border border-[#e2e5eb] bg-white shadow-[0_1px_2px_rgba(20,24,34,.04)] max-[768px]:h-[calc(100dvh_-_215px)] max-[768px]:min-h-[480px] max-[768px]:grid-cols-[minmax(0,1fr)]';
+const layoutColumns = 'grid-cols-[minmax(280px,340px)_minmax(0,1fr)] max-[1280px]:grid-cols-[minmax(260px,320px)_minmax(0,1fr)]';
+const layoutColumnsAside = 'grid-cols-[minmax(260px,300px)_minmax(0,1fr)_minmax(320px,360px)] max-[1280px]:grid-cols-[minmax(260px,320px)_minmax(0,1fr)]';
+const layoutCollapsed = 'min-[1280px]:grid-cols-[minmax(260px,300px)_minmax(0,1fr)]';
+const sidebarBase = 'flex min-h-0 min-w-0 flex-col gap-2.5 self-start overflow-hidden border-r border-r-[#e2e5eb] bg-[#fafbfd] p-4 max-[961px]:self-stretch group-data-[view=detail]/conv:max-[768px]:hidden';
+const sidebarPlain = 'max-[768px]:col-start-1 max-[768px]:row-start-1';
+const sidebarWithAside = 'max-[1281px]:[grid-row:1/span_2] max-[961px]:row-auto max-[768px]:col-start-1';
+const mainBase = 'flex min-h-0 min-w-0 flex-col overflow-hidden bg-white max-[768px]:overflow-y-auto group-data-[view=list]/conv:max-[768px]:hidden';
+const mainPlain = 'max-[768px]:col-start-1 max-[768px]:row-start-1';
+const mainWithAside = 'max-[1280px]:col-start-2 max-[1280px]:row-start-1 group-data-[tab=criteria]/conv:max-[1280px]:hidden';
+const newConversationButtonBase = 'inline-flex w-full flex-none items-center justify-center gap-2 rounded-lg border border-transparent bg-accent text-ui-sm font-bold whitespace-nowrap text-white shadow-[0_3px_8px_#5364dd2a] transition hover:bg-accent-dark';
+const listItemBase = 'grid w-full min-w-0 max-w-full cursor-pointer gap-1.5 rounded-[12px] border p-3 text-left';
+const listItemTones = {
+  active: `${listItemBase} border-transparent bg-[#eceefc]`,
+  unread: `${listItemBase} border-[#cbe9d1] bg-[#f0fbf3] hover:border-transparent hover:bg-[#f0f2f8]`,
+  idle: `${listItemBase} border-transparent bg-transparent hover:bg-[#f0f2f8]`
+};
+const messageStateTones = { unread: 'font-bold text-[#1d753d]', read: 'font-bold text-[#387b52]', empty: 'font-medium text-[#788496]' };
+const tabClass = 'inline-flex min-h-11 items-center gap-1.5 border-b-2 border-b-transparent bg-transparent px-3.5 text-ui-sm font-semibold text-muted-strong aria-selected:border-b-[#4b4fcb] aria-selected:text-[#4b4fcb]';
+const sendButtonBase = 'inline-flex min-h-11 min-w-[104px] items-center justify-center gap-2 rounded-lg border border-transparent px-3 text-ui-sm font-bold transition';
+const scrollBottomBase = 'absolute right-5 bottom-3.5 z-[4] inline-flex min-h-10 items-center gap-1.5 rounded-full border px-3.5 text-[12.5px] font-bold shadow-[0_6px_18px_#1822302e] max-[768px]:right-3';
+
 export function ConversationReadFailure({ error, retry, retrying = false }: { error: unknown; retry: () => void; retrying?: boolean }) {
-  return <div className="notice error" role="alert">{errorMessage(error)} <button type="button" className="text-button" onClick={retry} disabled={retrying}>{retrying ? 'Tentando…' : 'Tentar novamente'}</button></div>;
+  return <div className={`${noticeTone.error} flex-none`} role="alert">{errorMessage(error)} <button type="button" className={textButton} onClick={retry} disabled={retrying}>{retrying ? 'Tentando…' : 'Tentar novamente'}</button></div>;
 }
 
 export function ConversationTaskSearch({ value, debouncedValue, isFetching, isError, error, tasks, onChange, onSelect, disabled, featureLabel }: {
   value: string; debouncedValue: string; isFetching: boolean; isError: boolean; error: unknown; tasks: TaskOption[];
   onChange: (value: string) => void; onSelect: (taskId: string) => void; disabled: boolean; featureLabel: (task: TaskOption) => string;
 }) {
-  return <section className="conversation-task-link"><label htmlFor="conversation-task-search">Buscar tarefa</label><input id="conversation-task-search" type="search" value={value} onChange={event => onChange(event.target.value)} placeholder="Digite o início do nome da tarefa…" autoComplete="off" /><small>Digite ao menos 2 caracteres. A busca considera tarefas ativas deste projeto.</small>{debouncedValue.length < 2 ? <div className="empty-state compact">Digite ao menos 2 caracteres para buscar tarefas.</div> : isFetching ? <div className="loading">Buscando tarefas…</div> : isError ? <div className="notice error">{errorMessage(error)}</div> : tasks.length ? <div className="conversation-task-options" role="listbox" aria-label="Tarefas encontradas">{tasks.map(task => <button type="button" role="option" aria-selected="false" className="conversation-task-option" key={task._id} onClick={() => onSelect(task._id)} disabled={disabled}><strong>{task.name}</strong><span className="conversation-context-badges"><Badge tone="blue">Área · {areaLabel(task.area)}</Badge><Badge tone={statusTone[task.status] ?? 'muted'}>Status · {statusLabels[task.status] ?? task.status}</Badge><Badge tone="muted">Feature · {featureLabel(task)}</Badge></span></button>)}</div> : <div className="empty-state compact">Nenhuma tarefa ativa corresponde à busca.</div>}</section>;
+  return <section className="grid flex-none gap-[7px] rounded-[9px] border border-[#dfe4f4] bg-[#fafbff] p-3"><label className={fieldLabel} htmlFor="conversation-task-search">Buscar tarefa</label><input className={fieldInput} id="conversation-task-search" type="search" value={value} onChange={event => onChange(event.target.value)} placeholder="Digite o início do nome da tarefa…" autoComplete="off" /><small className="text-[9px] text-[#8791a1]">Digite ao menos 2 caracteres. A busca considera tarefas ativas deste projeto.</small>{debouncedValue.length < 2 ? <div className={emptyStateBox}>Digite ao menos 2 caracteres para buscar tarefas.</div> : isFetching ? <div className="px-[18px] py-7 text-center text-[11px] text-[#8792a2]">Buscando tarefas…</div> : isError ? <div className={noticeTone.error}>{errorMessage(error)}</div> : tasks.length ? <div className="grid max-h-[280px] gap-1.5 overflow-y-auto" role="listbox" aria-label="Tarefas encontradas">{tasks.map(task => <button type="button" role="option" aria-selected="false" className="grid w-full min-w-0 cursor-pointer gap-1 rounded-[8px] border border-[#e3e7f0] bg-white p-2.5 text-left enabled:hover:border-[#cdd3ff] enabled:hover:bg-[#f5f6ff] disabled:cursor-wait disabled:opacity-65" key={task._id} onClick={() => onSelect(task._id)} disabled={disabled}><strong className="text-[11px] leading-[1.45] text-[#3f4b60] wrap-anywhere">{task.name}</strong><span className="flex min-w-0 flex-wrap items-start gap-1.5"><Badge tone="blue" wrap>Área · {areaLabel(task.area)}</Badge><Badge tone={statusTone[task.status] ?? 'muted'} wrap>Status · {statusLabels[task.status] ?? task.status}</Badge><Badge tone="muted" wrap>Feature · {featureLabel(task)}</Badge></span></button>)}</div> : <div className={emptyStateBox}>Nenhuma tarefa ativa corresponde à busca.</div>}</section>;
 }
 
 export function ConversationTitleEditor({ title, editing, draft, editable, saving, error, onEdit, onDraftChange, onSave, onCancel }: {
   title: string; editing: boolean; draft: string; editable: boolean; saving: boolean; error?: unknown;
   onEdit: () => void; onDraftChange: (value: string) => void; onSave: (event: FormEvent<HTMLFormElement>) => void; onCancel: () => void;
 }) {
-  if (!editing) return <div className="conversation-title-display"><h2>{title}</h2>{editable && <button type="button" className="button ghost small-button" aria-label="Editar título da conversa" onClick={onEdit}>Editar título</button>}</div>;
-  return <form className="conversation-title-editor" onSubmit={onSave}><label className="conversation-title-label" htmlFor="conversation-title">Título da conversa</label><input id="conversation-title" aria-label="Título da conversa" type="text" maxLength={255} value={draft} onChange={event => onDraftChange(event.target.value)} autoFocus /><div className="button-row"><button type="submit" className="button primary small-button" disabled={!draft.trim() || saving}>{saving ? 'Salvando…' : 'Salvar título'}</button><button type="button" className="button secondary small-button" onClick={onCancel} disabled={saving}>Cancelar</button></div>{error !== undefined && error !== null && <div className="notice error" role="alert">{errorMessage(error)}</div>}</form>;
+  if (!editing) return <div className="flex min-w-0 flex-wrap items-center gap-2"><h2>{title}</h2>{editable && <button type="button" className={buttonGhostSmall} aria-label="Editar título da conversa" onClick={onEdit}>Editar título</button>}</div>;
+  return <form className="grid max-w-full gap-1.5" onSubmit={onSave}><label className={fieldLabel} htmlFor="conversation-title">Título da conversa</label><input className={fieldInput} id="conversation-title" aria-label="Título da conversa" type="text" maxLength={255} value={draft} onChange={event => onDraftChange(event.target.value)} autoFocus /><div className="flex items-center gap-1.5"><button type="submit" className={buttonPrimarySmall} disabled={!draft.trim() || saving}>{saving ? 'Salvando…' : 'Salvar título'}</button><button type="button" className={buttonSecondarySmall} onClick={onCancel} disabled={saving}>Cancelar</button></div>{error !== undefined && error !== null && <div className={noticeTone.error} role="alert">{errorMessage(error)}</div>}</form>;
 }
 
 /** Título com `código` em fonte monoespaçada. */
 function renderInlineCode(text: string) {
-  return text.split(/(`[^`]+`)/g).map((part, index) => part.startsWith('`') && part.endsWith('`') && part.length > 2 ? <code className="inline-code" key={index}>{part.slice(1, -1)}</code> : part);
+  return text.split(/(`[^`]+`)/g).map((part, index) => part.startsWith('`') && part.endsWith('`') && part.length > 2 ? <code className="rounded-[5px] bg-[#eef0f5] px-1.5 py-px font-[ui-monospace,SFMono-Regular,Menlo,monospace] text-[.85em] leading-[normal] font-normal text-[#3a4150]" key={index}>{part.slice(1, -1)}</code> : part);
 }
 
 export function ConversationPanel({ token, nonce, projectId, tasks, requestedConversationId, onConversationSelected, onOpenTask, onOpenAdmin }: { token: string; nonce: string; projectId: string; tasks: TaskOption[]; requestedConversationId?: string; onConversationSelected?: (conversationId: string) => void; onOpenTask: (taskId: string) => void; onOpenAdmin: () => void }) {
@@ -60,6 +101,10 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
   const [listSearch, setListSearch] = useState('');
   const [mobileView, setMobileView] = useState<'list' | 'detail'>(requestedConversationId ? 'detail' : 'list');
   const [detailTab, setDetailTab] = useState<'chat' | 'criteria'>('chat');
+  const [asideOpen, setAsideOpen] = useState(true);
+  // O App expõe um slot no cabeçalho da página; sem ele (testes, SSR) o botão fica na lista.
+  const [headingSlot, setHeadingSlot] = useState<HTMLElement | null>(null);
+  useEffect(() => { setHeadingSlot(document.getElementById('conversation-heading-actions')); }, []);
   const [idCopied, setIdCopied] = useState(false);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
@@ -303,76 +348,86 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
   const sortedProposals = [...(latest?.proposals ?? [])].sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? '') || a.version - b.version);
   const pendingProposal = sortedProposals.find(proposal => proposal.status === 'pending' && !proposal.stale);
   const headerTitle = stripTaskPrefix(latest?.conversation.title) || 'Conversa';
-  const taskTitleDiffers = Boolean(latest?.task) && stripTaskPrefix(latest!.task!.name).toLowerCase() !== headerTitle.toLowerCase();
   const suggestions = suggestionsFor(latest?.task, criteriaTotal);
   const draftValid = draft.trim().length > 0;
-  const tabs = showAside ? <div className="conversation-tabs" role="tablist" aria-label="Seções da conversa">
-    <button type="button" role="tab" aria-selected={detailTab === 'chat'} className={'conversation-tab' + (detailTab === 'chat' ? ' active' : '')} onClick={() => setDetailTab('chat')}>Conversa</button>
-    <button type="button" role="tab" aria-selected={detailTab === 'criteria'} className={'conversation-tab' + (detailTab === 'criteria' ? ' active' : '')} onClick={() => setDetailTab('criteria')}>Critérios{criteriaTotal > 0 && <span className="tab-count">{criteriaDone}/{criteriaTotal}</span>}</button>
+  // Mesmas abas no corpo da conversa (filho direto de `main`, não encolhe) e no topo do painel de critérios.
+  const renderTabs = (inMain: boolean) => showAside ? <div className={'hidden gap-0.5 border-b border-[#eef0f4] bg-white px-3 max-[1280px]:flex' + (inMain ? ' flex-none' : '')} role="tablist" aria-label="Seções da conversa">
+    <button type="button" role="tab" aria-selected={detailTab === 'chat'} className={tabClass} onClick={() => setDetailTab('chat')}>Conversa</button>
+    <button type="button" role="tab" aria-selected={detailTab === 'criteria'} className={tabClass} onClick={() => setDetailTab('criteria')}>Critérios{criteriaTotal > 0 && <span className="min-w-[18px] rounded-[9px] bg-tone-slate-bg px-[5px] text-center text-[10px] leading-[18px] font-bold text-tone-slate">{criteriaDone}/{criteriaTotal}</span>}</button>
   </div> : null;
   function chooseConversation(id: string) { setSelectedId(id); setMobileView('detail'); setDetailTab('chat'); onConversationSelected?.(id); }
   function fillDraft(text: string) { setDraft(text); window.requestAnimationFrame(() => composerRef.current?.focus()); }
 
-  return <section className={'conversation-layout' + (showAside ? ' has-aside' : '')} data-view={mobileView} data-tab={detailTab}>
-    <aside className="panel-card conversation-sidebar" aria-label="Lista de conversas">
-      <div className="section-heading"><div><h2>Conversas</h2><p className="muted-text">Histórico compartilhado do projeto</p></div></div>
-      <input type="search" className="conversation-search" value={listSearch} onChange={event => setListSearch(event.target.value)} placeholder="Buscar conversas" aria-label="Buscar conversas" />
-      <button type="button" className="button primary conversation-new-button" onClick={() => create.mutate()} disabled={create.isPending}>{create.isPending ? 'Criando…' : 'Nova conversa'}</button>
-      <div className="conversation-filters" role="group" aria-label="Filtrar conversas">{listFilters.map(item => <button type="button" key={item.id} className={'conversation-filter' + (listFilter === item.id ? ' active' : '')} aria-pressed={listFilter === item.id} onClick={() => setListFilter(item.id)}>{item.label}{item.count > 0 && item.id !== 'all' && <span className="conversation-filter-count">{item.count}</span>}</button>)}</div>
-      {conversations.isPending ? <Skeleton rows={5} label="Carregando conversas…" /> : conversations.isError ? <div className="notice error">{errorMessage(conversations.error)}</div> : visibleConversationItems.length ? <><div className="conversation-list">{visibleConversationItems.map(item => {
+  const renderNewConversationButton = (inHeading: boolean) => <button type="button" className={newConversationButtonBase + (inHeading ? ' min-h-11 px-[18px]' : ' min-h-10 px-3.5')} onClick={() => create.mutate()} disabled={create.isPending}>{create.isPending ? 'Criando…' : 'Nova conversa'}</button>;
+  const taskCard = latest?.task ? <div className="grid items-center gap-2.5">
+    <p className="font-display text-[15px] leading-[1.4] font-semibold text-ink wrap-anywhere">{renderInlineCode(stripTaskPrefix(latest.task.name))}</p>
+    <div className="flex flex-wrap items-center gap-1.5">
+      <Badge tone={statusTone[latest.task.status] ?? 'muted'}>{statusLabels[latest.task.status] ?? latest.task.status}</Badge>
+      {latest.task.area ? <FilterLink param="area" value={latest.task.area} projectId={projectId} className={areaChipTones[latest.task.area] ?? areaChipDefault} title={`Filtrar tarefas pela área ${areaLabel(latest.task.area)}`}>{areaLabel(latest.task.area)}</FilterLink> : null}
+      {latest.task.featureId ? <FeatureLink featureId={latest.task.featureId} projectId={projectId} className={featureChip} title="Ver todas as tarefas desta feature"><IconFeature size={11} /><span className="overflow-hidden text-ellipsis">{featureLabelForTask(latest.task._id)}</span></FeatureLink> : null}
+      <small className="text-ui-xs text-muted-strong">v{taskContext.data?.task.version ?? latest.task.version}</small>
+    </div>
+    <a className="text-[13px] font-semibold text-[#2455a6] wrap-anywhere hover:text-[#173e80] hover:underline" href={routeUrl('tasks', `taskId=${encodeURIComponent(latest.task._id)}`, projectId)} aria-label={`Abrir tarefa ${latest.task.name} na listagem`} onClick={event => { if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); onOpenTask(latest.task!._id); }}>Abrir tarefa ↗</a>
+  </div> : null;
+
+  return <section className={`${layoutBase} ${showAside ? layoutColumnsAside : layoutColumns}${showAside && !asideOpen ? ` ${layoutCollapsed}` : ''}`} data-view={mobileView} data-tab={detailTab}>
+    <aside className={`${sidebarBase} ${showAside ? sidebarWithAside : sidebarPlain}`} aria-label="Lista de conversas">
+      <div className="flex flex-wrap items-center justify-between gap-2"><div><h2 className="mb-1 font-display text-[14px] leading-[normal] font-bold tracking-[-.02em] text-[#273245]">Conversas</h2><p className="mt-0.5 text-ui-sm text-muted-strong">Histórico compartilhado do projeto</p></div>
+        {headingSlot ? null : renderNewConversationButton(false)}</div>
+      <input type="search" className={`min-h-11 w-full rounded-ui-md border border-line-strong bg-white py-0 pr-3 pl-9 text-ui-md ${searchIcon}`} value={listSearch} onChange={event => setListSearch(event.target.value)} placeholder="Buscar conversas" aria-label="Buscar conversas" />
+      <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filtrar conversas">{listFilters.map(item => <button type="button" key={item.id} className="inline-flex min-h-8 cursor-pointer items-center gap-1.5 rounded-full border border-[#d5dae3] bg-white px-3 py-[5px] text-ui-xs font-semibold text-[#5b6475] aria-pressed:border-[#c9cbf3] aria-pressed:bg-[#eceefc] aria-pressed:text-[#2f31a0]" aria-pressed={listFilter === item.id} onClick={() => setListFilter(item.id)}>{item.label}{item.count > 0 && item.id !== 'all' && <span className="font-bold text-[#1f6b3a]">{item.count}</span>}</button>)}</div>
+      {conversations.isPending ? <Skeleton rows={5} label="Carregando conversas…" /> : conversations.isError ? <div className={noticeTone.error}>{errorMessage(conversations.error)}</div> : visibleConversationItems.length ? <><div className="grid min-h-0 min-w-0 flex-auto gap-1.5 overflow-x-hidden overflow-y-auto overscroll-contain max-[961px]:grid-cols-[repeat(auto-fit,minmax(min(210px,100%),1fr))]">{visibleConversationItems.map(item => {
         const task = item.taskId ? taskForId(item.taskId) : undefined;
         const unreadCount = item.unread?.count ?? 0;
         const lastActivity = item.lastMessageAt || (unreadCount > 0 ? item.updatedAt : undefined);
-        return <button type="button" key={item._id} aria-current={selectedId === item._id ? 'true' : undefined} className={'conversation-list-item' + (selectedId === item._id ? ' active' : '') + (unreadCount > 0 ? ' unread' : '')} onClick={() => chooseConversation(item._id)}><div className="conversation-list-item-head"><strong>{stripTaskPrefix(item.title) || 'Nova conversa'}</strong>{unreadCount > 0 && <span className="conversation-unread-dot" aria-label={`${unreadCount} ${unreadCount === 1 ? 'mensagem não lida' : 'mensagens não lidas'}`}>{unreadCount > 99 ? '99+' : unreadCount}</span>}</div><div className="conversation-list-item-meta">{task && <Badge tone={statusTone[task.status] ?? 'muted'}>{statusLabels[task.status] ?? task.status}</Badge>}<span className={'conversation-message-state ' + (unreadCount > 0 ? 'unread' : lastActivity ? 'read' : 'empty')} title={lastActivity ? formatDate(lastActivity) : undefined}>{activityText(unreadCount, lastActivity, relativeTime)}</span></div></button>;
-      })}</div>{(olderConversationPages.at(-1)?.next ?? conversations.data?.next) && <button type="button" className="button ghost" disabled={loadingOlder} onClick={() => void loadOlderConversations()}>{loadingOlder ? 'Carregando…' : 'Carregar conversas anteriores'}</button>}</> : conversations.data?.items.length ? <div className="empty-state compact"><h3>Nenhuma conversa nesse filtro.</h3><button type="button" className="button secondary small-button" onClick={() => { setListFilter('all'); setListSearch(''); }}>Limpar filtro</button></div> : <div className="empty-state compact"><h3>Comece uma conversa</h3><p>Crie uma conversa geral e vincule uma tarefa pelo cabeçalho do chat.</p></div>}
+        return <button type="button" key={item._id} aria-current={selectedId === item._id ? 'true' : undefined} className={selectedId === item._id ? listItemTones.active : unreadCount > 0 ? listItemTones.unread : listItemTones.idle} onClick={() => chooseConversation(item._id)}><div className="flex items-start justify-between gap-2"><strong className={'line-clamp-3 text-[13.5px] leading-[1.4] wrap-anywhere ' + (unreadCount > 0 ? 'font-extrabold text-[#1f2937]' : 'font-semibold text-[#3f4b60]')}>{stripTaskPrefix(item.title) || 'Nova conversa'}</strong>{unreadCount > 0 && <span className="inline-flex h-[22px] min-w-[22px] flex-none items-center justify-center rounded-full bg-[#1f9d5b] px-1.5 text-center text-[11px] leading-none font-bold text-white" aria-label={`${unreadCount} ${unreadCount === 1 ? 'mensagem não lida' : 'mensagens não lidas'}`}>{unreadCount > 99 ? '99+' : unreadCount}</span>}</div><div className="flex flex-wrap items-center gap-x-2 gap-y-1">{task && <Badge tone={statusTone[task.status] ?? 'muted'}>{statusLabels[task.status] ?? task.status}</Badge>}<span className={'min-w-0 text-[12px] leading-[1.35] wrap-anywhere ' + messageStateTones[unreadCount > 0 ? 'unread' : lastActivity ? 'read' : 'empty']} title={lastActivity ? formatDate(lastActivity) : undefined}>{activityText(unreadCount, lastActivity, relativeTime)}</span></div></button>;
+      })}</div>{(olderConversationPages.at(-1)?.next ?? conversations.data?.next) && <button type="button" className={buttonGhost} disabled={loadingOlder} onClick={() => void loadOlderConversations()}>{loadingOlder ? 'Carregando…' : 'Carregar conversas anteriores'}</button>}</> : conversations.data?.items.length ? <div className={emptyStateBox}><h3 className={emptyHeading}>Nenhuma conversa nesse filtro.</h3><button type="button" className={buttonSecondarySmall} onClick={() => { setListFilter('all'); setListSearch(''); }}>Limpar filtro</button></div> : <div className={emptyStateBox}><h3 className={emptyHeading}>Comece uma conversa</h3><p className={emptyText}>Crie uma conversa geral e vincule uma tarefa pelo cabeçalho do chat.</p></div>}
     </aside>
-    <section className="panel-card conversation-main" aria-label="Conversa">
-      {!selectedId ? <div className="empty-state"><h2>Conversa do projeto</h2><p>Selecione uma conversa ou crie uma nova para começar.</p></div> : <>
-        <button type="button" className="conversation-back" onClick={() => setMobileView('list')}>← Conversas</button>
-        <header className="conversation-header"><div className="conversation-header-main">
-          <div className="conversation-header-top"><p className="muted-text">{latest?.conversation.taskId ? 'Conversa vinculada à tarefa' : 'Escopo do projeto'}</p>
-            <div className="conversation-header-actions">
-              {latest && !latest.conversation.taskId && <button type="button" className="button secondary small-button" onClick={() => setLinkTaskOpen(open => !open)} disabled={linkTask.isPending}>{linkTaskOpen ? 'Fechar busca' : 'Vincular tarefa'}</button>}
-              <button type="button" className="button ghost small-button" title={latest ? `Copiar ID: ${latest.conversation._id}` : undefined} onClick={() => void copyConversationId()}>{idCopied ? 'ID copiado' : 'Copiar ID'}</button>
-              <DropdownMenu ariaLabel="Mais ações da conversa" title="Mais ações" triggerClassName="small-icon conversation-menu-trigger" items={[{ id: 'edit', label: 'Editar título', disabled: !latest }, { id: 'delete', label: 'Excluir conversa…', danger: true, dividerBefore: true, disabled: !latest || deleteConversation.isPending }]} onSelect={action => { if (action === 'edit') beginTitleEdit(); else confirmDeleteConversation(); }}><IconMore size={16} /></DropdownMenu>
+    <section className={`${mainBase} ${showAside ? mainWithAside : mainPlain}`} aria-label="Conversa">
+      {!selectedId ? <div className="grid flex-none justify-items-center gap-2 px-5 py-[54px] text-center"><h2 className="font-display text-[16px] leading-[normal] font-bold text-[#394558]">Conversa do projeto</h2><p className={emptyText}>Selecione uma conversa ou crie uma nova para começar.</p></div> : <>
+        <button type="button" className="mx-3 mt-2.5 hidden flex-none self-start rounded-[8px] bg-[#f3f4f8] px-3 py-2 text-ui-sm font-semibold text-ink-2 max-[768px]:inline-flex" onClick={() => setMobileView('list')}>← Conversas</button>
+        <header className="block flex-none border-b border-[#eef0f4] px-5 pt-4 pb-3 max-[768px]:px-3.5 max-[768px]:py-3"><div className="grid min-w-0 gap-2">
+          <div className="flex items-center justify-between gap-2"><p className="text-ui-sm text-[#8791a1] max-[768px]:hidden">{latest?.conversation.taskId ? 'Conversa vinculada à tarefa' : 'Escopo do projeto'}</p>
+            <div className="flex items-center justify-end gap-[7px] max-[481px]:w-full">
+              {latest && !latest.conversation.taskId && <button type="button" className={`${buttonSecondarySmall} max-[481px]:flex-auto`} onClick={() => setLinkTaskOpen(open => !open)} disabled={linkTask.isPending}>{linkTaskOpen ? 'Fechar busca' : 'Vincular tarefa'}</button>}
+              <button type="button" className={`${buttonGhostSmall} max-[481px]:flex-auto`} title={latest ? `Copiar ID: ${latest.conversation._id}` : undefined} onClick={() => void copyConversationId()}>{idCopied ? 'ID copiado' : 'Copiar ID'}</button>
+              {showAside && <button type="button" className={`${buttonGhostSmall} max-[1280px]:hidden max-[481px]:flex-auto`} aria-expanded={asideOpen} onClick={() => setAsideOpen(open => !open)}>{asideOpen ? 'Ocultar painel' : `Critérios ${criteriaDone}/${criteriaTotal}`}</button>}
+              <DropdownMenu ariaLabel="Mais ações da conversa" title="Mais ações" triggerClassName="inline-grid size-8 flex-none place-items-center rounded-[7px] border border-line-strong bg-transparent text-[15px] text-[#8792a2] hover:bg-[#f6f7fc] hover:text-[#4c5bc9]" items={[{ id: 'edit', label: 'Editar título', disabled: !latest }, { id: 'delete', label: 'Excluir conversa…', danger: true, dividerBefore: true, disabled: !latest || deleteConversation.isPending }]} onSelect={action => { if (action === 'edit') beginTitleEdit(); else confirmDeleteConversation(); }}><IconMore size={16} /></DropdownMenu>
             </div></div>
-          {titleEditing ? <ConversationTitleEditor title={headerTitle} editing draft={titleDraft} editable saving={renameConversation.isPending} error={renameConversation.isError ? renameConversation.error : undefined} onEdit={beginTitleEdit} onDraftChange={setTitleDraft} onSave={submitTitle} onCancel={cancelTitleEdit} /> : <h2 className="conversation-title">{renderInlineCode(headerTitle)}</h2>}
-          {latest?.task && <div className="conversation-task-card">
-            <Badge tone={statusTone[latest.task.status] ?? 'muted'}>{statusLabels[latest.task.status] ?? latest.task.status}</Badge>
-            {latest.task.area ? <FilterLink param="area" value={latest.task.area} projectId={projectId} className={`chip chip-area chip-area-${latest.task.area} entity-chip`} title={`Filtrar tarefas pela área ${areaLabel(latest.task.area)}`}>{areaLabel(latest.task.area)}</FilterLink> : null}
-            {latest.task.featureId ? <FeatureLink featureId={latest.task.featureId} projectId={projectId} className="chip chip-feature entity-chip" title="Ver todas as tarefas desta feature"><IconFeature size={11} /><span>{featureLabelForTask(latest.task._id)}</span></FeatureLink> : null}
-            <a className="conversation-task-anchor" href={routeUrl('tasks', `taskId=${encodeURIComponent(latest.task._id)}`, projectId)} aria-label={`Abrir tarefa ${latest.task.name} na listagem`} onClick={event => { if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); onOpenTask(latest.task!._id); }}>{taskTitleDiffers ? renderInlineCode(stripTaskPrefix(latest.task.name)) : 'Abrir tarefa'} ↗</a>
-            <small>v{taskContext.data?.task.version ?? latest.task.version}</small>
-          </div>}
+          {titleEditing ? <ConversationTitleEditor title={headerTitle} editing draft={titleDraft} editable saving={renameConversation.isPending} error={renameConversation.isError ? renameConversation.error : undefined} onEdit={beginTitleEdit} onDraftChange={setTitleDraft} onSave={submitTitle} onCancel={cancelTitleEdit} /> : <h2 className="mb-[5px] font-display text-[15px] leading-[1.4] font-bold tracking-normal text-[#394558] wrap-anywhere">{renderInlineCode(headerTitle)}</h2>}
         </div></header>
         <ConversationStepper phase={phase} />
-        {tabs}
+        {renderTabs(true)}
         {linkTaskOpen && latest && !latest.conversation.taskId && <ConversationTaskSearch value={taskSearch} debouncedValue={debouncedTaskSearch} isFetching={taskSearchResults.isFetching} isError={taskSearchResults.isError} error={taskSearchResults.error} tasks={taskSearchResults.data?.items ?? []} onChange={setTaskSearch} onSelect={taskId => linkTask.mutate(taskId)} disabled={linkTask.isPending} featureLabel={task => task.featureId ? features.data?.find(feature => feature._id === task.featureId)?.name ?? 'Carregando…' : 'Sem feature'} />}
-        {notice && <div className="notice" role="status">{notice}</div>}
+        {notice && <div className={`${noticeTone.info} flex-none`} role="status">{notice}</div>}
         {markRead.isError && readAttempt.current?.conversationId === selectedId && <ConversationReadFailure error={markRead.error} retrying={markRead.isPending} retry={() => { if (readAttempt.current) markRead.mutate(readAttempt.current); }} />}
         {detail.isPending ? <Skeleton rows={6} label="Carregando mensagens…" /> : detail.isError ? <ErrorNotice error={detail.error} onRetry={() => void detail.refetch()} retrying={detail.isFetching} title="Não foi possível carregar a conversa" /> : <>
-          <div className="conversation-chat">
-            {(olderMessagePages.at(-1)?.next ?? latest?.next) && <button type="button" className="button ghost" disabled={loadingOlder} onClick={() => void loadOlderMessages()}>{loadingOlder ? 'Carregando…' : 'Carregar mensagens anteriores'}</button>}
-            <div className="messages-wrap"><div className="conversation-messages" aria-live="polite" ref={messagesRef} onScroll={onMessagesScroll} tabIndex={0} aria-label="Mensagens da conversa">{orderedMessages.length || sortedProposals.length ? <>
-              {orderedMessages.map(message => <article key={message._id} className={`conversation-message ${message.authorType}`}>
-                {message.authorType === 'agent' ? <span className="msg-avatar agent" aria-hidden="true"><AgentClientIcon clientName={message.clientName} /></span> : <span className="msg-avatar human" aria-hidden="true">{personInitials(message.author)}</span>}
-                <div className="msg-body"><div className="conversation-message-meta"><strong className={message.authorType === 'agent' ? 'conversation-agent-identity' : undefined}>{message.authorType === 'agent' ? <span>{message.clientName?.trim() || 'IA'} ({authorDisplayName(message.author)})</span> : `Pessoa (${authorDisplayName(message.author)})`}</strong><time dateTime={message.createdAt} title={formatDate(message.createdAt)}>{relativeTime(message.createdAt)}</time></div><div className="msg-bubble"><MarkdownView content={message.content} /></div></div>
-              </article>)}
+          <div className="flex min-h-0 flex-auto flex-col max-[768px]:flex-[1_0_auto]">
+            {(olderMessagePages.at(-1)?.next ?? latest?.next) && <button type="button" className={`${buttonGhost} m-2 flex-none self-center`} disabled={loadingOlder} onClick={() => void loadOlderMessages()}>{loadingOlder ? 'Carregando…' : 'Carregar mensagens anteriores'}</button>}
+            <div className="relative flex min-h-0 flex-auto max-[768px]:min-h-[240px]"><div className="grid min-h-0 flex-auto content-start gap-3.5 overflow-y-auto bg-white px-[max(20px,calc((100%_-_740px)/2))] py-6 max-[768px]:px-3.5 max-[768px]:py-3" aria-live="polite" ref={messagesRef} onScroll={onMessagesScroll} tabIndex={0} aria-label="Mensagens da conversa">{orderedMessages.length || sortedProposals.length ? <>
+              {orderedMessages.map(message => {
+                const agent = message.authorType === 'agent';
+                return <article key={message._id} className={`flex min-w-0 max-w-full items-start gap-2.5 text-ui-md wrap-anywhere ${agent ? 'justify-self-start rounded-bl-[5px]' : 'flex-row-reverse justify-self-end rounded-br-[5px]'}`}>
+                {agent ? <span className="inline-grid size-8 flex-none place-items-center rounded-[9px] bg-[#4b4fcb] text-[11px] font-bold text-white [&_svg]:size-[17px] [&_svg]:text-white!" aria-hidden="true"><AgentClientIcon clientName={message.clientName} /></span> : <span className="inline-grid size-8 flex-none place-items-center rounded-full bg-[#e8eafd] text-[11px] font-bold text-[#4b4fcb]" aria-hidden="true">{personInitials(message.author)}</span>}
+                <div className={'grid min-w-0 max-w-[min(82%,720px)] gap-1 max-[768px]:max-w-[calc(100%_-_44px)]' + (agent ? '' : ' justify-items-end')}><div className="flex flex-wrap justify-start gap-x-2.5 gap-y-1 text-ui-sm text-[#536176]"><strong className={agent ? 'inline-flex max-w-full min-w-0 flex-wrap items-center gap-[5px] text-[#334155] wrap-anywhere' : 'text-[#285b35]'}>{agent ? <span>{message.clientName?.trim() || 'IA'} ({authorDisplayName(message.author)})</span> : `Pessoa (${authorDisplayName(message.author)})`}</strong><time className="text-muted-strong" dateTime={message.createdAt} title={formatDate(message.createdAt)}>{relativeTime(message.createdAt)}</time></div><div className={'min-w-0 rounded-[16px] border px-3.5 py-2.5 text-[14px] wrap-anywhere ' + (agent ? 'rounded-tl-[4px] border-[#e2e5eb] bg-white' : 'rounded-tr-[4px] border-[#d6dafc] bg-[#e8eafd]')}><MarkdownView content={message.content} variant="chat" /></div></div>
+              </article>;
+              })}
               {sortedProposals.map(proposal => <ProposalCard key={proposal._id} proposal={proposal} taskVersion={latest?.task?.version} job={latest?.jobs.find(job => job._id === proposal.jobId)} approving={approve.isPending && approve.variables?._id === proposal._id} error={approve.isError && approve.variables?._id === proposal._id ? errorMessage(approve.error) : undefined} onApprove={item => approve.mutate(item)} onRequestChanges={() => composerRef.current?.focus()} />)}
-            </> : <div className="conversation-empty">
-              <h3>Comece pelo objetivo {latest?.task ? 'da tarefa' : 'da conversa'}</h3>
-              <p>Descreva o que precisa, as restrições e o que já sabe. As IAs conectadas ao MCP leem esta conversa{latest?.task ? ' e a tarefa vinculada' : ''}.</p>
-              {latest?.task && <p className="conversation-context-line">Contexto disponível: Tarefa · {plural(criteriaTotal, 'critério', 'critérios')}</p>}
-              <div className="suggestion-list" role="group" aria-label="Sugestões de mensagem">{suggestions.map(text => <button type="button" className="suggestion" key={text} onClick={() => fillDraft(text)}>{text}</button>)}</div>
-            </div>}</div>{showScrollBottom && <button type="button" className={'scroll-bottom' + (hasNewBelow ? ' has-new' : '')} onClick={() => scrollToBottom()} aria-label={hasNewBelow ? 'Ir para as novas mensagens' : 'Ir para a última mensagem'}><IconChevron size={14} />{hasNewBelow ? 'Novas mensagens' : 'Última mensagem'}</button>}</div>
-            {pendingProposal && <a className="conversation-pending-banner" href="#conversation-proposals" onClick={event => { event.preventDefault(); document.querySelector('.proposal-message:not(.approved)')?.scrollIntoView({ block: 'center', behavior: 'smooth' }); }}>Há uma proposta aguardando sua autorização. <strong>Ver proposta</strong></a>}
-            <form className="conversation-composer" onSubmit={submitMessage}><label htmlFor="conversation-message">Mensagem</label><textarea id="conversation-message" ref={composerRef} rows={3} maxLength={20000} value={draft} onChange={event => setDraft(event.target.value)} onKeyDown={sendMessageOnEnter} placeholder="Descreva o objetivo, as restrições e as dúvidas…" aria-invalid={send.isError} />
-              {send.isError && <div className="notice error" role="alert">Não foi possível enviar: {errorMessage(send.error)} <button type="button" className="text-button" disabled={send.isPending || !draftValid} onClick={() => send.mutate(draft.trim())}>Tentar novamente</button></div>}
-              <div className="conversation-composer-footer"><small>Enter envia · Shift+Enter quebra a linha</small><button className={'button primary send-button' + (draftValid ? '' : ' is-empty')} disabled={!draftValid || send.isPending}>{send.isPending ? 'Enviando…' : 'Enviar'}</button></div></form>
+            </> : <div className="mx-auto my-6 grid max-w-[520px] justify-items-center gap-2.5 text-center">
+              <h3 className="font-display text-[17px] leading-[normal] font-bold text-ink">Comece pelo objetivo {latest?.task ? 'da tarefa' : 'da conversa'}</h3>
+              <p className="text-[14px] text-muted-strong">Descreva o que precisa, as restrições e o que já sabe. As IAs conectadas ao MCP leem esta conversa{latest?.task ? ' e a tarefa vinculada' : ''}.</p>
+              {latest?.task && <p className="rounded-full border border-dashed border-line-strong px-3 py-1.5 text-ui-sm text-muted-strong">Contexto disponível: Tarefa · {plural(criteriaTotal, 'critério', 'critérios')}</p>}
+              <div className="mt-1.5 grid w-full gap-2" role="group" aria-label="Sugestões de mensagem">{suggestions.map(text => <button type="button" className="min-h-11 rounded-ui-md border border-line-strong bg-white px-3.5 py-2.5 text-left text-[13.5px] text-ink-2 hover:border-[#4b4fcb] hover:bg-[#f5f6ff]" key={text} onClick={() => fillDraft(text)}>{text}</button>)}</div>
+            </div>}</div>{showScrollBottom && <button type="button" className={`${scrollBottomBase} ${hasNewBelow ? 'border-[#4b4fcb] bg-[#4b4fcb] text-white' : 'border-[#c8cdf5] bg-white text-[#4b4fcb] hover:bg-[#f5f6ff]'}`} onClick={() => scrollToBottom()} aria-label={hasNewBelow ? 'Ir para as novas mensagens' : 'Ir para a última mensagem'}><IconChevron size={14} />{hasNewBelow ? 'Novas mensagens' : 'Última mensagem'}</button>}</div>
+            {pendingProposal && <a className="mx-5 mt-2 block rounded-ui-md border border-[#f0d9a8] bg-[#fffaf0] px-3.5 py-2.5 text-ui-sm text-tone-amber no-underline max-[768px]:hidden" href="#conversation-proposals" onClick={event => { event.preventDefault(); document.querySelector('[data-proposal]:not([data-approved])')?.scrollIntoView({ block: 'center', behavior: 'smooth' }); }}>Há uma proposta aguardando sua autorização. <strong className="underline">Ver proposta</strong></a>}
+            <form className="mx-auto mb-5 grid w-[min(740px,calc(100%_-_40px))] gap-2 rounded-[14px] border border-[#d5d9e6] bg-white py-2.5 pr-2.5 pl-3.5 focus-within:border-[#4b4fcb] focus-within:shadow-[0_0_0_3px_#eef0ff] max-[768px]:pt-2.5 max-[768px]:pr-3.5 max-[768px]:pb-3 max-[768px]:pl-3.5" onSubmit={submitMessage}><label className="absolute size-px overflow-hidden text-[10px] font-semibold text-[#566275] [clip:rect(0,0,0,0)]" htmlFor="conversation-message">Mensagem</label><textarea className="max-h-[180px] min-h-16 w-full min-w-0 resize-none bg-transparent px-0 py-1 text-[14px] text-[#344054] focus:shadow-none focus-visible:outline-none! max-[768px]:min-h-14" id="conversation-message" ref={composerRef} rows={3} maxLength={20000} value={draft} onChange={event => setDraft(event.target.value)} onKeyDown={sendMessageOnEnter} placeholder="Descreva o objetivo, as restrições e as dúvidas…" aria-invalid={send.isError} />
+              {send.isError && <div className={noticeTone.error} role="alert">Não foi possível enviar: {errorMessage(send.error)} <button type="button" className={textButton} disabled={send.isPending || !draftValid} onClick={() => send.mutate(draft.trim())}>Tentar novamente</button></div>}
+              <div className="flex items-center justify-between gap-3"><small className="text-ui-xs text-[#8791a1]">Enter envia · Shift+Enter quebra a linha</small><button className={sendButtonBase + (draftValid ? ' bg-accent text-white shadow-[0_3px_8px_#5364dd2a] hover:bg-accent-dark' : ' bg-[#e3e6ec] text-[#5f6877] opacity-100')} disabled={!draftValid || send.isPending}>{send.isPending ? 'Enviando…' : 'Enviar'}</button></div></form>
           </div>
         </>}
       </>}
     </section>
-    {showAside && latest && <ConversationAside detail={latest} taskContext={taskContext} onOpenAdmin={onOpenAdmin} tabs={tabs} token={token} nonce={nonce} projectId={projectId} hasPendingProposal={Boolean(pendingProposal)} />}
+    {headingSlot && createPortal(renderNewConversationButton(true), headingSlot)}
+    {showAside && latest && <ConversationAside detail={latest} taskContext={taskContext} onOpenAdmin={onOpenAdmin} tabs={renderTabs(false)} collapsed={!asideOpen} token={token} nonce={nonce} projectId={projectId} hasPendingProposal={Boolean(pendingProposal)} taskCard={taskCard} />}
   </section>;
 }

@@ -139,7 +139,7 @@ test('MCP initialize client identity is attached to collaboration events', async
   const server = createApp(service, []).listen(0, '127.0.0.1');
   await new Promise<void>(resolve => server.once('listening', resolve));
   const address = server.address() as { port: number };
-  for (const path of ['/', '/projects', '/tasks', '/conversations', '/activity', '/settings', '/help']) {
+  for (const path of ['/', '/projects', '/tasks', '/tasks/task-1', '/conversations', '/activity', '/settings', '/help']) {
     const page = await fetch(`http://127.0.0.1:${address.port}${path}?projectId=${project._id}`);
     assert.equal(page.status, 200, `${path} should serve the SPA entry point`);
     assert.match(page.headers.get('content-type') ?? '', /text\/html/);

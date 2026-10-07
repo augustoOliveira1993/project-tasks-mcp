@@ -32,8 +32,8 @@ test('detalhes exibem ações, chips de contexto e abas da gaveta', () => {
   assert.match(html, /Abrir conversa/);
   assert.match(html, /P1 · Alta/);
   assert.match(html, /Pendente/);
-  assert.match(html, /entity-chip[^>]*>[\s\S]*Conversas vinculadas/);
-  for (const tab of ['Resumo', 'Critérios', 'Planejamento', 'Diffs', 'Atividade', 'Conversa']) assert.match(html, new RegExp('role="tab"[^>]*>' + tab));
+  assert.match(html, /title="Ver todas as tarefas da feature[^"]*"[^>]*>[\s\S]*Conversas vinculadas/);
+  for (const tab of ['Visão geral', 'Critérios', 'Planejamento', 'Diffs', 'Atividade', 'Conversa']) assert.match(html, new RegExp('role="tab"[^>]*>' + tab));
   assert.match(html, /aria-label="Fechar detalhes \(Esc\)"/);
   assert.doesNotMatch(html, /Aprovar e concluir/);
 });
@@ -61,7 +61,7 @@ test('resumo mostra atividade Markdown e atalhos para conversas específicas', (
     token: 'token', nonce: 'nonce', projectId: 'project-1', taskId: 'task-1', onOpenConversation() {}
   })));
   client.clear();
-  assert.match(html, /<h2 class="task-summary-heading">Conversas vinculadas \(1\)<\/h2>/);
+  assert.match(html, /<h2 class="[^"]*text-\[15px\][^"]*">Conversas vinculadas \(1\)<\/h2>/);
   assert.match(html, /aria-label="Abrir conversa Alinhar critérios"/);
   assert.match(html, /Atividade ·/);
 });

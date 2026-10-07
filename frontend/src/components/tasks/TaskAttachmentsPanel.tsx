@@ -4,6 +4,13 @@ import { deleteTaskAttachment, downloadTaskAttachment, listTaskAttachments, MAX_
 import { errorMessage, formatDate } from '../../lib/format';
 import { plural } from '../../lib/labels';
 import { ErrorNotice } from '../ui/ErrorNotice';
+import { buttonBase, buttonSecondarySmall, notice } from '../ui/classes';
+
+const buttonPrimarySmall = `${buttonBase} min-h-[29px] border-transparent bg-accent px-2.5 text-white shadow-[0_3px_8px_#5364dd2a] hover:bg-accent-dark`;
+const buttonPlainSmall = `${buttonBase} min-h-[29px] border-transparent px-2.5`;
+const emptyInline = 'rounded-ui-md border border-dashed border-line-strong px-4 py-3 text-ui-sm text-muted-strong';
+const previewBox = 'max-w-full rounded-ui-sm border border-line bg-[#f8f9fc] p-[7px]';
+const sheetCell = 'max-w-[280px] border-r border-b border-[#e7eaf0] px-[9px] py-1.5 text-left align-top wrap-anywhere';
 
 const MAX_SPREADSHEET_PREVIEW_BYTES = 5 * 1024 * 1024;
 const MAX_PREVIEW_ROWS = 100;
@@ -141,43 +148,43 @@ function AttachmentRow({ token, projectId, taskId, attachment, onRename, onDelet
     finally { setBusy(null); }
   }
 
-  return <li className="task-attachment-card" aria-busy={busy !== null}>
-    <div className="task-attachment-file-icon" aria-hidden="true">{fileBadge(attachment)}</div>
-    <div className="task-attachment-info">
-      <strong title={attachment.name}>{attachment.name}</strong>
-      <small>{formatFileSize(attachment.size)} · {attachment.contentType} · {formatDate(attachment.createdAt)}</small>
-      {error && <span className="task-attachment-error" role="alert">{error}</span>}
-      {status && <span className="task-attachment-status" role="status">{status}</span>}
-      {previewUrl && kind === 'image' && <div className="task-attachment-preview"><img src={previewUrl} alt={`Prévia de ${attachment.name}`} /></div>}
-      {previewUrl && kind === 'pdf' && <div className="task-attachment-preview task-attachment-pdf-preview"><iframe src={previewUrl} title={`Prévia de ${attachment.name}`} />
-        <p>Se o PDF não aparecer no navegador, use Baixar para abri-lo.</p></div>}
-      {spreadsheet && <div className="task-attachment-preview task-attachment-sheet-preview">
-        <strong>{spreadsheet.sheetName}</strong>
-        {spreadsheet.rows.length ? <div className="task-attachment-sheet-table"><table><tbody>{spreadsheet.rows.map((row, rowIndex) => <tr key={rowIndex}>{row.map((cell, columnIndex) => {
+  return <li className="grid min-w-0 grid-cols-[42px_minmax(0,1fr)_auto] items-start gap-3 rounded-ui-md border border-line bg-white p-3 max-[720px]:grid-cols-[36px_minmax(0,1fr)]" aria-busy={busy !== null}>
+    <div className="grid h-[42px] w-[42px] place-items-center rounded-ui-sm bg-tone-blue-bg text-[9px] font-extrabold text-tone-blue max-[720px]:h-9 max-[720px]:w-9" aria-hidden="true">{fileBadge(attachment)}</div>
+    <div className="grid min-w-0 gap-1">
+      <strong className="text-ui-sm text-ink-2 wrap-anywhere" title={attachment.name}>{attachment.name}</strong>
+      <small className="text-ui-xs text-muted-strong wrap-anywhere">{formatFileSize(attachment.size)} · {attachment.contentType} · {formatDate(attachment.createdAt)}</small>
+      {error && <span className="text-ui-xs text-tone-red wrap-anywhere" role="alert">{error}</span>}
+      {status && <span className="text-ui-xs text-tone-green" role="status">{status}</span>}
+      {previewUrl && kind === 'image' && <div className={previewBox}><img className="block max-h-[360px] w-auto max-w-[min(100%,480px)] object-contain" src={previewUrl} alt={`Prévia de ${attachment.name}`} /></div>}
+      {previewUrl && kind === 'pdf' && <div className={`${previewBox} grid gap-[7px]`}><iframe className="block h-[min(70vh,620px)] min-h-[320px] w-[min(100%,760px)] rounded-[5px] bg-white max-[720px]:min-h-[260px]" src={previewUrl} title={`Prévia de ${attachment.name}`} />
+        <p className="text-ui-xs text-muted-strong">Se o PDF não aparecer no navegador, use Baixar para abri-lo.</p></div>}
+      {spreadsheet && <div className={`${previewBox} grid gap-[7px] overflow-hidden`}>
+        <strong className="text-ui-xs text-ink-2">{spreadsheet.sheetName}</strong>
+        {spreadsheet.rows.length ? <div className="max-w-full overflow-auto rounded-ui-sm border border-line bg-white"><table className="w-max min-w-full border-collapse text-ui-xs"><tbody>{spreadsheet.rows.map((row, rowIndex) => <tr key={rowIndex}>{row.map((cell, columnIndex) => {
           const value = cellText(cell);
           return rowIndex === 0
-            ? <th key={columnIndex} scope="col">{value || `Coluna ${columnIndex + 1}`}</th>
-            : <td key={columnIndex}>{value}</td>;
-        })}</tr>)}</tbody></table></div> : <p className="empty-inline">A planilha está vazia.</p>}
-        {spreadsheet.truncated && <small>Prévia limitada às primeiras {MAX_PREVIEW_ROWS} linhas e {MAX_PREVIEW_COLUMNS} colunas.</small>}
+            ? <th className={`${sheetCell} sticky top-0 bg-[#f0f2f8] font-bold text-ink-2`} key={columnIndex} scope="col">{value || `Coluna ${columnIndex + 1}`}</th>
+            : <td className={sheetCell} key={columnIndex}>{value}</td>;
+        })}</tr>)}</tbody></table></div> : <p className={emptyInline}>A planilha está vazia.</p>}
+        {spreadsheet.truncated && <small className="text-ui-xs text-muted-strong">Prévia limitada às primeiras {MAX_PREVIEW_ROWS} linhas e {MAX_PREVIEW_COLUMNS} colunas.</small>}
       </div>}
-      {editingName && <form className="task-attachment-edit" onSubmit={event => void saveName(event)}>
-        <label htmlFor={`attachment-name-${attachment.id}`}>Novo nome do arquivo</label>
-        <input id={`attachment-name-${attachment.id}`} value={nextName} maxLength={255} onChange={event => setNextName(event.currentTarget.value)} disabled={busy !== null} autoFocus />
-        <div><button type="submit" className="button primary small-button" disabled={busy !== null}>{busy === 'rename' ? 'Salvando…' : 'Salvar nome'}</button>
-          <button type="button" className="button secondary small-button" disabled={busy !== null} onClick={() => { setEditingName(false); setNextName(attachment.name); setError(''); }}>Cancelar</button></div>
+      {editingName && <form className="grid gap-[7px] rounded-ui-sm border border-line bg-[#fafbfe] p-2.5" onSubmit={event => void saveName(event)}>
+        <label className="text-ui-xs font-bold text-ink-2" htmlFor={`attachment-name-${attachment.id}`}>Novo nome do arquivo</label>
+        <input className="min-h-[38px] w-full rounded-[7px] border border-line-strong bg-white px-2.5 text-ui-sm" id={`attachment-name-${attachment.id}`} value={nextName} maxLength={255} onChange={event => setNextName(event.currentTarget.value)} disabled={busy !== null} autoFocus />
+        <div className="flex flex-wrap gap-1.5"><button type="submit" className={buttonPrimarySmall} disabled={busy !== null}>{busy === 'rename' ? 'Salvando…' : 'Salvar nome'}</button>
+          <button type="button" className={buttonSecondarySmall} disabled={busy !== null} onClick={() => { setEditingName(false); setNextName(attachment.name); setError(''); }}>Cancelar</button></div>
       </form>}
-      {confirmingDelete && <div className="task-attachment-confirm" role="group" aria-label={`Confirmação para excluir ${attachment.name}`}>
-        <p>Excluir permanentemente “{attachment.name}”?</p>
-        <button type="button" className="button danger small-button" disabled={busy !== null} onClick={() => void confirmDelete()}>{busy === 'delete' ? 'Excluindo…' : 'Confirmar exclusão'}</button>
-        <button type="button" className="button secondary small-button" disabled={busy !== null} onClick={() => setConfirmingDelete(false)}>Cancelar</button>
+      {confirmingDelete && <div className="flex flex-wrap items-center gap-[7px] rounded-ui-sm border border-[#efd7d9] bg-[#fffafa] px-2.5 py-[9px]" role="group" aria-label={`Confirmação para excluir ${attachment.name}`}>
+        <p className="flex-[1_1_100%] text-ui-xs font-semibold text-tone-red">Excluir permanentemente “{attachment.name}”?</p>
+        <button type="button" className={buttonPlainSmall} disabled={busy !== null} onClick={() => void confirmDelete()}>{busy === 'delete' ? 'Excluindo…' : 'Confirmar exclusão'}</button>
+        <button type="button" className={buttonSecondarySmall} disabled={busy !== null} onClick={() => setConfirmingDelete(false)}>Cancelar</button>
       </div>}
     </div>
-    <div className="task-attachment-actions">
-      {hasPreview && <button type="button" className="button secondary small-button" aria-label={`${previewUrl || spreadsheet ? 'Ocultar prévia de' : 'Visualizar'} ${attachment.name}`} disabled={busy !== null} onClick={() => void togglePreview()}>{busy === 'preview' ? 'Carregando…' : previewUrl || spreadsheet ? 'Ocultar prévia' : 'Visualizar'}</button>}
-      <button type="button" className="button secondary small-button" disabled={busy !== null} onClick={() => void download()}>{busy === 'download' ? 'Baixando…' : 'Baixar'}</button>
-      <button type="button" className="button secondary small-button" aria-label={`Renomear ${attachment.name}`} disabled={busy !== null || editingName || confirmingDelete} onClick={() => { setNextName(attachment.name); setEditingName(true); setError(''); }}>Renomear</button>
-      <button type="button" className="button danger secondary small-button" aria-label={`Excluir ${attachment.name}`} disabled={busy !== null || editingName || confirmingDelete} onClick={() => { setConfirmingDelete(true); setError(''); }}>Excluir</button>
+    <div className="flex flex-wrap justify-end gap-1.5 max-[720px]:col-span-full max-[720px]:justify-start">
+      {hasPreview && <button type="button" className={buttonSecondarySmall} aria-label={`${previewUrl || spreadsheet ? 'Ocultar prévia de' : 'Visualizar'} ${attachment.name}`} disabled={busy !== null} onClick={() => void togglePreview()}>{busy === 'preview' ? 'Carregando…' : previewUrl || spreadsheet ? 'Ocultar prévia' : 'Visualizar'}</button>}
+      <button type="button" className={buttonSecondarySmall} disabled={busy !== null} onClick={() => void download()}>{busy === 'download' ? 'Baixando…' : 'Baixar'}</button>
+      <button type="button" className={buttonSecondarySmall} aria-label={`Renomear ${attachment.name}`} disabled={busy !== null || editingName || confirmingDelete} onClick={() => { setNextName(attachment.name); setEditingName(true); setError(''); }}>Renomear</button>
+      <button type="button" className={buttonSecondarySmall} aria-label={`Excluir ${attachment.name}`} disabled={busy !== null || editingName || confirmingDelete} onClick={() => { setConfirmingDelete(true); setError(''); }}>Excluir</button>
     </div>
   </li>;
 }
@@ -240,23 +247,23 @@ export function TaskAttachmentsPanel({ token, nonce, projectId, taskId }: { toke
     void addFiles(files);
   }
 
-  return <section className="drawer-section task-attachments-panel" aria-label="Arquivos anexados">
-    <div className="drawer-section-head"><div><h3>Arquivos anexados</h3><p className="empty-inline">Envie fotos e outros arquivos para mantê-los disponíveis nesta tarefa.</p></div></div>
-    <label className="task-attachment-upload">
+  return <section className="grid gap-3" aria-label="Arquivos anexados">
+    <div className="flex flex-wrap items-center justify-between gap-3"><div className="grid gap-1"><h3 className="font-display text-[13px] leading-[normal] font-bold text-ink normal-case">Arquivos anexados</h3><p className={emptyInline}>Envie fotos e outros arquivos para mantê-los disponíveis nesta tarefa.</p></div></div>
+    <label className="grid gap-[7px] rounded-ui-md border border-dashed border-line-strong bg-[#fbfcff] p-4 text-ui-sm font-bold text-ink-2">
       <span>Adicionar arquivos</span>
-      <input type="file" multiple disabled={isUploading} onChange={onFilesSelected} aria-describedby="task-attachment-help" />
-      <small id="task-attachment-help">Até 25 MiB por arquivo. Há prévia para imagens, PDF, Excel e CSV; outros formatos mostram o tipo e podem ser baixados.</small>
+      <input className="max-w-full min-w-0 text-ui-xs text-muted-strong" type="file" multiple disabled={isUploading} onChange={onFilesSelected} aria-describedby="task-attachment-help" />
+      <small className="text-ui-xs leading-[1.5] font-normal text-muted-strong" id="task-attachment-help">Até 25 MiB por arquivo. Há prévia para imagens, PDF, Excel e CSV; outros formatos mostram o tipo e podem ser baixados.</small>
     </label>
-    {uploadingName && <div className="task-attachment-progress" role="status" aria-live="polite">
+    {uploadingName && <div className="grid gap-1.5 text-ui-xs text-muted-strong" role="status" aria-live="polite">
       <span>Enviando {uploadingName}{uploadProgress === null ? '…' : ` · ${uploadProgress}%`}</span>
-      <progress max={100} aria-label={`Progresso do envio de ${uploadingName}`} {...(uploadProgress === null ? {} : { value: uploadProgress })} />
+      <progress className="h-2 w-full accent-focus" max={100} aria-label={`Progresso do envio de ${uploadingName}`} {...(uploadProgress === null ? {} : { value: uploadProgress })} />
     </div>}
-    {uploadMessage && <p className="notice success" role="status">{uploadMessage}</p>}
-    {actionMessage && <p className="notice success" role="status" aria-live="polite">{actionMessage}</p>}
-    {uploadErrors.length > 0 && <ul className="task-attachment-errors" role="alert">{uploadErrors.map((message, index) => <li key={index}>{message}</li>)}</ul>}
-    {attachments.isPending ? <p className="empty-inline" role="status">Carregando arquivos…</p>
+    {uploadMessage && <p className={notice.success} role="status">{uploadMessage}</p>}
+    {actionMessage && <p className={notice.success} role="status" aria-live="polite">{actionMessage}</p>}
+    {uploadErrors.length > 0 && <ul className="m-0 grid gap-[5px] rounded-ui-sm border border-[#efd7d9] bg-[#fffafa] py-2.5 pr-3 pl-7 text-ui-xs text-tone-red wrap-anywhere" role="alert">{uploadErrors.map((message, index) => <li key={index}>{message}</li>)}</ul>}
+    {attachments.isPending ? <p className={emptyInline} role="status">Carregando arquivos…</p>
       : attachments.isError ? <ErrorNotice error={attachments.error} onRetry={() => void attachments.refetch()} retrying={attachments.isFetching} title="Não foi possível carregar os arquivos" />
-        : attachments.data?.length ? <ul className="task-attachment-list">{attachments.data.map(attachment => <AttachmentRow key={attachment.id} token={token} projectId={projectId} taskId={taskId} attachment={attachment} onRename={rename} onDelete={remove} />)}</ul>
-          : <p className="empty-inline">Nenhum arquivo anexado ainda.</p>}
+        : attachments.data?.length ? <ul className="m-0 grid list-none gap-2 p-0">{attachments.data.map(attachment => <AttachmentRow key={attachment.id} token={token} projectId={projectId} taskId={taskId} attachment={attachment} onRename={rename} onDelete={remove} />)}</ul>
+          : <p className={emptyInline}>Nenhum arquivo anexado ainda.</p>}
   </section>;
 }

@@ -43,6 +43,9 @@ export const tools = {
     remoteUrl: z.string().min(1).max(2048).optional().describe('Git remote URL reported by the current checkout.'),
     rootCommit: z.string().regex(/^[0-9a-f]{40}$/i).optional().describe('Root commit reported by the current checkout.')
   }).strict(),
+  resolve_task_context: z.object({
+    taskReference: z.string().trim().min(8).max(36).regex(/^[0-9a-f-]+$/i).refine(value => value.replaceAll('-', '').length >= 8, 'Task reference must contain at least eight hexadecimal characters').describe('Full task UUID or an ID prefix of at least eight hexadecimal characters.')
+  }).strict(),
   create_project: z.object({ ...op, data: projectData }).strict(),
   create_feature: z.object({ ...op, projectId: id, data: featureData }).strict(),
   create_task: z.object({ ...op, projectId: id, data: taskData }).strict(),
@@ -80,6 +83,7 @@ export const tools = {
   list_project_activity: z.object({ projectId: id, taskId: id.optional(), search: z.string().trim().min(1).max(160).optional(), after: cursor.optional(), limit: z.number().int().min(1).max(100).default(25) }).strict().describe('Consulta o histórico paginado de atividades do projeto; search filtra pelo nome ou ID da tarefa.'),
   get_global_activity: z.object({ after: cursor.optional(), limit: z.number().int().min(1).max(100).default(25) }).strict().describe('Consulta atividades globais recentes; somente administradores de sistema.'),
   get_summary: z.object({ projectId: id, featureId: id.optional() }).strict(),
+  get_project_dashboard: z.object({ projectId: id, from: z.string().datetime().optional() }).strict().describe('Agrega tarefas, responsáveis, áreas e duração de desenvolvimento do projeto; from filtra tarefas pela data de criação.'),
   get_project_area_summary: z.object({ projectId: id, featureId: id.optional() }).strict(),
   get_project_novelties: z.object({ projectId: id, after: z.number().int().nonnegative().optional(), limit: z.number().int().min(1).max(100).default(25) }).strict(),
   mark_project_read: z.object({ ...op, projectId: id, cursor: z.number().int().nonnegative() }).strict(),
