@@ -23,6 +23,7 @@ import { tools, adminSchema, approveActionProposalSchema, approveTasksSchema, ch
 export class DomainError extends Error { constructor(message: string, public status = 409) { super(message); } }
 export type Actor = { id: string; userId: string; scope: string; systemAdmin: boolean; projectToken?: string; sessionId?: string; jobId?: string; runnerId?: string; clientName?: string };
 export const TASK_ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024;
+export const TASK_ATTACHMENT_MCP_REQUEST_BYTES = Math.ceil(TASK_ATTACHMENT_MAX_BYTES / 3) * 4 + 16 * 1024;
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const plain = (value: unknown) => JSON.parse(JSON.stringify(value));
 const projectDto = (project: any) => ({
@@ -44,6 +45,18 @@ function normalizeGitRemote(value: string) {
   return value.trim().replace(/^git@([^:]+):/i, '$1/').replace(/^(?:https?|ssh):\/\//i, '').replace(/^git@/i, '').replace(/\.git\/?$/i, '').replace(/\/+$/, '').toLowerCase();
 }
 function requireThat(value: unknown, message: string, status = 409): asserts value { if (!value) throw new DomainError(message, status); }
+function taskAttachmentFileName(value: string) {
+  const fileName = value.replace(/[\r\n\0]/g, '').replaceAll('\\', '/').split('/').at(-1)?.trim() ?? '';
+  requireThat(fileName.length > 0 && fileName !== '.' && fileName !== '..' && Buffer.byteLength(fileName, 'utf8') <= 255, 'Invalid file name', 400);
+  return fileName;
+}
+function decodeTaskAttachmentBase64(value: string) {
+  requireThat(value.length % 4 === 0, 'Invalid Base64 file contents', 400);
+  const content = Buffer.from(value, 'base64');
+  requireThat(content.length <= TASK_ATTACHMENT_MAX_BYTES, 'File exceeds maximum size', 413);
+  requireThat(content.toString('base64') === value, 'Invalid Base64 file contents', 400);
+  return content;
+}
 function redactActivityDetail(value: string) {
   return value
     .replace(/-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z0-9 ]*PRIVATE KEY-----/gi, '[DADO SENSÍVEL OCULTO]')
@@ -277,37 +290,54 @@ export class Service {
     requireThat(db, 'Database unavailable', 503);
     return new mongoose.mongo.GridFSBucket(db, { bucketName: 'taskAttachments' });
   }
-  private async taskAttachmentTask(actor: Actor, projectId: string, taskId: string, write: boolean) {
-    requireThat(actor.scope === 'human', 'Human credential required', 403);
-    await this.access(actor, projectId, write);
-    const task = await Task.findOne({ _id: taskId, projectId }).select('_id').lean();
+  private taskAttachmentFiles() {
+    const db = mongoose.connection.db;
+    requireThat(db, 'Database unavailable', 503);
+    return db.collection('taskAttachments.files');
+  }
+  private async taskAttachmentTask(actor: Actor, projectId: string, taskId: string, write: boolean, session?: ClientSession) {
+    await this.access(actor, projectId, write, false, session);
+    const task = await Task.findOne({ _id: taskId, projectId }).select('_id').session(session ?? null).lean();
     requireThat(task, 'Task not found', 404);
+  }
+  private async taskAttachmentRecord(actor: Actor, projectId: string, taskId: string, attachmentId: string, write: boolean, session?: ClientSession) {
+    await this.taskAttachmentTask(actor, projectId, taskId, write, session);
+    requireThat(/^[a-f0-9]{24}$/i.test(attachmentId), 'Invalid attachment ID', 400);
+    const _id = new mongoose.mongo.ObjectId(attachmentId);
+    const filter = { _id, 'metadata.projectId': projectId, 'metadata.taskId': taskId };
+    const file = await this.taskAttachmentFiles().findOne(filter, { session });
+    requireThat(file, 'Attachment not found', 404);
+    return { file, filter, _id };
   }
   private taskAttachmentDto(file: any) {
     return {
       id: String(file._id),
-      name: file.metadata?.originalName ?? file.filename,
+      name: file.filename,
       contentType: file.metadata?.contentType ?? 'application/octet-stream',
       size: file.length,
       createdAt: file.uploadDate
     };
   }
-  async createTaskAttachment(actor: Actor, input: { projectId: string; taskId: string; fileName: string; contentType: string; content: Buffer }) {
+  async createTaskAttachment(actor: Actor, input: { projectId: string; taskId: string; fileName: string; contentType: string; content: Buffer; operationKey?: string }) {
     await this.taskAttachmentTask(actor, input.projectId, input.taskId, true);
     requireThat(Buffer.isBuffer(input.content) && input.content.length <= TASK_ATTACHMENT_MAX_BYTES, 'Invalid file size', 413);
-    const fileName = input.fileName.replace(/[\r\n\0]/g, '').replaceAll('\\', '/').split('/').at(-1)?.trim() ?? '';
-    requireThat(fileName.length > 0 && fileName !== '.' && fileName !== '..' && Buffer.byteLength(fileName, 'utf8') <= 255, 'Invalid file name', 400);
+    const fileName = taskAttachmentFileName(input.fileName);
     const contentType = input.contentType.trim().toLowerCase().split(';', 1)[0];
     requireThat(contentType.length <= 255 && /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/i.test(contentType), 'Invalid content type', 400);
     const bucket = this.taskAttachmentBucket();
     const upload = bucket.openUploadStream(fileName, { metadata: {
       projectId: input.projectId, taskId: input.taskId, originalName: fileName,
-      contentType, uploadedBy: actor.userId
+      contentType, uploadedBy: actor.userId, ...(input.operationKey ? { operationKey: input.operationKey } : {})
     } });
-    await pipeline(Readable.from([input.content]), upload);
-    const file = await bucket.find({ _id: upload.id }).next();
-    requireThat(file, 'Attachment could not be stored', 500);
-    return this.taskAttachmentDto(file);
+    try {
+      await pipeline(Readable.from([input.content]), upload);
+      const file = await bucket.find({ _id: upload.id }).next();
+      requireThat(file, 'Attachment could not be stored', 500);
+      return this.taskAttachmentDto(file);
+    } catch (error) {
+      await bucket.delete(upload.id).catch(() => undefined);
+      throw error;
+    }
   }
   async listTaskAttachments(actor: Actor, projectId: string, taskId: string) {
     await this.taskAttachmentTask(actor, projectId, taskId, false);
@@ -316,16 +346,81 @@ export class Service {
     return files.map(file => this.taskAttachmentDto(file));
   }
   async getTaskAttachment(actor: Actor, projectId: string, taskId: string, attachmentId: string) {
-    await this.taskAttachmentTask(actor, projectId, taskId, false);
-    requireThat(/^[a-f0-9]{24}$/i.test(attachmentId), 'Invalid attachment ID', 400);
+    const { file } = await this.taskAttachmentRecord(actor, projectId, taskId, attachmentId, false);
     const bucket = this.taskAttachmentBucket();
-    const file = await bucket.find({
-      _id: new mongoose.mongo.ObjectId(attachmentId),
-      'metadata.projectId': projectId,
-      'metadata.taskId': taskId
-    }).next();
-    requireThat(file, 'Attachment not found', 404);
     return { attachment: this.taskAttachmentDto(file), stream: bucket.openDownloadStream(file._id) };
+  }
+  async getTaskAttachmentBase64(actor: Actor, projectId: string, taskId: string, attachmentId: string) {
+    const { attachment, stream } = await this.getTaskAttachment(actor, projectId, taskId, attachmentId);
+    const chunks: Buffer[] = [];
+    let size = 0;
+    for await (const chunk of stream) {
+      const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      size += bytes.length;
+      requireThat(size <= TASK_ATTACHMENT_MAX_BYTES, 'Attachment exceeds MCP transfer limit', 413);
+      chunks.push(bytes);
+    }
+    return { attachment, contentBase64: Buffer.concat(chunks, size).toString('base64') };
+  }
+  async renameTaskAttachment(actor: Actor, projectId: string, taskId: string, attachmentId: string, fileName: string, session?: ClientSession) {
+    const safeName = taskAttachmentFileName(fileName);
+    const { file, filter } = await this.taskAttachmentRecord(actor, projectId, taskId, attachmentId, true, session);
+    const result = await this.taskAttachmentFiles().updateOne(filter, { $set: { filename: safeName, 'metadata.originalName': safeName } }, { session });
+    requireThat(result.matchedCount === 1, 'Attachment not found', 404);
+    return this.taskAttachmentDto({ ...file, filename: safeName, metadata: { ...file.metadata, originalName: safeName } });
+  }
+  async deleteTaskAttachment(actor: Actor, projectId: string, taskId: string, attachmentId: string, session?: ClientSession): Promise<{ attachmentId: string; deleted: true }> {
+    if (!session) return mongoose.connection.transaction(s => this.deleteTaskAttachment(actor, projectId, taskId, attachmentId, s));
+    const { file, filter } = await this.taskAttachmentRecord(actor, projectId, taskId, attachmentId, true, session);
+    const deleted = await this.taskAttachmentFiles().deleteOne(filter, { session });
+    requireThat(deleted.deletedCount === 1, 'Attachment not found', 404);
+    await mongoose.connection.db!.collection('taskAttachments.chunks').deleteMany({ files_id: file._id }, { session });
+    return { attachmentId, deleted: true };
+  }
+  private async uploadTaskAttachmentTool(actor: Actor, a: any) {
+    const content = decodeTaskAttachmentBase64(a.contentBase64);
+    await this.taskAttachmentTask(actor, a.projectId, a.taskId, true);
+    await mongoose.connection.transaction(s => this.automation.guard(actor, 'upload_task_attachment', a, s));
+    const operationKey = `${actor.id}:${a.operationId}`;
+    const fingerprint = hash(JSON.stringify({
+      tool: 'upload_task_attachment', projectId: a.projectId, taskId: a.taskId,
+      fileName: a.fileName, contentType: a.contentType, contentSha256: hash(a.contentBase64)
+    }));
+    const returnExisting = async () => {
+      const operation = await Operation.findById(operationKey).lean();
+      requireThat(operation && operation.fingerprint === fingerprint, 'Operation ID reused with different arguments');
+      if (operation.result && operation.result.pending !== true) return operation.result;
+      const file = await this.taskAttachmentBucket().find({ 'metadata.operationKey': operationKey, 'metadata.projectId': a.projectId, 'metadata.taskId': a.taskId }).next();
+      if (file) {
+        const result = { attachment: this.taskAttachmentDto(file) };
+        await Operation.updateOne({ _id: operationKey, fingerprint }, { $set: { result } });
+        return result;
+      }
+      throw new DomainError('Attachment operation is still in progress; reconcile it before retrying', 409);
+    };
+    const existing = await Operation.findById(operationKey).lean();
+    if (existing) return returnExisting();
+    try {
+      await Operation.create([{ _id: operationKey, projectId: a.projectId, fingerprint, result: { pending: true } }]);
+    } catch (error) {
+      if ((error as { code?: number }).code !== 11000) throw error;
+      return returnExisting();
+    }
+    try {
+      const attachment = await this.createTaskAttachment(actor, {
+        projectId: a.projectId, taskId: a.taskId, fileName: a.fileName,
+        contentType: a.contentType, content, operationKey
+      });
+      const result = { attachment };
+      const stored = await Operation.updateOne({ _id: operationKey, fingerprint }, { $set: { result } });
+      requireThat(stored.matchedCount === 1, 'Attachment operation receipt was lost', 503);
+      await this.recordMcpToolCall(actor, 'upload_task_attachment', a);
+      return result;
+    } catch (error) {
+      const storedFile = await this.taskAttachmentBucket().find({ 'metadata.operationKey': operationKey }).next().catch(() => null);
+      if (!storedFile) await Operation.deleteOne({ _id: operationKey, fingerprint, 'result.pending': true }).catch(() => undefined);
+      throw error;
+    }
   }
   async listCredentials(actor: Actor, query: { projectId?: string; scope?: 'human' | 'agent'; status?: 'active' | 'revoked'; email?: string; after?: string; limit: number }) {
     requireThat(actor.scope === 'human', 'Human credential required', 403);
@@ -705,6 +800,30 @@ export class Service {
     const schema = tools[name as keyof typeof tools];
     requireThat(schema, 'Unknown tool', 404);
     const a: any = schema.parse(input);
+    if (name === 'upload_task_attachment') return this.uploadTaskAttachmentTool(actor, a);
+    if (name === 'list_task_attachments') {
+      const items = await this.listTaskAttachments(actor, a.projectId, a.taskId);
+      await this.recordMcpToolCall(actor, name, a);
+      return { items };
+    }
+    if (name === 'download_task_attachment') {
+      const result = await this.getTaskAttachmentBase64(actor, a.projectId, a.taskId, a.attachmentId);
+      await this.recordMcpToolCall(actor, name, a);
+      return result;
+    }
+    if (name === 'rename_task_attachment' || name === 'delete_task_attachment') {
+      return this.mutate(actor, name, a, async s => {
+        await this.automation.guard(actor, name, a, s);
+        if (name === 'rename_task_attachment') {
+          const attachment = await this.renameTaskAttachment(actor, a.projectId, a.taskId, a.attachmentId, a.fileName, s);
+          await this.event(s, actor, name, a.projectId, a.attachmentId, { taskId: a.taskId, attachmentId: a.attachmentId, fileName: attachment.name });
+          return { attachment };
+        }
+        const result = await this.deleteTaskAttachment(actor, a.projectId, a.taskId, a.attachmentId, s);
+        await this.event(s, actor, name, a.projectId, a.attachmentId, { taskId: a.taskId, attachmentId: a.attachmentId });
+        return result;
+      });
+    }
     if (!('operationId' in a)) {
       const result = await this.read(actor, name, a);
       await this.recordMcpToolCall(actor, name, a);

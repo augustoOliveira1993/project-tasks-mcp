@@ -8,6 +8,8 @@ const areas = z.array(areaName).min(1).max(100).refine(values => new Set(values.
 const markdown = z.string().max(100 * 1024).refine(value => Buffer.byteLength(value, 'utf8') <= 100 * 1024, 'Markdown exceeds 100 KiB');
 const markdownSummary = z.string().max(500);
 const conversationMessage = z.string().min(1).max(20000).refine(value => Buffer.byteLength(value, 'utf8') <= 20 * 1024, 'Conversation message exceeds 20 KiB');
+const taskAttachmentBase64Chars = Math.ceil(25 * 1024 * 1024 / 3) * 4;
+const attachmentId = z.string().regex(/^[a-f0-9]{24}$/i, 'Invalid attachment ID');
 export const states = ['pendente', 'em_execucao', 'bloqueada', 'em_revisao', 'concluida', 'cancelada'] as const;
 export const kind = z.enum(['project', 'feature', 'task']);
 export const taskType = z.enum(['feature', 'fix', 'chore', 'docs', 'refactor', 'test', 'perf', 'build', 'ci', 'revert']);
@@ -68,6 +70,11 @@ export const tools = {
   get_record: z.object({ projectId: id, kind, id }).strict(),
   list_executions: z.object({ projectId: id, taskId: id, after: cursor.optional(), limit: z.number().int().min(1).max(100).default(25) }).strict(),
   get_task_context: z.object({ projectId: id, taskId: id }).strict().describe('Retorna contexto tipado e limitado da tarefa. Consulte get_record e as ferramentas de paginação para carregar detalhes truncados sob demanda.'),
+  upload_task_attachment: z.object({ ...op, projectId: id, taskId: id, fileName: z.string().min(1).max(1024), contentType: z.string().min(1).max(255), contentBase64: z.string().max(taskAttachmentBase64Chars).describe('Conteúdo do arquivo codificado em Base64 padrão; máximo de 25 MiB após decodificar.') }).strict(),
+  list_task_attachments: z.object({ projectId: id, taskId: id }).strict(),
+  download_task_attachment: z.object({ projectId: id, taskId: id, attachmentId }).strict(),
+  rename_task_attachment: z.object({ ...op, projectId: id, taskId: id, attachmentId, fileName: z.string().min(1).max(1024) }).strict(),
+  delete_task_attachment: z.object({ ...op, projectId: id, taskId: id, attachmentId }).strict(),
   get_task_markdown_summary: z.object({ projectId: id, taskId: id }).strict(),
   get_history: z.object({ projectId: id, entityId: id.optional(), after: cursor.optional(), limit: z.number().int().min(1).max(100).default(25) }).strict(),
   list_project_activity: z.object({ projectId: id, taskId: id.optional(), search: z.string().trim().min(1).max(160).optional(), after: cursor.optional(), limit: z.number().int().min(1).max(100).default(25) }).strict().describe('Consulta o histórico paginado de atividades do projeto; search filtra pelo nome ou ID da tarefa.'),

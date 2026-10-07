@@ -138,6 +138,20 @@ export async function downloadTaskAttachment(token: string, projectId: string, t
   return response.blob();
 }
 
+export async function renameTaskAttachment(token: string, projectId: string, taskId: string, attachmentId: string, fileName: string): Promise<TaskAttachment> {
+  const result = await request<{ attachment: TaskAttachment }>(token, `${taskAttachmentPath(projectId, taskId)}/${encodeURIComponent(attachmentId)}`, {
+    method: 'PATCH', body: { fileName }
+  });
+  return result.attachment;
+}
+
+export async function deleteTaskAttachment(token: string, projectId: string, taskId: string, attachmentId: string): Promise<void> {
+  const response = await fetch(`${apiPrefix}${taskAttachmentPath(projectId, taskId)}/${encodeURIComponent(attachmentId)}`, {
+    method: 'DELETE', headers: { authorization: 'Bearer ' + token }
+  });
+  if (!response.ok) throw attachmentRequestError(await response.text(), response.status);
+}
+
 export function query<T>(token: string, tool: string, args: Record<string, unknown>): Promise<T> {
   return request<T>(token, '/admin/query', { body: { tool, arguments: args } });
 }
