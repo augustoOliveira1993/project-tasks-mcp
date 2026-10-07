@@ -5,7 +5,9 @@ import { ErrorNotice } from '../../components/ui/ErrorNotice';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { areaLabel } from '../../lib/labels';
 import { statusLabels, statusTone } from '../tasks/status';
-import { buttonSecondary, eyebrow } from '../../components/ui/classes';
+import { buttonSecondary, eyebrow, textButton } from '../../components/ui/classes';
+import { TaskLink, TasksLink } from '../../components/ui/Links';
+import { areaFilterValue, monthFilters, periodFilters, responsibleFilterValue, type TaskLinkFilters } from './dashboard-links';
 
 const emptyInline = 'rounded-ui-md border border-dashed border-line-strong px-4 py-3 text-ui-sm text-muted-strong';
 const barRow = 'grid items-center gap-[9px] min-w-0 text-ui-xs max-[480px]:gap-[6px]';
@@ -14,7 +16,9 @@ const barTrack = 'block h-2 overflow-hidden rounded-[99px] bg-canvas';
 const barFill = 'block h-full min-w-0 rounded-[inherit]';
 const fillTones: Record<string, string> = { blue: 'bg-tone-blue', green: 'bg-tone-green', amber: 'bg-tone-amber' };
 const dotTones: Record<string, string> = { muted: 'bg-muted-strong', blue: 'bg-tone-blue', green: 'bg-tone-green', amber: 'bg-tone-amber', red: 'bg-tone-red' };
-const metric = 'grid min-w-0 content-start gap-1.5 rounded-ui-md border border-line bg-surface px-4 py-[15px] shadow-[0_1px_2px_#1720330a] max-[480px]:p-3';
+const metric = 'grid min-w-0 content-start gap-1.5 rounded-ui-md border border-line bg-surface px-4 py-[15px] no-underline shadow-[0_1px_2px_#1720330a] transition hover:border-focus hover:shadow-[0_2px_8px_#1720331a] max-[480px]:p-3';
+const rowLink = '-mx-1.5 -my-0.5 rounded-ui-sm px-1.5 py-0.5 no-underline transition-colors hover:bg-canvas';
+const cellLink = 'no-underline hover:text-tone-blue hover:underline';
 const panel = 'min-w-0 rounded-ui-md border border-line bg-surface px-[18px] py-4 max-[480px]:px-3 max-[480px]:py-[14px]';
 const panelHeading = 'mb-[15px] flex justify-between gap-3 [align-items:start]';
 const panelTitle = 'text-ui-md font-bold text-ink';
@@ -74,27 +78,31 @@ function monthLabel(value: string) {
   return new Intl.DateTimeFormat('pt-BR', { month: 'short', year: '2-digit', timeZone: 'UTC' }).format(new Date(Date.UTC(year, month - 1, 15)));
 }
 
-function DistributionChart({ title, items, tone = 'blue', responsible = false }: { title: string; items: CountItem[]; tone?: string; responsible?: boolean }) {
+function DistributionChart({ title, items, tone = 'blue', responsible = false, projectId, filtersFor }: { title: string; items: CountItem[]; tone?: string; responsible?: boolean; projectId: string; filtersFor: (item: CountItem) => TaskLinkFilters }) {
   if (!items.length) return <p className={emptyInline}>Nenhuma tarefa neste período.</p>;
   const maximum = Math.max(1, ...items.map(item => item.count));
   return <div className="grid gap-[11px]" role="list" aria-label={title}>
-    {items.map(item => <div className={`${barRow} grid-cols-[minmax(90px,1.1fr)_minmax(50px,2fr)_34px] max-[480px]:grid-cols-[minmax(76px,1.15fr)_minmax(30px,1fr)_28px]`} role="listitem" key={item.key || 'empty'} title={responsible && item.key ? item.key : undefined}>
-      <span className={barLabel}>{responsible ? displayResponsible(item.key) : item.label}</span>
-      <span className={barTrack} aria-hidden="true"><span className={`${barFill} ${fillTones[tone] ?? fillTones.blue}`} style={{ width: `${Math.max(item.count ? 4 : 0, item.count / maximum * 100)}%` }} /></span>
-      <strong className="text-right text-ink-2 tabular-nums">{item.count}</strong>
+    {items.map(item => <div role="listitem" key={item.key || 'empty'}>
+      <TasksLink projectId={projectId} filters={filtersFor(item)} title={`Ver ${item.count} tarefa(s): ${responsible ? displayResponsible(item.key) : item.label}`} className={`${barRow} ${rowLink} grid-cols-[minmax(90px,1.1fr)_minmax(50px,2fr)_34px] max-[480px]:grid-cols-[minmax(76px,1.15fr)_minmax(30px,1fr)_28px]`}>
+        <span className={barLabel}>{responsible ? displayResponsible(item.key) : item.label}</span>
+        <span className={barTrack} aria-hidden="true"><span className={`${barFill} ${fillTones[tone] ?? fillTones.blue}`} style={{ width: `${Math.max(item.count ? 4 : 0, item.count / maximum * 100)}%` }} /></span>
+        <strong className="text-right text-ink-2 tabular-nums">{item.count}</strong>
+      </TasksLink>
     </div>)}
   </div>;
 }
 
-function DevelopmentTrend({ items }: { items: ProjectDashboard['trendByMonth'] }) {
+function DevelopmentTrend({ items, projectId, from }: { items: ProjectDashboard['trendByMonth']; projectId: string; from?: string }) {
   const visible = items.slice(-12);
   if (!visible.length) return <p className={emptyInline}>Ainda não há histórico de desenvolvimento para exibir.</p>;
   const maximum = Math.max(1, ...visible.map(item => item.averageDevelopmentTimeMs ?? 0));
   return <div className="grid gap-[11px]" role="list" aria-label="Tempo médio de desenvolvimento por mês">
-    {visible.map(item => <div className={`${barRow} grid-cols-[50px_minmax(40px,1fr)_minmax(86px,auto)] max-[480px]:grid-cols-[40px_minmax(24px,1fr)_minmax(74px,auto)]`} role="listitem" key={item.month}>
-      <span className={barLabel}>{monthLabel(item.month)}</span>
-      <span className={barTrack} aria-hidden="true"><span className={`${barFill} bg-focus`} style={{ width: `${item.averageDevelopmentTimeMs == null ? 0 : Math.max(4, item.averageDevelopmentTimeMs / maximum * 100)}%` }} /></span>
-      <span className="grid text-right text-ink-2 tabular-nums">{formatDuration(item.averageDevelopmentTimeMs)}<small className="text-[10px] text-muted-strong">{item.developmentSampleCount} tarefa(s)</small></span>
+    {visible.map(item => <div role="listitem" key={item.month}>
+      <TasksLink projectId={projectId} filters={monthFilters(item.month, from)} title={`Ver as ${item.taskCount} tarefa(s) criadas em ${monthLabel(item.month)}`} className={`${barRow} ${rowLink} grid-cols-[50px_minmax(40px,1fr)_minmax(86px,auto)] max-[480px]:grid-cols-[40px_minmax(24px,1fr)_minmax(74px,auto)]`}>
+        <span className={barLabel}>{monthLabel(item.month)}</span>
+        <span className={barTrack} aria-hidden="true"><span className={`${barFill} bg-focus`} style={{ width: `${item.averageDevelopmentTimeMs == null ? 0 : Math.max(4, item.averageDevelopmentTimeMs / maximum * 100)}%` }} /></span>
+        <span className="grid text-right text-ink-2 tabular-nums">{formatDuration(item.averageDevelopmentTimeMs)}<small className="text-[10px] text-muted-strong">{item.developmentSampleCount} tarefa(s)</small></span>
+      </TasksLink>
     </div>)}
   </div>;
 }
@@ -108,6 +116,7 @@ export function ProjectDashboardPage({ token, nonce, projectId }: { token: strin
     queryFn: () => query<ProjectDashboard>(token, 'get_project_dashboard', { projectId, ...(from ? { from } : {}) })
   });
   const data = dashboardQuery.data;
+  const inPeriod = periodFilters(from);
   const counts = new Map<string, number>((data?.byStatus ?? []).map(item => [item.status, item.count] as const));
   const statusItems = (data?.byStatus ?? []).map(item => ({
     key: item.status,
@@ -142,10 +151,10 @@ export function ProjectDashboardPage({ token, nonce, projectId }: { token: strin
     {dashboardQuery.isError && <ErrorNotice error={dashboardQuery.error} onRetry={() => void dashboardQuery.refetch()} retrying={dashboardQuery.isFetching} title="Não foi possível carregar o dashboard" />}
     {data && <>
       <div className="grid grid-cols-[repeat(4,minmax(0,1fr))] gap-3 max-[960px]:grid-cols-[repeat(2,minmax(0,1fr))] max-[480px]:gap-2" aria-label="Indicadores principais">
-        <article className={metric}><span className="text-ui-sm text-muted-strong">Total de tarefas</span><strong className="text-[length:clamp(20px,2vw,25px)] font-bold tracking-[-.03em] text-ink max-[480px]:text-[20px]">{data.totalTasks}</strong><small className="text-ui-xs text-muted-strong">no período selecionado</small></article>
-        <article className={metric}><span className="text-ui-sm text-muted-strong">Em execução</span><strong className="text-[length:clamp(20px,2vw,25px)] font-bold tracking-[-.03em] text-ink max-[480px]:text-[20px]">{counts.get('em_execucao') ?? 0}</strong><small className="text-ui-xs text-muted-strong">tarefas ativas agora</small></article>
-        <article className={metric}><span className="text-ui-sm text-muted-strong">Concluídas</span><strong className="text-[length:clamp(20px,2vw,25px)] font-bold tracking-[-.03em] text-ink max-[480px]:text-[20px]">{counts.get('concluida') ?? 0}</strong><small className="text-ui-xs text-muted-strong">status atual</small></article>
-        <article className={metric}><span className="text-ui-sm text-muted-strong">Tempo médio de desenvolvimento</span><strong className="text-[length:clamp(20px,2vw,25px)] font-bold tracking-[-.03em] text-ink max-[480px]:text-[20px]">{formatDuration(data.development.averageTimeMs)}</strong><small className="text-ui-xs text-muted-strong">{data.development.sampleCount} tarefa(s) com tempo registrado</small></article>
+        <TasksLink projectId={projectId} filters={inPeriod} title="Ver todas as tarefas do período" className={metric}><span className="text-ui-sm text-muted-strong">Total de tarefas</span><strong className="text-[length:clamp(20px,2vw,25px)] font-bold tracking-[-.03em] text-ink max-[480px]:text-[20px]">{data.totalTasks}</strong><small className="text-ui-xs text-muted-strong">no período selecionado</small></TasksLink>
+        <TasksLink projectId={projectId} filters={{ status: 'em_execucao', ...inPeriod }} title="Ver as tarefas em execução" className={metric}><span className="text-ui-sm text-muted-strong">Em execução</span><strong className="text-[length:clamp(20px,2vw,25px)] font-bold tracking-[-.03em] text-ink max-[480px]:text-[20px]">{counts.get('em_execucao') ?? 0}</strong><small className="text-ui-xs text-muted-strong">tarefas ativas agora</small></TasksLink>
+        <TasksLink projectId={projectId} filters={{ status: 'concluida', ...inPeriod }} title="Ver as tarefas concluídas" className={metric}><span className="text-ui-sm text-muted-strong">Concluídas</span><strong className="text-[length:clamp(20px,2vw,25px)] font-bold tracking-[-.03em] text-ink max-[480px]:text-[20px]">{counts.get('concluida') ?? 0}</strong><small className="text-ui-xs text-muted-strong">status atual</small></TasksLink>
+        <TasksLink projectId={projectId} filters={{ sort: 'updated', ...inPeriod }} title="Ver as tarefas do período, das atualizadas mais recentemente" className={metric}><span className="text-ui-sm text-muted-strong">Tempo médio de desenvolvimento</span><strong className="text-[length:clamp(20px,2vw,25px)] font-bold tracking-[-.03em] text-ink max-[480px]:text-[20px]">{formatDuration(data.development.averageTimeMs)}</strong><small className="text-ui-xs text-muted-strong">{data.development.sampleCount} tarefa(s) com tempo registrado</small></TasksLink>
       </div>
 
       {data.totalTasks === 0 && <p className="rounded-ui-sm border border-dashed border-line-strong px-[14px] py-3 text-ui-sm text-muted-strong" role="status">Não há tarefas criadas neste período. Escolha outro período para consultar o projeto.</p>}
@@ -153,29 +162,29 @@ export function ProjectDashboardPage({ token, nonce, projectId }: { token: strin
       <div className="grid grid-cols-[repeat(2,minmax(0,1fr))] gap-[14px] max-[720px]:grid-cols-[1fr]">
         <section className={panel} aria-labelledby="dashboard-status-title">
           <div className={panelHeading}><div><h2 className={panelTitle} id="dashboard-status-title">Tarefas por status</h2><p className={panelSubtitle}>Distribuição atual</p></div></div>
-          <DistributionChart title="Quantidade de tarefas por status" items={statusItems} tone="blue" />
+          <DistributionChart title="Quantidade de tarefas por status" items={statusItems} tone="blue" projectId={projectId} filtersFor={item => ({ status: item.key, ...inPeriod })} />
         </section>
         <section className={panel} aria-labelledby="dashboard-owner-title">
           <div className={panelHeading}><div><h2 className={panelTitle} id="dashboard-owner-title">Tarefas por responsável</h2><p className={panelSubtitle}>Inclui tarefas sem responsável</p></div></div>
-          <DistributionChart title="Quantidade de tarefas por responsável" items={data.byResponsible} tone="green" responsible />
+          <DistributionChart title="Quantidade de tarefas por responsável" items={data.byResponsible} tone="green" responsible projectId={projectId} filtersFor={item => ({ responsible: responsibleFilterValue(item.key), ...inPeriod })} />
         </section>
         <section className={panel} aria-labelledby="dashboard-area-title">
           <div className={panelHeading}><div><h2 className={panelTitle} id="dashboard-area-title">Tarefas por área</h2><p className={panelSubtitle}>Distribuição do trabalho</p></div></div>
-          <DistributionChart title="Quantidade de tarefas por área" items={areaItems} tone="amber" />
+          <DistributionChart title="Quantidade de tarefas por área" items={areaItems} tone="amber" projectId={projectId} filtersFor={item => ({ area: areaFilterValue(item.key), ...inPeriod })} />
         </section>
         <section className={panel} aria-labelledby="dashboard-development-title">
           <div className={panelHeading}><div><h2 className={panelTitle} id="dashboard-development-title">Tempo em desenvolvimento</h2><p className={panelSubtitle}>Média das tarefas criadas em cada mês</p></div></div>
-          <DevelopmentTrend items={data.trendByMonth} />
+          <DevelopmentTrend items={data.trendByMonth} projectId={projectId} from={from} />
           <p className="mt-[14px] text-ui-xs leading-normal text-muted-strong">Soma dos intervalos em “Em execução”; o período bloqueado fica fora do cálculo.</p>
         </section>
         <section className={`${panel} col-span-full max-[720px]:col-auto`} aria-labelledby="dashboard-recent-title">
-          <div className={panelHeading}><div><h2 className={panelTitle} id="dashboard-recent-title">Tarefas recentes</h2><p className={panelSubtitle}>Responsável, status e duração em execução</p></div></div>
+          <div className={panelHeading}><div><h2 className={panelTitle} id="dashboard-recent-title">Tarefas recentes</h2><p className={panelSubtitle}>Responsável, status e duração em execução</p></div><TasksLink projectId={projectId} filters={{ sort: 'created', ...inPeriod }} className={`${textButton} whitespace-nowrap no-underline`} title="Abrir a lista de tarefas, das criadas mais recentemente">Ver todas →</TasksLink></div>
           {data.recentTasks.length ? <div className="overflow-x-auto"><table className="w-full border-collapse text-left text-ui-sm max-[480px]:min-w-[570px]">
             <thead><tr><th className={th} scope="col">Tarefa</th><th className={th} scope="col">Responsável</th><th className={th} scope="col">Status</th><th className={th} scope="col">Desenvolvimento</th></tr></thead>
             <tbody>{data.recentTasks.map(task => <tr className="[&:last-child>td]:border-b-0" key={task.id}>
-              <td className={`${cell} max-w-[460px] font-semibold [overflow-wrap:anywhere]`}>{task.name}</td>
-              <td className={cell} title={task.responsible ?? undefined}>{displayResponsible(task.responsible)}</td>
-              <td className={cell}><span className="inline-flex items-center gap-1.5 whitespace-nowrap"><span className={`size-[7px] rounded-[50%] ${dotTones[statusTone[task.status] ?? 'muted'] ?? dotTones.muted}`} aria-hidden="true" />{statusLabels[task.status] ?? task.status}</span></td>
+              <td className={`${cell} max-w-[460px] font-semibold [overflow-wrap:anywhere]`}><TaskLink taskId={task.id} projectId={projectId} title="Abrir a tarefa" className={cellLink}>{task.name}</TaskLink></td>
+              <td className={cell} title={task.responsible ?? undefined}><TasksLink projectId={projectId} filters={{ responsible: responsibleFilterValue(task.responsible ?? '') }} title="Ver as tarefas deste responsável" className={cellLink}>{displayResponsible(task.responsible)}</TasksLink></td>
+              <td className={cell}><TasksLink projectId={projectId} filters={{ status: task.status }} title="Ver as tarefas neste status" className={`inline-flex items-center gap-1.5 whitespace-nowrap ${cellLink}`}><span className={`size-[7px] rounded-[50%] ${dotTones[statusTone[task.status] ?? 'muted'] ?? dotTones.muted}`} aria-hidden="true" />{statusLabels[task.status] ?? task.status}</TasksLink></td>
               <td className={cell}>{task.developmentTimeMs > 0 ? formatDuration(task.developmentTimeMs) : '—'}</td>
             </tr>)}</tbody>
           </table></div> : <p className={emptyInline}>Nenhuma tarefa para exibir.</p>}

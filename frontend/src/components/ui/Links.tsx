@@ -9,6 +9,8 @@ export type EntityNavigation = {
   filterByFeature: (featureId: string) => void;
   /** Aplica um filtro da fila (area, type...) e abre a lista de tarefas. */
   filterBy: (param: string, value: string) => void;
+  /** Abre a lista de tarefas já com vários filtros aplicados (começa limpa). */
+  openTasks?: (filters: Record<string, string>) => void;
 };
 
 export const EntityNavigationContext = createContext<EntityNavigation | null>(null);
@@ -20,6 +22,8 @@ export const featureHref = (projectId: string, featureId: string) => routeUrl('t
 function plainClick(event: MouseEvent) {
   return event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey;
 }
+
+export const tasksFiltersHref = (projectId: string, filters: Record<string, string>) => routeUrl('tasks', new URLSearchParams(Object.entries(filters).filter(([, value]) => value !== '')).toString(), projectId);
 
 export const filterHref = (projectId: string, param: string, value: string) => routeUrl('tasks', `${param}=${encodeURIComponent(value)}`, projectId);
 
@@ -51,4 +55,11 @@ export function FilterLink({ param, value, projectId, className = entityChip, ti
   const navigation = useContext(EntityNavigationContext);
   const target = projectId || navigation?.projectId || '';
   return <a className={className} href={filterHref(target, param, value)} title={title ?? 'Filtrar tarefas por este valor'} onClick={event => { if (navigation && plainClick(event)) { event.preventDefault(); event.stopPropagation(); navigation.filterBy(param, value); } }}>{children}</a>;
+}
+
+/** Link para a lista de tarefas com um conjunto de filtros; navega sem recarregar quando há provedor de navegação. */
+export function TasksLink({ filters, projectId, className = entityLink, title, children }: LinkBase & { filters: Record<string, string> }) {
+  const navigation = useContext(EntityNavigationContext);
+  const target = projectId || navigation?.projectId || '';
+  return <a className={className} href={tasksFiltersHref(target, filters)} title={title ?? 'Ver estas tarefas na lista'} onClick={event => { if (navigation?.openTasks && plainClick(event)) { event.preventDefault(); event.stopPropagation(); navigation.openTasks(filters); } }}>{children}</a>;
 }

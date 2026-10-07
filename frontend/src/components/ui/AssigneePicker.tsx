@@ -19,10 +19,11 @@ type Props = {
   allowCustom?: boolean;
   emptyLabel?: string;
   onChange?: (email: string) => void;
+  className?: string;
 };
 
 /** Seleciona o responsável entre as credenciais cadastradas (pessoas e agentes); aceita outro e-mail quando necessário. */
-export function AssigneePicker({ assignees, isPending = false, isError = false, defaultValue = '', name, label = 'Responsável', allowEmpty = true, allowCustom = true, emptyLabel = 'Sem responsável', onChange }: Props) {
+export function AssigneePicker({ assignees, isPending = false, isError = false, defaultValue = '', name, label = 'Responsável', allowEmpty = true, allowCustom = true, emptyLabel = 'Sem responsável', onChange, className = '' }: Props) {
   const initial = (defaultValue ?? '').trim();
   const [selected, setSelected] = useState(initial);
   const [custom, setCustom] = useState(false);
@@ -36,7 +37,7 @@ export function AssigneePicker({ assignees, isPending = false, isError = false, 
     onChange?.(value);
   }
 
-  return <div className="grid min-w-0 gap-1.5">
+  return <div className={`grid min-w-0 gap-1.5 ${className}`.trim()}>
     <label className="grid gap-[5px] text-inherit [font-size:inherit] [font-weight:inherit]">{label}
       <select className={control} value={custom ? OTHER : match?.email ?? selected} disabled={isPending} onChange={event => {
         if (event.target.value === OTHER) { setCustom(true); update(''); }

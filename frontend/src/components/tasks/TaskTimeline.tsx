@@ -29,7 +29,7 @@ export function TaskTimeline({ history, events, now, truncated }: { history: Sta
       const startedAtMs = new Date(entry.startedAt).getTime();
       const durationMs = current && Number.isFinite(startedAtMs) ? Math.max(entry.durationMs, now - startedAtMs) : entry.durationMs;
       const author = authorFor(entry, events);
-      return <li className="relative ml-[5px] grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-3 border-l border-l-[#e5e8f2] pb-4 pl-[18px] last:border-l-transparent max-[560px]:grid-cols-[minmax(0,1fr)] max-[560px]:gap-[7px]" key={`${entry.status}-${entry.startedAt}-${index}`}>
+      return <li className="relative ml-[5px] grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-3 border-l border-l-[#e5e8f2] pb-4 pl-[18px] last:border-l-transparent" key={`${entry.status}-${entry.startedAt}-${index}`}>
         <span className={`absolute top-0.5 -left-[5px] h-[9px] w-[9px] rounded-full border-2 border-white ${current ? 'bg-[#1f9d5b] shadow-[0_0_0_3px_#1f9d5b30]' : 'bg-[#6877dd] shadow-[0_0_0_1px_#cfd4fa]'}`} aria-hidden="true" />
         <div className="grid min-w-0 gap-1.5">
           <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1.5"><Badge tone={statusTone[entry.status] ?? 'muted'}>{statusLabels[entry.status] ?? entry.status}</Badge>{current && <span className="text-ui-xs font-bold text-tone-green">status atual</span>}</div>

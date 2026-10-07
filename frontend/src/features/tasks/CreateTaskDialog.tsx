@@ -16,7 +16,7 @@ const dialogHeader = 'flex items-start justify-between gap-4 border-b border-b-[
 const iconButton = 'inline-grid size-[30px] flex-none place-items-center rounded-[7px] border border-transparent bg-transparent text-[20px] text-[#8792a2] hover:bg-[#f2f3f8] hover:text-[#4654c0]';
 const dialogNotice = 'mx-[22px] mt-[13px]';
 const field = 'grid gap-1.5 text-[10px] font-semibold text-[#566275]';
-const control = 'w-full resize-y rounded-[7px] border border-[#e1e5ed] bg-white px-2.5 py-[9px] text-[#344054] outline-none';
+const control = 'w-full resize-y rounded-[7px] border border-[#e1e5ed] bg-white px-2.5 py-[9px] text-[11px] text-[#344054] outline-none';
 const hint = 'text-[9px] leading-normal font-normal text-[#8a94a4]';
 
 export function CreateTaskDialog({ token, nonce, projectId, repositories, areas, tasks, defaultFeatureId, systemAdmin = false, close, onCreated }: {
@@ -90,7 +90,7 @@ export function CreateTaskDialog({ token, nonce, projectId, repositories, areas,
         <label className={field}>Feature<select className={control} name="featureId" defaultValue={defaultFeatureId}><option value="">Sem feature</option>{(features.data ?? []).map(feature => <option key={feature._id} value={feature._id}>{feature.name}</option>)}</select>{features.isPending && <small className={hint}>Carregando features…</small>}</label>
         <label className={field}>Tipo<select className={control} name="type" defaultValue="feature">{['feature', 'fix', 'chore', 'docs', 'refactor', 'test', 'perf', 'build', 'ci', 'revert'].map(type => <option key={type} value={type}>{type}</option>)}</select></label>
         <label className={field}>Prioridade<select className={control} name="priority" defaultValue="2">{[0, 1, 2, 3, 4, 5].map(priority => <option key={priority} value={priority}>{priority}</option>)}</select></label>
-        <AssigneePicker name="responsible" label="Responsável (opcional)" assignees={assignees.data ?? []} isPending={assignees.isPending} isError={assignees.isError} />
+        <AssigneePicker className="[&_select]:text-[#344054]" name="responsible" label="Responsável (opcional)" assignees={assignees.data ?? []} isPending={assignees.isPending} isError={assignees.isError} />
       </div>
       <div className="grid gap-[7px] text-[10px] text-[#566275]" role="group" aria-labelledby="task-dependencies-label">
         <strong id="task-dependencies-label" className="font-semibold">Dependências (opcional)</strong>

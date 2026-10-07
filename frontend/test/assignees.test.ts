@@ -134,7 +134,7 @@ test('cadastro de responsáveis: agrupa por e-mail, separa pessoa e agente e fil
   const html = renderToStaticMarkup(createElement(QueryClientProvider, { client: new QueryClient() }, createElement(ResponsiblesCatalog, {
     token: 't', nonce: 'n', projects: [], project: { _id: 'p1', version: 1, name: 'AVBOne' }, systemAdmin: true, notify() {}, onChanged() {}
   })));
-  assert.match(html, /<h2>Responsáveis<\/h2>/);
+  assert.match(html, /<h2 class="[^"]*">Responsáveis<\/h2>/);
   assert.match(html, />Novo responsável</);
   assert.match(html, /aria-label="Buscar responsáveis"/);
 });

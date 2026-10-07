@@ -9,7 +9,7 @@ const dialogBox = 'm-auto max-h-[min(850px,calc(100dvh-28px))] w-[min(calc(100%-
 const dialogHeader = 'flex items-start justify-between gap-4 border-b border-b-[#edf0f4] px-[23px] pt-[21px] pb-4 max-[760px]:px-4 max-[760px]:pt-[17px] max-[760px]:pb-[13px]';
 const iconButton = 'inline-grid size-[30px] flex-none place-items-center rounded-[7px] border border-transparent bg-transparent text-[20px] text-[#8792a2] hover:bg-[#f2f3f8] hover:text-[#4654c0]';
 const field = 'grid gap-1.5 text-[10px] font-semibold text-[#566275]';
-const control = 'w-full resize-y rounded-[7px] border border-[#e1e5ed] bg-white px-2.5 py-[9px] text-[#344054] outline-none';
+const control = 'w-full resize-y rounded-[7px] border border-[#e1e5ed] bg-white px-2.5 py-[9px] text-[11px] text-[#344054] outline-none';
 
 export function CreateFeatureDialog({ token, nonce, projectId, close, onCreated }: {
   token: string;

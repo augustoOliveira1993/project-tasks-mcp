@@ -166,7 +166,7 @@ export function ActivityPage({ events, tasks, projects, isGlobal = false, canVie
   const clearFilters = () => { setFilters(emptyFilters); setTaskSearchInput(''); onTaskSearchChange(''); };
 
   return <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-    <div className="flex items-center justify-between gap-[14px] px-5 py-[18px] max-[560px]:items-start">
+    <div className="mb-[11px] flex items-center justify-between gap-[14px] px-5 py-[18px] max-[560px]:items-start">
       <div><h2 className="mb-1 font-display text-[14px] leading-[normal] font-bold tracking-[-.02em] text-[#273245]">{isGlobal ? 'Atividade recente em todos os projetos' : 'Histórico de atividades do projeto'}</h2><p className="text-[10px] text-muted-strong">{isGlobal ? 'Visão administrativa das atividades do workspace' : 'Mudanças de status, progresso, revisões e colaboração neste projeto'}</p></div>
       <button type="button" className={buttonSecondary} onClick={onRefresh} disabled={isPending}><IconRefresh size={13} /> Atualizar</button>
     </div>

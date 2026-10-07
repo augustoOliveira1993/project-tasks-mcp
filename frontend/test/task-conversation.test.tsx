@@ -32,7 +32,7 @@ test('detalhes exibem ações, chips de contexto e abas da gaveta', () => {
   assert.match(html, /Abrir conversa/);
   assert.match(html, /P1 · Alta/);
   assert.match(html, /Pendente/);
-  assert.match(html, /entity-chip[^>]*>[\s\S]*Conversas vinculadas/);
+  assert.match(html, /title="Ver todas as tarefas da feature[^"]*"[^>]*>[\s\S]*Conversas vinculadas/);
   for (const tab of ['Visão geral', 'Critérios', 'Planejamento', 'Diffs', 'Atividade', 'Conversa']) assert.match(html, new RegExp('role="tab"[^>]*>' + tab));
   assert.match(html, /aria-label="Fechar detalhes \(Esc\)"/);
   assert.doesNotMatch(html, /Aprovar e concluir/);
