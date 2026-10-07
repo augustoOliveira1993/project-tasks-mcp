@@ -25,26 +25,29 @@ export const filterHref = (projectId: string, param: string, value: string) => r
 
 type LinkBase = { className?: string; title?: string; children: ReactNode; projectId?: string | null };
 
-export function TaskLink({ taskId, projectId, className = 'entity-link', title, children }: LinkBase & { taskId: string }) {
+const entityLink = 'font-semibold text-tone-blue underline decoration-[#b9c1f5] underline-offset-2 wrap-anywhere hover:text-[#2a39ad] hover:decoration-current';
+const entityChip = 'inline-flex max-w-full cursor-pointer items-center gap-1 rounded-ui-sm bg-tone-slate-bg px-2 py-0.5 text-[10.5px] leading-normal font-semibold whitespace-nowrap text-tone-slate no-underline hover:border-focus hover:bg-tone-blue-bg hover:text-tone-blue';
+
+export function TaskLink({ taskId, projectId, className = entityLink, title, children }: LinkBase & { taskId: string }) {
   const navigation = useContext(EntityNavigationContext);
   const target = projectId || navigation?.projectId || '';
   return <a className={className} href={taskHref(target, taskId)} title={title ?? 'Abrir tarefa'} onClick={event => { if (navigation && plainClick(event)) { event.preventDefault(); event.stopPropagation(); navigation.openTask(taskId, target); } }}>{children}</a>;
 }
 
-export function ConversationLink({ conversationId, projectId, className = 'entity-link', title, children }: LinkBase & { conversationId: string }) {
+export function ConversationLink({ conversationId, projectId, className = entityLink, title, children }: LinkBase & { conversationId: string }) {
   const navigation = useContext(EntityNavigationContext);
   const target = projectId || navigation?.projectId || '';
   return <a className={className} href={conversationHref(target, conversationId)} title={title ?? 'Abrir conversa'} onClick={event => { if (navigation && plainClick(event)) { event.preventDefault(); event.stopPropagation(); navigation.openConversation(conversationId); } }}>{children}</a>;
 }
 
-export function FeatureLink({ featureId, projectId, className = 'entity-link', title, children }: LinkBase & { featureId: string }) {
+export function FeatureLink({ featureId, projectId, className = entityLink, title, children }: LinkBase & { featureId: string }) {
   const navigation = useContext(EntityNavigationContext);
   const target = projectId || navigation?.projectId || '';
   return <a className={className} href={featureHref(target, featureId)} title={title ?? 'Ver todas as tarefas desta feature'} onClick={event => { if (navigation && plainClick(event)) { event.preventDefault(); event.stopPropagation(); navigation.filterByFeature(featureId); } }}>{children}</a>;
 }
 
 /** Chip que filtra a fila de tarefas por um campo (área, tipo...). */
-export function FilterLink({ param, value, projectId, className = 'chip entity-chip', title, children }: LinkBase & { param: string; value: string }) {
+export function FilterLink({ param, value, projectId, className = entityChip, title, children }: LinkBase & { param: string; value: string }) {
   const navigation = useContext(EntityNavigationContext);
   const target = projectId || navigation?.projectId || '';
   return <a className={className} href={filterHref(target, param, value)} title={title ?? 'Filtrar tarefas por este valor'} onClick={event => { if (navigation && plainClick(event)) { event.preventDefault(); event.stopPropagation(); navigation.filterBy(param, value); } }}>{children}</a>;

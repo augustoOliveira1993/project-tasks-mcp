@@ -89,7 +89,7 @@ export function ConversationAside({ detail, taskContext, onOpenAdmin, tabs, toke
               <span className={'criterion-chevron' + (open ? ' open' : '')} aria-hidden="true">⌄</span>
             </button>
             {open && <div className="criterion-body" id={`criterion-body-${item.index}`}>
-              <MarkdownView content={item.text} />
+              <MarkdownView content={item.text} variant="criterionBody" />
               <div className="criterion-evidence-block"><strong>Evidência</strong>{item.evidence ? <p>{item.evidence}</p> : item.done || !canMark ? <p className="muted-text">ainda sem evidência registrada</p> : null}</div>
               {canMark && (item.done && item.evidence ? <div className="criterion-actions"><button type="button" className="button secondary small-button" disabled={mark.isPending} onClick={() => mark.mutate({ index: item.index, complete: false, evidence: item.evidence })}>{mark.isPending && mark.variables?.index === item.index ? 'Salvando…' : 'Desmarcar'}</button></div> : <div className="criterion-mark">
                 <label>{item.done ? 'Motivo para desmarcar' : 'Evidência objetiva'}<textarea rows={3} value={drafts[item.index] ?? ''} disabled={mark.isPending} placeholder={item.done ? 'Informe o motivo para desmarcar este critério.' : 'Como foi validado? Cole o comando, o teste ou o trecho de diff.'} onChange={event => setDrafts(current => ({ ...current, [item.index]: event.target.value }))} /></label>
@@ -115,14 +115,14 @@ export function ConversationAside({ detail, taskContext, onOpenAdmin, tabs, toke
       <summary>Progresso e decisões recentes ({Math.min(5, context.messages.length)})</summary>
       {context.messages.slice(0, 5).map(message => <article key={message._id}>
         <div className="conversation-task-message-meta"><TaskMessageAuthor message={message} /><div className="conversation-task-message-state"><Badge tone={message.type === 'resposta' ? 'green' : 'blue'}>{taskMessageTypeLabel(message.type)}</Badge><small title={formatDate(message.createdAt)}>{relativeTime(message.createdAt)}</small></div></div>
-        <MarkdownView content={message.message} />
+        <MarkdownView content={message.message} variant="aside" />
       </article>)}
     </details> : null}
 
     {context?.executions[0] && <details className="aside-section conversation-execution">
       <summary>Última execução</summary>
       <div className="conversation-job-state"><Badge>{context.executions[0].status}</Badge><small>Iniciada em {formatDate(context.executions[0].startedAt)}</small></div>
-      {context.executions[0].result?.summary && <MarkdownView content={context.executions[0].result.summary} />}
+      {context.executions[0].result?.summary && <MarkdownView content={context.executions[0].result.summary} variant="aside" className="col-span-full" />}
     </details>}
   </aside>;
 }

@@ -23,9 +23,9 @@ test('resumo do projeto renderiza GFM e oferece código e visualização', () =>
 
   assert.match(html, /Modo do resumo do projeto/);
   assert.match(html, /aria-pressed="true"/);
-  assert.match(html, /<h1 class="task-summary-heading">Resumo<\/h1>/);
+  assert.match(html, /<h1 class="[^"]*text-\[19px\][^"]*">Resumo<\/h1>/);
   assert.match(html, /<strong>Destaque<\/strong>/);
-  assert.match(html, /<table>/);
+  assert.match(html, /<table class="[^"]*">/);
   assert.match(html, /type="checkbox"/);
   assert.doesNotMatch(html, /<script>/);
 });
@@ -49,7 +49,7 @@ test('resumo completo da tarefa reutiliza os modos e o renderer compartilhado', 
   const html = renderToStaticMarkup(element);
 
   assert.match(html, /Modo do resumo da tarefa/);
-  assert.match(html, /<h1 class="task-summary-heading">Resumo<\/h1>/);
+  assert.match(html, /<h1 class="[^"]*text-\[19px\][^"]*">Resumo<\/h1>/);
   assert.match(html, /Visualizar/);
   assert.match(html, /Código/);
 });

@@ -39,7 +39,7 @@ test('diálogo de projeto explica a cascata e mantém confirmação desabilitada
   assert.match(html, /Credenciais humanas compartilhadas/);
   assert.match(html, /execução ou automação ativa/);
   assert.match(html, /Digite o nome exato ou o ID completo/);
-  assert.match(html, /class="button danger-button" disabled="">Excluir definitivamente/);
+  assert.match(html, /<button type="button" class="[^"]*bg-\[#b3404a\][^"]*" disabled="">Excluir definitivamente/);
 });
 
 test('diálogo de tarefa mostra projeto, estado e escopo de remoção', () => {

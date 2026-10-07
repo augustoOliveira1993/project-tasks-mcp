@@ -53,7 +53,7 @@ test('painel inicia conversa no escopo do projeto e oferece retomada paginada', 
   assert.match(html, /Sem mensagens ainda/);
   assert.match(html, /aria-label="Buscar conversas"/);
   assert.match(html, /aria-label="Lista de conversas"/);
-  assert.match(html, /conversation-list-item-meta[^>]*><span class="badge[^>]*>Pendente</);
+  assert.match(html, /conversation-list-item-meta[^>]*><span class="inline-flex [^"]*"[^>]*>Pendente</);
   assert.doesNotMatch(html, /Área · Backend|Feature · Colaboração por task/, 'a lista não repete área e feature da task');
   assert.doesNotMatch(html, /Autorizar execução/);
 });
@@ -322,18 +322,18 @@ test('chat mostra ícones de Codex e Claude, fallback acessível e identidade hu
     { _id: 'codex-message', author: 'augusto.oliveira@ferroeste.com.br', authorType: 'agent', clientName: 'Codex', content: 'Resposta Codex', createdAt: '2026-10-01T12:00:00.000Z' }
   ]);
 
-  assert.match(html, /conversation-agent-icon codex/);
-  assert.match(html, /conversation-agent-icon claude/);
+  assert.match(html, /text-\[#16836f\]/);
+  assert.match(html, /text-\[#cf6848\]/);
   assert.match(html, /Codex \(Augusto\)/);
   assert.match(html, /Claude \(Augusto\)/);
   assert.ok(html.indexOf('Resposta Codex') >= 0 && html.indexOf('Resposta Claude') > html.indexOf('Resposta Codex'));
   assert.match(html, /aria-hidden="true"/);
-  assert.match(html, /conversation-agent-icon generic/);
+  assert.match(html, /text-\[#647087\]/);
   assert.match(html, /IA \(Augusto\)/);
   assert.match(html, /Agente local \(Augusto\)/);
 
   const humanArticle = html.match(/<article class="conversation-message human">[\s\S]*?<\/article>/)?.[0];
   assert.ok(humanArticle);
   assert.match(humanArticle, /Pessoa \(Augusto\)/);
-  assert.doesNotMatch(humanArticle, /conversation-agent-icon/);
+  assert.doesNotMatch(humanArticle, /size-\[15px\]/);
 });

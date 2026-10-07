@@ -61,7 +61,7 @@ export function TaskCriteriaPanel({ acceptance, progress, evidence, savingIndex,
       const open = openIndexes.has(index);
       return <li className={'criteria-item' + (done ? ' done' : '')} key={index}>
         <div className="criteria-item-heading">
-          <div className="criteria-check-label"><input className="criterion-toggle" type="checkbox" checked={done} disabled={readOnly || savingIndex !== null} aria-label={`${done ? 'Desmarcar' : 'Marcar'} critério ${index + 1}`} onChange={event => toggle(index, event.currentTarget.checked)} /><span className="criterion-text"><MarkdownView content={item} /></span></div>
+          <div className="criteria-check-label"><input className="criterion-toggle" type="checkbox" checked={done} disabled={readOnly || savingIndex !== null} aria-label={`${done ? 'Desmarcar' : 'Marcar'} critério ${index + 1}`} onChange={event => toggle(index, event.currentTarget.checked)} /><span className="criterion-text"><MarkdownView content={item} variant="criterion" /></span></div>
           <span className={done ? 'criterion-state criterion-complete' : 'criterion-state'}>{done ? 'Atendido' : 'Pendente'}</span>
         </div>
         <details className="criterion-evidence" open={open} onToggle={event => setOpen(index, event.currentTarget.open)}>

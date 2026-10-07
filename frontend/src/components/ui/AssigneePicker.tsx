@@ -3,6 +3,8 @@ import type { Assignee } from '../../features/tasks/assignees';
 import { personName } from '../../lib/labels';
 
 const OTHER = '__other__';
+const control = 'min-h-[34px] w-full rounded-ui-sm border border-line-strong bg-white px-2 py-0 text-ui-sm';
+const note = 'text-ui-xs text-muted-strong';
 
 type Props = {
   assignees: Assignee[];
@@ -34,9 +36,9 @@ export function AssigneePicker({ assignees, isPending = false, isError = false, 
     onChange?.(value);
   }
 
-  return <div className="assignee-picker">
-    <label>{label}
-      <select value={custom ? OTHER : match?.email ?? selected} disabled={isPending} onChange={event => {
+  return <div className="grid min-w-0 gap-1.5">
+    <label className="grid gap-[5px] text-inherit [font-size:inherit] [font-weight:inherit]">{label}
+      <select className={control} value={custom ? OTHER : match?.email ?? selected} disabled={isPending} onChange={event => {
         if (event.target.value === OTHER) { setCustom(true); update(''); }
         else { setCustom(false); update(event.target.value); }
       }}>
@@ -47,9 +49,9 @@ export function AssigneePicker({ assignees, isPending = false, isError = false, 
         {allowCustom && <option value={OTHER}>Outro e-mail…</option>}
       </select>
     </label>
-    {custom && <input type="text" autoFocus maxLength={320} value={selected} placeholder="E-mail ou nome" aria-label={`${label}: outro e-mail`} onChange={event => update(event.target.value)} />}
-    {isError && <small className="field-error">Não foi possível listar as credenciais; {allowCustom ? 'use “Outro e-mail…”.' : 'tente atualizar a página.'}</small>}
-    {!isPending && !isError && assignees.length === 0 && <small>Nenhuma credencial ativa encontrada para este projeto.</small>}
+    {custom && <input className={control} type="text" autoFocus maxLength={320} value={selected} placeholder="E-mail ou nome" aria-label={`${label}: outro e-mail`} onChange={event => update(event.target.value)} />}
+    {isError && <small className={`${note} mt-1 font-semibold`}>Não foi possível listar as credenciais; {allowCustom ? 'use “Outro e-mail…”.' : 'tente atualizar a página.'}</small>}
+    {!isPending && !isError && assignees.length === 0 && <small className={note}>Nenhuma credencial ativa encontrada para este projeto.</small>}
     {name && <input type="hidden" name={name} value={selected} />}
   </div>;
 }

@@ -61,7 +61,7 @@ test('resumo mostra atividade Markdown e atalhos para conversas específicas', (
     token: 'token', nonce: 'nonce', projectId: 'project-1', taskId: 'task-1', onOpenConversation() {}
   })));
   client.clear();
-  assert.match(html, /<h2 class="task-summary-heading">Conversas vinculadas \(1\)<\/h2>/);
+  assert.match(html, /<h2 class="[^"]*text-\[15px\][^"]*">Conversas vinculadas \(1\)<\/h2>/);
   assert.match(html, /aria-label="Abrir conversa Alinhar critérios"/);
   assert.match(html, /Atividade ·/);
 });
