@@ -724,8 +724,8 @@ a.task-name:hover { color: var(--tone-blue); text-decoration: underline; }
 .conversation-sidebar, .conversation-main, .conversation-aside { border: 0; border-radius: 0; box-shadow: none; }
 .conversation-sidebar { background: #fafbfd; border-right: 1px solid #e2e5eb; }
 .conversation-aside { background: #fafbfd; border-left: 1px solid #e2e5eb; }
-.conversation-sidebar-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
-.conversation-sidebar-heading .muted-text { margin: 2px 0 0; font-size: 12px; }
+.conversation-sidebar-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.conversation-sidebar-heading .muted-text { display: none; }
 .conversation-new-button { flex: 0 0 auto; min-height: 40px; padding: 0 14px; white-space: nowrap; }
 .conversation-search { padding-left: 36px; background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23596077' stroke-width='1.75' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='6.5'/%3E%3Cpath d='M20 20l-4-4'/%3E%3C/svg%3E") no-repeat 12px center / 16px; }
 .conversation-filter.active { border-color: #c9cbf3; background: #eceefc; color: #2f31a0; font-weight: 600; }
