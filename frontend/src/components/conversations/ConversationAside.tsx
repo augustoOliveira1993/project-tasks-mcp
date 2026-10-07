@@ -23,10 +23,12 @@ export type ConversationAsideProps = {
   nonce?: string;
   projectId?: string;
   hasPendingProposal?: boolean;
+  /** Cartão da tarefa vinculada (status, área, feature, link); exibido no topo do painel. */
+  taskCard?: ReactNode;
 };
 
 /** Coluna "Critérios da tarefa": resumo, barra segmentada, filtros e itens expansíveis. */
-export function ConversationAside({ detail, taskContext, onOpenAdmin, tabs, token = '', nonce = '', projectId = '', hasPendingProposal = false }: ConversationAsideProps) {
+export function ConversationAside({ detail, taskContext, onOpenAdmin, tabs, token = '', nonce = '', projectId = '', hasPendingProposal = false, taskCard }: ConversationAsideProps) {
   const client = useQueryClient();
   const [drafts, setDrafts] = useState<Record<number, string>>({});
   const [feedback, setFeedback] = useState<{ index: number; kind: 'success' | 'error'; message: string } | null>(null);
@@ -72,6 +74,7 @@ export function ConversationAside({ detail, taskContext, onOpenAdmin, tabs, toke
 
   return <aside className="conversation-aside" aria-label="Critérios da tarefa">
     {tabs}
+    {taskCard && <section className="aside-section aside-task" aria-label="Tarefa vinculada"><p className="aside-eyebrow">Tarefa vinculada</p>{taskCard}</section>}
     <section className="aside-section criteria-column" aria-labelledby="criteria-title">
       <div className="aside-heading"><h3 id="criteria-title">Critérios da tarefa</h3>{total > 0 && <span className={'criteria-count' + (allDone ? ' complete' : '')}>{doneCount} de {total} atendidos</span>}</div>
       {taskContext.isPending ? <Skeleton rows={4} label="Carregando critérios…" /> : taskContext.isError ? <ErrorNotice error={taskContext.error} onRetry={() => void taskContext.refetch()} /> : total ? <>

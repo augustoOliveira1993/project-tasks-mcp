@@ -60,6 +60,7 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
   const [listSearch, setListSearch] = useState('');
   const [mobileView, setMobileView] = useState<'list' | 'detail'>(requestedConversationId ? 'detail' : 'list');
   const [detailTab, setDetailTab] = useState<'chat' | 'criteria'>('chat');
+  const [asideOpen, setAsideOpen] = useState(true);
   const [idCopied, setIdCopied] = useState(false);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
@@ -303,7 +304,6 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
   const sortedProposals = [...(latest?.proposals ?? [])].sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? '') || a.version - b.version);
   const pendingProposal = sortedProposals.find(proposal => proposal.status === 'pending' && !proposal.stale);
   const headerTitle = stripTaskPrefix(latest?.conversation.title) || 'Conversa';
-  const taskTitleDiffers = Boolean(latest?.task) && stripTaskPrefix(latest!.task!.name).toLowerCase() !== headerTitle.toLowerCase();
   const suggestions = suggestionsFor(latest?.task, criteriaTotal);
   const draftValid = draft.trim().length > 0;
   const tabs = showAside ? <div className="conversation-tabs" role="tablist" aria-label="Seções da conversa">
@@ -313,11 +313,22 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
   function chooseConversation(id: string) { setSelectedId(id); setMobileView('detail'); setDetailTab('chat'); onConversationSelected?.(id); }
   function fillDraft(text: string) { setDraft(text); window.requestAnimationFrame(() => composerRef.current?.focus()); }
 
-  return <section className={'conversation-layout' + (showAside ? ' has-aside' : '')} data-view={mobileView} data-tab={detailTab}>
+  const taskCard = latest?.task ? <div className="conversation-task-card">
+    <p className="conversation-task-name">{renderInlineCode(stripTaskPrefix(latest.task.name))}</p>
+    <div className="conversation-task-meta">
+      <Badge tone={statusTone[latest.task.status] ?? 'muted'}>{statusLabels[latest.task.status] ?? latest.task.status}</Badge>
+      {latest.task.area ? <FilterLink param="area" value={latest.task.area} projectId={projectId} className={`chip chip-area chip-area-${latest.task.area} entity-chip`} title={`Filtrar tarefas pela área ${areaLabel(latest.task.area)}`}>{areaLabel(latest.task.area)}</FilterLink> : null}
+      {latest.task.featureId ? <FeatureLink featureId={latest.task.featureId} projectId={projectId} className="chip chip-feature entity-chip" title="Ver todas as tarefas desta feature"><IconFeature size={11} /><span>{featureLabelForTask(latest.task._id)}</span></FeatureLink> : null}
+      <small>v{taskContext.data?.task.version ?? latest.task.version}</small>
+    </div>
+    <a className="conversation-task-anchor" href={routeUrl('tasks', `taskId=${encodeURIComponent(latest.task._id)}`, projectId)} aria-label={`Abrir tarefa ${latest.task.name} na listagem`} onClick={event => { if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); onOpenTask(latest.task!._id); }}>Abrir tarefa ↗</a>
+  </div> : null;
+
+  return <section className={'conversation-layout' + (showAside ? ' has-aside' : '') + (showAside && !asideOpen ? ' aside-collapsed' : '')} data-view={mobileView} data-tab={detailTab}>
     <aside className="panel-card conversation-sidebar" aria-label="Lista de conversas">
-      <div className="section-heading"><div><h2>Conversas</h2><p className="muted-text">Histórico compartilhado do projeto</p></div></div>
+      <div className="section-heading conversation-sidebar-heading"><div><h2>Conversas</h2><p className="muted-text">Histórico compartilhado do projeto</p></div>
+        <button type="button" className="button primary conversation-new-button" onClick={() => create.mutate()} disabled={create.isPending}>{create.isPending ? 'Criando…' : 'Nova conversa'}</button></div>
       <input type="search" className="conversation-search" value={listSearch} onChange={event => setListSearch(event.target.value)} placeholder="Buscar conversas" aria-label="Buscar conversas" />
-      <button type="button" className="button primary conversation-new-button" onClick={() => create.mutate()} disabled={create.isPending}>{create.isPending ? 'Criando…' : 'Nova conversa'}</button>
       <div className="conversation-filters" role="group" aria-label="Filtrar conversas">{listFilters.map(item => <button type="button" key={item.id} className={'conversation-filter' + (listFilter === item.id ? ' active' : '')} aria-pressed={listFilter === item.id} onClick={() => setListFilter(item.id)}>{item.label}{item.count > 0 && item.id !== 'all' && <span className="conversation-filter-count">{item.count}</span>}</button>)}</div>
       {conversations.isPending ? <Skeleton rows={5} label="Carregando conversas…" /> : conversations.isError ? <div className="notice error">{errorMessage(conversations.error)}</div> : visibleConversationItems.length ? <><div className="conversation-list">{visibleConversationItems.map(item => {
         const task = item.taskId ? taskForId(item.taskId) : undefined;
@@ -334,16 +345,10 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
             <div className="conversation-header-actions">
               {latest && !latest.conversation.taskId && <button type="button" className="button secondary small-button" onClick={() => setLinkTaskOpen(open => !open)} disabled={linkTask.isPending}>{linkTaskOpen ? 'Fechar busca' : 'Vincular tarefa'}</button>}
               <button type="button" className="button ghost small-button" title={latest ? `Copiar ID: ${latest.conversation._id}` : undefined} onClick={() => void copyConversationId()}>{idCopied ? 'ID copiado' : 'Copiar ID'}</button>
+              {showAside && <button type="button" className="button ghost small-button conversation-aside-toggle" aria-expanded={asideOpen} onClick={() => setAsideOpen(open => !open)}>{asideOpen ? 'Ocultar painel' : `Critérios ${criteriaDone}/${criteriaTotal}`}</button>}
               <DropdownMenu ariaLabel="Mais ações da conversa" title="Mais ações" triggerClassName="small-icon conversation-menu-trigger" items={[{ id: 'edit', label: 'Editar título', disabled: !latest }, { id: 'delete', label: 'Excluir conversa…', danger: true, dividerBefore: true, disabled: !latest || deleteConversation.isPending }]} onSelect={action => { if (action === 'edit') beginTitleEdit(); else confirmDeleteConversation(); }}><IconMore size={16} /></DropdownMenu>
             </div></div>
           {titleEditing ? <ConversationTitleEditor title={headerTitle} editing draft={titleDraft} editable saving={renameConversation.isPending} error={renameConversation.isError ? renameConversation.error : undefined} onEdit={beginTitleEdit} onDraftChange={setTitleDraft} onSave={submitTitle} onCancel={cancelTitleEdit} /> : <h2 className="conversation-title">{renderInlineCode(headerTitle)}</h2>}
-          {latest?.task && <div className="conversation-task-card">
-            <Badge tone={statusTone[latest.task.status] ?? 'muted'}>{statusLabels[latest.task.status] ?? latest.task.status}</Badge>
-            {latest.task.area ? <FilterLink param="area" value={latest.task.area} projectId={projectId} className={`chip chip-area chip-area-${latest.task.area} entity-chip`} title={`Filtrar tarefas pela área ${areaLabel(latest.task.area)}`}>{areaLabel(latest.task.area)}</FilterLink> : null}
-            {latest.task.featureId ? <FeatureLink featureId={latest.task.featureId} projectId={projectId} className="chip chip-feature entity-chip" title="Ver todas as tarefas desta feature"><IconFeature size={11} /><span>{featureLabelForTask(latest.task._id)}</span></FeatureLink> : null}
-            <a className="conversation-task-anchor" href={routeUrl('tasks', `taskId=${encodeURIComponent(latest.task._id)}`, projectId)} aria-label={`Abrir tarefa ${latest.task.name} na listagem`} onClick={event => { if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); onOpenTask(latest.task!._id); }}>{taskTitleDiffers ? renderInlineCode(stripTaskPrefix(latest.task.name)) : 'Abrir tarefa'} ↗</a>
-            <small>v{taskContext.data?.task.version ?? latest.task.version}</small>
-          </div>}
         </div></header>
         <ConversationStepper phase={phase} />
         {tabs}
@@ -373,6 +378,6 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
         </>}
       </>}
     </section>
-    {showAside && latest && <ConversationAside detail={latest} taskContext={taskContext} onOpenAdmin={onOpenAdmin} tabs={tabs} token={token} nonce={nonce} projectId={projectId} hasPendingProposal={Boolean(pendingProposal)} />}
+    {showAside && latest && <ConversationAside detail={latest} taskContext={taskContext} onOpenAdmin={onOpenAdmin} tabs={tabs} token={token} nonce={nonce} projectId={projectId} hasPendingProposal={Boolean(pendingProposal)} taskCard={taskCard} />}
   </section>;
 }

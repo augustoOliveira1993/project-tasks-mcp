@@ -9,6 +9,7 @@ import { EventHub, readEvents } from './events.js';
 import { logger } from './logger.js';
 import { validateTaskDependencyGraph } from './services/task-dependency-service.js';
 import { getTaskContext } from './services/task-context-service.js';
+import { getProjectDashboard } from './services/project-dashboard-service.js';
 import { Automation } from './services/automation-service.js';
 import { taskMessageAuthorMetadata } from './services/task-message-author.js';
 import { deleteProjectCascade, ProjectDeletionConflict } from './services/project-deletion-service.js';
@@ -1102,6 +1103,11 @@ export class Service {
       const readCursor = await this.taskReadCursor(a.projectId, actor.userId, a.taskId);
       const unread = await DeliveryEvent.exists({ projectId: a.projectId, taskIds: a.taskId, sequence: { $gt: readCursor }, author: { $ne: actor.userId } });
       return { ...context, task: { ...context.task, readCursor, unread: !!unread } };
+    }
+    if (name === 'get_project_dashboard') {
+      const from = a.from ? new Date(a.from) : undefined;
+      requireThat(!from || from <= new Date(), 'Dashboard period cannot start in the future', 400);
+      return getProjectDashboard(a.projectId, from);
     }
     if (name === 'list_conversations') return this.conversations.list(actor, a);
     if (name === 'get_conversation') return this.conversations.get(actor, a);
