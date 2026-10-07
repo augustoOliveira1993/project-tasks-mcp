@@ -8,7 +8,7 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { tools } from './schema.js';
 import { areasForProject } from './area-catalog.js';
-import { authenticate, authenticateAny, trustedLocal, DomainError, Service } from './service.js';
+import { authenticate, authenticateAny, trustedLocal, DomainError, Service, TASK_ATTACHMENT_MAX_BYTES } from './service.js';
 import { env } from './env.js';
 import { logger } from './logger.js';
 import { z, ZodError } from 'zod';
@@ -145,6 +145,43 @@ export function createApp(service: Service, origins: string[]) {
     res.set('Cache-Control', 'no-store');
     const result = await service.importProject(res.locals.importActor, req.body);
     res.status(result.reused ? 200 : 201).json(result);
+  });
+  const authenticateAttachmentUser: express.RequestHandler = async (req, res, next) => {
+    try {
+      const value = req.headers.authorization;
+      res.locals.attachmentActor = await authenticate(value?.startsWith('Bearer ') ? value.slice(7) : '', 'human');
+      next();
+    } catch (error) { next(error); }
+  };
+  const attachmentsPath = '/admin/projects/:projectId/tasks/:taskId/attachments';
+  app.post(attachmentsPath, authenticateAttachmentUser, express.raw({ type: () => true, limit: TASK_ATTACHMENT_MAX_BYTES }), async (req, res) => {
+    const { projectId, taskId } = z.object({ projectId: z.uuid(), taskId: z.uuid() }).parse(req.params);
+    const { filename } = z.object({ filename: z.string().min(1).max(1024) }).parse(req.query);
+    if (!Buffer.isBuffer(req.body)) throw new DomainError('File contents are required', 400);
+    const attachment = await service.createTaskAttachment(res.locals.attachmentActor, {
+      projectId, taskId, fileName: filename, contentType: req.get('content-type') ?? 'application/octet-stream', content: req.body
+    });
+    res.set('Cache-Control', 'no-store').status(201).json({ attachment });
+  });
+  app.get(attachmentsPath, authenticateAttachmentUser, async (req, res) => {
+    const { projectId, taskId } = z.object({ projectId: z.uuid(), taskId: z.uuid() }).parse(req.params);
+    const items = await service.listTaskAttachments(res.locals.attachmentActor, projectId, taskId);
+    res.set('Cache-Control', 'no-store').json({ items });
+  });
+  app.get(`${attachmentsPath}/:attachmentId`, authenticateAttachmentUser, async (req, res, next) => {
+    const { projectId, taskId, attachmentId } = z.object({ projectId: z.uuid(), taskId: z.uuid(), attachmentId: z.string() }).parse(req.params);
+    const { attachment, stream } = await service.getTaskAttachment(res.locals.attachmentActor, projectId, taskId, attachmentId);
+    const fallbackName = attachment.name.replace(/[^\x20-\x7E]/g, '_').replace(/["\\]/g, '_');
+    const encodedName = encodeURIComponent(attachment.name).replace(/[!'()*]/g, char => '%' + char.charCodeAt(0).toString(16).toUpperCase());
+    res.set({
+      'Cache-Control': 'private, no-store',
+      'X-Content-Type-Options': 'nosniff',
+      'Content-Type': 'application/octet-stream',
+      'Content-Length': String(attachment.size),
+      'Content-Disposition': `attachment; filename="${fallbackName}"; filename*=UTF-8''${encodedName}`
+    });
+    stream.once('error', error => { if (res.headersSent) res.destroy(error); else next(error); });
+    stream.pipe(res);
   });
   app.use(express.json({ limit: '1mb' }));
   app.get('/health', async (_req, res) => {

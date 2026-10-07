@@ -1,5 +1,7 @@
 import mongoose, { type ClientSession, type Model } from 'mongoose';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { ActionProposal, AutomationPolicy, Project, Feature, Task, Execution, Event, TaskMessage, Conversation, ConversationMessage, ConversationRead, DeliveryEvent, DeliveryRead, TaskRead, TaskDiff, AutomationJob, MarkdownDocument, MarkdownRevision, Operation, Credential, Bootstrap } from './db.js';
 import type { TaskContextDto } from './contracts.js';
 import { pageByCreatedAt, pageByDate, PageCursorError } from './pagination.js';
@@ -20,6 +22,7 @@ import { tools, adminSchema, approveActionProposalSchema, approveTasksSchema, ch
 
 export class DomainError extends Error { constructor(message: string, public status = 409) { super(message); } }
 export type Actor = { id: string; userId: string; scope: string; systemAdmin: boolean; projectToken?: string; sessionId?: string; jobId?: string; runnerId?: string; clientName?: string };
+export const TASK_ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024;
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const plain = (value: unknown) => JSON.parse(JSON.stringify(value));
 const projectDto = (project: any) => ({
@@ -268,6 +271,61 @@ export class Service {
     requireThat(p && role && (!write || role !== 'leitor') && (!admin || role === 'administrador'), 'Project access denied', 403);
     if (write) requireThat(!p.archived, 'Project archived');
     return p;
+  }
+  private taskAttachmentBucket() {
+    const db = mongoose.connection.db;
+    requireThat(db, 'Database unavailable', 503);
+    return new mongoose.mongo.GridFSBucket(db, { bucketName: 'taskAttachments' });
+  }
+  private async taskAttachmentTask(actor: Actor, projectId: string, taskId: string, write: boolean) {
+    requireThat(actor.scope === 'human', 'Human credential required', 403);
+    await this.access(actor, projectId, write);
+    const task = await Task.findOne({ _id: taskId, projectId }).select('_id').lean();
+    requireThat(task, 'Task not found', 404);
+  }
+  private taskAttachmentDto(file: any) {
+    return {
+      id: String(file._id),
+      name: file.metadata?.originalName ?? file.filename,
+      contentType: file.metadata?.contentType ?? 'application/octet-stream',
+      size: file.length,
+      createdAt: file.uploadDate
+    };
+  }
+  async createTaskAttachment(actor: Actor, input: { projectId: string; taskId: string; fileName: string; contentType: string; content: Buffer }) {
+    await this.taskAttachmentTask(actor, input.projectId, input.taskId, true);
+    requireThat(Buffer.isBuffer(input.content) && input.content.length <= TASK_ATTACHMENT_MAX_BYTES, 'Invalid file size', 413);
+    const fileName = input.fileName.replace(/[\r\n\0]/g, '').replaceAll('\\', '/').split('/').at(-1)?.trim() ?? '';
+    requireThat(fileName.length > 0 && fileName !== '.' && fileName !== '..' && Buffer.byteLength(fileName, 'utf8') <= 255, 'Invalid file name', 400);
+    const contentType = input.contentType.trim().toLowerCase().split(';', 1)[0];
+    requireThat(contentType.length <= 255 && /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/i.test(contentType), 'Invalid content type', 400);
+    const bucket = this.taskAttachmentBucket();
+    const upload = bucket.openUploadStream(fileName, { metadata: {
+      projectId: input.projectId, taskId: input.taskId, originalName: fileName,
+      contentType, uploadedBy: actor.userId
+    } });
+    await pipeline(Readable.from([input.content]), upload);
+    const file = await bucket.find({ _id: upload.id }).next();
+    requireThat(file, 'Attachment could not be stored', 500);
+    return this.taskAttachmentDto(file);
+  }
+  async listTaskAttachments(actor: Actor, projectId: string, taskId: string) {
+    await this.taskAttachmentTask(actor, projectId, taskId, false);
+    const files = await this.taskAttachmentBucket().find({ 'metadata.projectId': projectId, 'metadata.taskId': taskId })
+      .sort({ uploadDate: -1, _id: -1 }).toArray();
+    return files.map(file => this.taskAttachmentDto(file));
+  }
+  async getTaskAttachment(actor: Actor, projectId: string, taskId: string, attachmentId: string) {
+    await this.taskAttachmentTask(actor, projectId, taskId, false);
+    requireThat(/^[a-f0-9]{24}$/i.test(attachmentId), 'Invalid attachment ID', 400);
+    const bucket = this.taskAttachmentBucket();
+    const file = await bucket.find({
+      _id: new mongoose.mongo.ObjectId(attachmentId),
+      'metadata.projectId': projectId,
+      'metadata.taskId': taskId
+    }).next();
+    requireThat(file, 'Attachment not found', 404);
+    return { attachment: this.taskAttachmentDto(file), stream: bucket.openDownloadStream(file._id) };
   }
   async listCredentials(actor: Actor, query: { projectId?: string; scope?: 'human' | 'agent'; status?: 'active' | 'revoked'; email?: string; after?: string; limit: number }) {
     requireThat(actor.scope === 'human', 'Human credential required', 403);

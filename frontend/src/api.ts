@@ -50,6 +50,8 @@ export type Task = {
   updatedAt?: string;
   leaseUntil?: string;
 };
+export type TaskAttachment = { id: string; name: string; contentType: string; size: number; createdAt: string };
+export const MAX_TASK_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 
 export class ApiRequestError extends Error {
   constructor(message: string, readonly status: number) {
@@ -82,6 +84,58 @@ export async function request<T>(token: string, path: string, options: { method?
     throw new ApiRequestError(message, response.status);
   }
   return data as T;
+}
+
+function attachmentRequestError(body: string, status: number) {
+  let data: any = {};
+  try { data = JSON.parse(body); } catch { }
+  const message = typeof data?.reason === 'string' ? data.reason : typeof data?.error === 'string' ? data.error : `Falha na solicitação (${status}).`;
+  return new ApiRequestError(message, status);
+}
+
+function taskAttachmentPath(projectId: string, taskId: string) {
+  return `/admin/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}/attachments`;
+}
+
+export async function listTaskAttachments(token: string, projectId: string, taskId: string): Promise<TaskAttachment[]> {
+  const result = await request<{ items: TaskAttachment[] }>(token, taskAttachmentPath(projectId, taskId));
+  return result.items;
+}
+
+export function uploadTaskAttachment(
+  token: string,
+  projectId: string,
+  taskId: string,
+  file: File,
+  onProgress?: (progress: number | null) => void
+): Promise<TaskAttachment> {
+  if (file.size > MAX_TASK_ATTACHMENT_BYTES) return Promise.reject(new ApiRequestError('O arquivo deve ter no máximo 25 MiB.', 413));
+  const query = new URLSearchParams({ filename: file.name });
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', apiPrefix + taskAttachmentPath(projectId, taskId) + '?' + query.toString());
+    xhr.setRequestHeader('authorization', 'Bearer ' + token);
+    xhr.setRequestHeader('content-type', file.type || 'application/octet-stream');
+    xhr.upload.onprogress = event => onProgress?.(event.lengthComputable && event.total > 0 ? Math.round(event.loaded / event.total * 100) : null);
+    xhr.onerror = () => reject(new ApiRequestError('Falha de rede ao enviar o arquivo.', 0));
+    xhr.onabort = () => reject(new ApiRequestError('O envio do arquivo foi cancelado.', 0));
+    xhr.onload = () => {
+      if (xhr.status < 200 || xhr.status >= 300) { reject(attachmentRequestError(xhr.responseText, xhr.status)); return; }
+      try {
+        const result = JSON.parse(xhr.responseText) as { attachment: TaskAttachment };
+        resolve(result.attachment);
+      } catch { reject(new ApiRequestError('A resposta do servidor não contém os dados do arquivo.', xhr.status)); }
+    };
+    xhr.send(file);
+  });
+}
+
+export async function downloadTaskAttachment(token: string, projectId: string, taskId: string, attachmentId: string): Promise<Blob> {
+  const response = await fetch(`${apiPrefix}${taskAttachmentPath(projectId, taskId)}/${encodeURIComponent(attachmentId)}`, {
+    headers: { authorization: 'Bearer ' + token }
+  });
+  if (!response.ok) throw attachmentRequestError(await response.text(), response.status);
+  return response.blob();
 }
 
 export function query<T>(token: string, tool: string, args: Record<string, unknown>): Promise<T> {

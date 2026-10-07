@@ -23,6 +23,7 @@ import { TaskDiffsPanel, type TaskDiffSummary } from './TaskDiffsPanel';
 import { TaskCriteriaPanel } from './TaskCriteriaPanel';
 import { TaskTimeline, type StatusHistoryEntry } from './TaskTimeline';
 import { TaskActivityPanel, type TaskActivityEvent } from './TaskActivityPanel';
+import { TaskAttachmentsPanel } from './TaskAttachmentsPanel';
 import { routeUrl } from '../../route-state';
 import { TaskMessageAuthor } from '../conversations/ConversationParts';
 import { openTaskConversation } from '../../features/tasks/task-conversation';
@@ -34,7 +35,7 @@ type TaskDiff = TaskDiffSummary;
 type TaskMarkdown = { _id: string; name: string; summary: string; revision: number };
 type TaskReadAttempt = { taskId: string; cursor: number; operationId: string };
 type TaskMessage = { _id: string; type: string; author: string; authorType?: string; clientName?: string | null; message: string; createdAt: string };
-type Tab = 'summary' | 'criteria' | 'planning' | 'diffs' | 'activity' | 'conversation';
+type Tab = 'summary' | 'criteria' | 'planning' | 'diffs' | 'activity' | 'attachments' | 'conversation';
 
 const reviewCopy: Record<TaskReviewDecision, { title: string; confirm: string; reasonLabel: string; required: boolean; hint: string; tone: string }> = {
   approve: { title: 'Aprovar e concluir a tarefa', confirm: 'Aprovar e concluir', reasonLabel: 'Observação da aprovação (opcional)', required: false, hint: 'A tarefa vai para “Concluída”. Depois você ainda pode marcá-la como conferida.', tone: 'primary' },
@@ -287,6 +288,7 @@ export function TaskDetailsDialog({ token, nonce, projectId, project, tasks, tas
     { id: 'planning', label: 'Planejamento', count: planningCount ? String(planningCount) : undefined },
     { id: 'diffs', label: 'Diffs', count: diffCount ? String(diffCount) : undefined },
     { id: 'activity', label: 'Atividade' },
+    { id: 'attachments', label: 'Arquivos' },
     { id: 'conversation', label: 'Conversa', count: messages.length ? String(messages.length) : undefined }
   ];
   const copy = review ? reviewCopy[review] : null;
@@ -380,7 +382,8 @@ export function TaskDetailsDialog({ token, nonce, projectId, project, tasks, tas
                   </section>
                     : tab === 'diffs' ? <section className="drawer-section" aria-label="Diffs publicados"><TaskDiffsPanel token={token} nonce={nonce} projectId={projectId} taskId={task._id} items={diffs.data?.items ?? []} isPending={diffs.isPending} isError={diffs.isError} error={diffs.error} onRetry={() => void diffs.refetch()} /></section>
                       : tab === 'activity' ? <TaskActivityPanel events={taskActivity.data?.items ?? []} isPending={taskActivity.isPending} isError={taskActivity.isError} error={taskActivity.error} onRetry={() => void taskActivity.refetch()} executions={contextExecutions} now={now} />
-                        : <section className="drawer-section" aria-label="Conversa da tarefa">
+                        : tab === 'attachments' ? <TaskAttachmentsPanel token={token} nonce={nonce} projectId={projectId} taskId={task._id} />
+                          : <section className="drawer-section" aria-label="Conversa da tarefa">
                           <div className="drawer-section-head"><h3>Colaboração da tarefa</h3><button type="button" className="button secondary small-button" disabled={openConversation.isPending} onClick={() => openConversation.mutate()}>{openConversation.isPending ? 'Abrindo…' : 'Abrir conversa completa'}</button></div>
                           <div className="chain-group"><span className="chain-label">Conversas vinculadas</span>{linkedConversations.isPending ? <Skeleton rows={1} label="Carregando conversas…" /> : linkedConversations.isError ? <ErrorNotice error={linkedConversations.error} onRetry={() => void linkedConversations.refetch()} /> : linkedConversations.data?.linkedConversations?.length ? <ul className="chain-list">{linkedConversations.data.linkedConversations.map(item => <li key={item.conversationId}><ConversationLink conversationId={item.conversationId} projectId={projectId}>{item.title || 'Conversa sem título'}</ConversationLink><small>{plural(item.messageCount, 'mensagem', 'mensagens')}{item.lastActivityAt ? ' · ' + relativeTime(item.lastActivityAt, now) : ''}</small></li>)}</ul> : <p className="empty-inline">Nenhuma conversa vinculada ainda.</p>}</div>
                           {messages.length ? <ul className="activity-list">{messages.slice(0, 10).map(message => <li key={message._id}><div className="activity-row-body"><div className="activity-row-head message-head"><Badge tone={message.type === 'resposta' ? 'green' : message.type === 'pergunta' ? 'blue' : message.type === 'bloqueio' ? 'red' : 'muted'}>{message.type === 'resposta' ? 'Resposta' : message.type === 'pergunta' ? 'Pergunta' : message.type === 'bloqueio' ? 'Bloqueio' : message.type || 'Atualização'}</Badge><TaskMessageAuthor message={{ ...message, authorType: message.authorType === 'agent' || message.authorType === 'human' ? message.authorType : 'unknown', clientName: message.clientName ?? null }} /><time dateTime={message.createdAt} title={formatDate(message.createdAt)}>{relativeTime(message.createdAt, now)}</time></div><MarkdownView content={message.message} /></div></li>)}</ul> : <p className="empty-inline">Nenhuma mensagem de colaboração. Use “Abrir conversa completa” para falar com a IA sobre esta tarefa.</p>}

@@ -4,6 +4,7 @@ import { ErrorNotice } from '../ui/ErrorNotice';
 import { MarkdownView } from '../ui/MarkdownView';
 import { Skeleton } from '../ui/Skeleton';
 import { Badge } from '../ui/Badge';
+import { AgentClientIcon, isKnownAgentClient } from '../ui/AgentClientIcon';
 import { ConversationLink } from '../ui/Links';
 import { formatDate } from '../../lib/format';
 import { personName, relativeTime } from '../../lib/labels';
@@ -33,7 +34,7 @@ export function TaskActivityPanel({ events, isPending, isError, error, onRetry, 
         return <li key={event._id ?? `${event.at}-${index}`}>
           <Avatar identity={author} size={26} />
           <div className="activity-row-body">
-            <div className="activity-row-head"><strong>{author && author !== 'Autor não identificado' ? personName(author) : 'Autor desconhecido'}</strong><span>{eventKindLabel(event.kind)}</span><small>{originLabel(event.origin)}</small><time dateTime={event.at} title={formatDate(event.at)}>{relativeTime(event.at, now)}</time></div>
+            <div className="activity-row-head"><strong>{author && author !== 'Autor não identificado' ? personName(author) : 'Autor desconhecido'}</strong><span className="activity-kind-badge">{eventKindLabel(event.kind)}</span><span className="activity-origin-badge" title="Origem do evento">{isKnownAgentClient(event.origin) && <AgentClientIcon clientName={event.origin} />}<span>{originLabel(event.origin)}</span></span><time dateTime={event.at} title={formatDate(event.at)}>{relativeTime(event.at, now)}</time></div>
             <p>{eventSummary(event)}{event.conversationId && <> · <ConversationLink conversationId={event.conversationId} projectId={event.projectId}>Ver conversa</ConversationLink></>}</p>
             {event.detail && <div className="activity-detail"><MarkdownView content={event.detail} /></div>}
           </div>
