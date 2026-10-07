@@ -1,10 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { request } from '../../api';
 import { errorMessage } from '../../lib/format';
-import type { ProjectExport } from './ProjectExportPanel';
-import './admin-panels.css';
+import { buttonPrimary, eyebrow, notice } from '../ui/classes';
+import { transferStyles, type ProjectExport } from './ProjectExportPanel';
 
 const maxFileSize = 25 * 1024 * 1024;
+const fileInput = 'w-full min-w-0 rounded-ui-md border border-dashed border-[#cbd3e7] bg-[#fafbfe] p-4 text-[#738096] file:mr-2.5 file:cursor-pointer file:rounded-ui-sm file:border file:border-[#dde2ef] file:bg-white file:px-2.5 file:py-2 file:text-[#4958bf] focus-visible:border-[#626ce2] focus-visible:outline-3! focus-visible:outline-[#e5e7ff]!';
+const dialogBox = 'm-auto max-h-[min(850px,calc(100dvh-28px))] w-[min(100%-28px,720px)] overflow-auto rounded-ui-lg border border-[#dfe4ed] bg-white text-[#455164] shadow-[0_24px_70px_#18223040] open:block backdrop:bg-[#18203388] backdrop:backdrop-blur-[3px]';
+const dialogHeader = 'flex items-start justify-between gap-4 border-b border-[#edf0f4] px-[23px] pt-[21px] pb-4 max-[760px]:px-4 max-[760px]:pt-[17px] max-[760px]:pb-[13px]';
+const dialogBody = 'grid flex-1 content-start gap-5 px-6 py-[22px] text-[12px] leading-[1.6] wrap-anywhere';
+const dialogFooter = 'flex justify-end border-t border-[#edf0f4] px-[23px] py-3 max-[760px]:px-4 max-[760px]:py-2.5';
 const collectionLabels: Record<string, string> = {
   project: 'Projeto', repositories: 'Repositórios', features: 'Funcionalidades', tasks: 'Tarefas', taskDependencies: 'Dependências',
   executions: 'Execuções', events: 'Históricos', taskMessages: 'Mensagens de tarefas', conversations: 'Conversas',
@@ -17,6 +22,8 @@ export type ImportResult = {
   skipped: Array<{ collection: string; id: string; reason: string }>; skippedDetailsTruncated?: boolean; warnings: string[];
 };
 type ImportPreview = { package: ProjectExport; name: string; fileName: string; fileSize: number };
+
+const { counts, countItem, countTerm, countValue } = transferStyles;
 
 const totalRecords = (counts: Record<string, number> = {}) => Object.values(counts).reduce((total, count) => total + count, 0);
 const countDetails = (counts: Record<string, number> = {}) => Object.entries(counts).filter(([, count]) => count > 0);
@@ -70,40 +77,40 @@ export function ProjectImportPanel({ token, canImport, onImported }: { token: st
     }
     finally { setBusy(false); setResultOpen(true); }
   }
-  return <section className="panel-card project-transfer-card" aria-labelledby="project-import-title" aria-busy={busy || reading}>
-    <header className="section-heading"><div><p className="eyebrow">RECEBER DADOS</p><h2 id="project-import-title">Importar projeto</h2><p className="muted-text">Restaure neste MCP um projeto exportado em outro ambiente.</p></div><span className="transfer-icon" aria-hidden="true">↑</span></header>
-    <div className="project-transfer-body">
-      <div className="transfer-file-field">
-        <label htmlFor="project-import-file">Arquivo do projeto</label>
-        <input id="project-import-file" type="file" accept=".json,application/json" disabled={!canImport || busy} onChange={event => void selectFile(event.target.files?.[0])} aria-describedby="project-import-help" />
-        <small id="project-import-help">JSON gerado pela exportação · até 25 MB</small>
+  return <section className={transferStyles.card} aria-labelledby="project-import-title" aria-busy={busy || reading}>
+    <header className={transferStyles.header}><div><p className={transferStyles.eyebrow}>RECEBER DADOS</p><h2 className={transferStyles.title} id="project-import-title">Importar projeto</h2><p className={transferStyles.muted}>Restaure neste MCP um projeto exportado em outro ambiente.</p></div><span className={transferStyles.icon} aria-hidden="true">↑</span></header>
+    <div className={transferStyles.body}>
+      <div className="grid gap-[9px]">
+        <label className="text-[12px] font-semibold text-[#435270]" htmlFor="project-import-file">Arquivo do projeto</label>
+        <input className={fileInput} id="project-import-file" type="file" accept=".json,application/json" disabled={!canImport || busy} onChange={event => void selectFile(event.target.files?.[0])} aria-describedby="project-import-help" />
+        <small className="text-[11px] text-[#8590a1]" id="project-import-help">JSON gerado pela exportação · até 25 MB</small>
       </div>
       {reading && <p role="status">Lendo arquivo…</p>}
-      {preview && <div className="transfer-file-preview"><strong>{preview.name}</strong><span>{preview.fileName} · {preview.fileSize < 1024 * 1024 ? `${Math.ceil(preview.fileSize / 1024)} KB` : `${(preview.fileSize / (1024 * 1024)).toFixed(1)} MB`}</span><dl className="transfer-counts"><div><dt>Tarefas</dt><dd>{preview.package.counts.tasks ?? 0}</dd></div><div><dt>Documentos</dt><dd>{preview.package.counts.markdownDocuments ?? 0}</dd></div><div><dt>Conversas</dt><dd>{preview.package.counts.conversations ?? 0}</dd></div></dl></div>}
-      <div className="transfer-note"><strong>Importação sem sobrescrita</strong><p>Os IDs e vínculos são preservados. Itens existentes ou com conflito são pulados; os demais seguem na importação. Reenviar o mesmo pacote não duplica os registros.</p></div>
-      <p className="muted-text">A importação cria o projeto ou mescla itens ausentes quando o ID já existe. Acessos devem ser configurados novamente; execuções e automações antigas não são retomadas.</p>
-      {!canImport && <p className="notice" role="note">Entre com uma credencial de administrador do sistema para importar projetos.</p>}
-      {error && <div className="notice error" role="alert">{error}</div>}
+      {preview && <div className="grid min-w-0 gap-[5px] rounded-ui-md border border-[#dce2f4] p-[15px]"><strong>{preview.name}</strong><span className="text-[11px] text-[#8590a1]">{preview.fileName} · {preview.fileSize < 1024 * 1024 ? `${Math.ceil(preview.fileSize / 1024)} KB` : `${(preview.fileSize / (1024 * 1024)).toFixed(1)} MB`}</span><dl className={counts}><div className={countItem}><dt className={countTerm}>Tarefas</dt><dd className={countValue}>{preview.package.counts.tasks ?? 0}</dd></div><div className={countItem}><dt className={countTerm}>Documentos</dt><dd className={countValue}>{preview.package.counts.markdownDocuments ?? 0}</dd></div><div className={countItem}><dt className={countTerm}>Conversas</dt><dd className={countValue}>{preview.package.counts.conversations ?? 0}</dd></div></dl></div>}
+      <div className={transferStyles.note}><strong className={transferStyles.noteTitle}>Importação sem sobrescrita</strong><p className={transferStyles.noteText}>Os IDs e vínculos são preservados. Itens existentes ou com conflito são pulados; os demais seguem na importação. Reenviar o mesmo pacote não duplica os registros.</p></div>
+      <p className={transferStyles.muted}>A importação cria o projeto ou mescla itens ausentes quando o ID já existe. Acessos devem ser configurados novamente; execuções e automações antigas não são retomadas.</p>
+      {!canImport && <p className={notice.info} role="note">Entre com uma credencial de administrador do sistema para importar projetos.</p>}
+      {error && <div className={notice.error} role="alert">{error}</div>}
     </div>
-    <footer className="project-transfer-footer"><button type="button" className="button primary" disabled={!canImport || !preview || busy || reading} onClick={() => void importData()}>{busy ? 'Importando projeto…' : 'Importar projeto'}</button>{result && <button type="button" className="button secondary" onClick={() => setResultOpen(true)}>Ver resultado</button>}<span>Validação completa antes da gravação.</span></footer>
-    <dialog ref={resultDialog} className="create-task-dialog project-import-result-dialog" aria-labelledby="project-import-result-title" onCancel={event => { event.preventDefault(); setResultOpen(false); }} onClose={() => setResultOpen(false)}>
-      <header className="dialog-header"><div><p className="eyebrow">IMPORTAÇÃO DO PROJETO</p><h2 id="project-import-result-title">{error ? 'Erro na importação' : 'Resultado da importação'}</h2></div><button type="button" className="icon-button" aria-label="Fechar resultado da importação" onClick={() => setResultOpen(false)}>×</button></header>
-      <div className="project-transfer-body">
-      {error && <div className="notice error" role="alert">{error}</div>}
-      {result && <div className="transfer-success" role="status">
+    <footer className={transferStyles.footer}><button type="button" className={transferStyles.buttonPrimary} disabled={!canImport || !preview || busy || reading} onClick={() => void importData()}>{busy ? 'Importando projeto…' : 'Importar projeto'}</button>{result && <button type="button" className={transferStyles.buttonSecondary} onClick={() => setResultOpen(true)}>Ver resultado</button>}<span className={transferStyles.footerNote}>Validação completa antes da gravação.</span></footer>
+    <dialog ref={resultDialog} className={dialogBox} aria-labelledby="project-import-result-title" onCancel={event => { event.preventDefault(); setResultOpen(false); }} onClose={() => setResultOpen(false)}>
+      <header className={dialogHeader}><div><p className={eyebrow}>IMPORTAÇÃO DO PROJETO</p><h2 className="mb-[5px] font-display text-[17px] leading-[normal] font-bold tracking-[-.035em] text-[#263246]" id="project-import-result-title">{error ? 'Erro na importação' : 'Resultado da importação'}</h2></div><button type="button" className="inline-grid size-[30px] flex-none place-items-center rounded-[7px] border border-transparent bg-transparent text-[20px] text-[#8792a2] hover:bg-[#f2f3f8] hover:text-[#4654c0]" aria-label="Fechar resultado da importação" onClick={() => setResultOpen(false)}>×</button></header>
+      <div className={dialogBody}>
+      {error && <div className={notice.error} role="alert">{error}</div>}
+      {result && <div className={transferStyles.success} role="status">
         <strong>{result.alreadyImported ? 'Este pacote já tinha sido importado; nada foi duplicado.' : totalRecords(result.skippedCounts) > 0 ? 'Importação concluída com itens ignorados.' : 'Importação concluída.'}</strong>
         <p>{result.name} · {totalRecords(result.importedCounts)} importado(s) · {totalRecords(result.skippedCounts)} ignorado(s).</p>
-        <dl className="transfer-counts"><div><dt>Importados</dt><dd>{totalRecords(result.importedCounts)}</dd></div><div><dt>Ignorados</dt><dd>{totalRecords(result.skippedCounts)}</dd></div></dl>
-        {(countDetails(result.importedCounts).length > 0 || countDetails(result.skippedCounts).length > 0) && <div className="transfer-result-breakdown">
-          {countDetails(result.importedCounts).length > 0 && <p><strong>Importados:</strong> {countDetails(result.importedCounts).map(([name, count]) => `${collectionLabels[name] ?? name}: ${count}`).join(' · ')}</p>}
-          {countDetails(result.skippedCounts).length > 0 && <p><strong>Ignorados:</strong> {countDetails(result.skippedCounts).map(([name, count]) => `${collectionLabels[name] ?? name}: ${count}`).join(' · ')}</p>}
+        <dl className={counts}><div className={countItem}><dt className={countTerm}>Importados</dt><dd className={countValue}>{totalRecords(result.importedCounts)}</dd></div><div className={countItem}><dt className={countTerm}>Ignorados</dt><dd className={countValue}>{totalRecords(result.skippedCounts)}</dd></div></dl>
+        {(countDetails(result.importedCounts).length > 0 || countDetails(result.skippedCounts).length > 0) && <div className="mt-2.5 grid gap-1">
+          {countDetails(result.importedCounts).length > 0 && <p className="wrap-anywhere"><strong>Importados:</strong> {countDetails(result.importedCounts).map(([name, count]) => `${collectionLabels[name] ?? name}: ${count}`).join(' · ')}</p>}
+          {countDetails(result.skippedCounts).length > 0 && <p className="wrap-anywhere"><strong>Ignorados:</strong> {countDetails(result.skippedCounts).map(([name, count]) => `${collectionLabels[name] ?? name}: ${count}`).join(' · ')}</p>}
         </div>}
-        {result.skipped.length > 0 && <details className="transfer-skip-details" open><summary>Conflitos e vínculos ignorados ({totalRecords(result.skippedCounts)})</summary><ul>{result.skipped.map(item => <li key={`${item.collection}:${item.id}`}><strong>{collectionLabels[item.collection] ?? item.collection}</strong> <code>{item.id}</code>: {item.reason}</li>)}</ul></details>}
+        {result.skipped.length > 0 && <details className="mt-2.5 text-[#435270]" open><summary className="cursor-pointer font-[650]">Conflitos e vínculos ignorados ({totalRecords(result.skippedCounts)})</summary><ul className="grid max-h-[220px] gap-1.5 overflow-auto pt-2 pl-[18px]">{result.skipped.map(item => <li key={`${item.collection}:${item.id}`}><strong>{collectionLabels[item.collection] ?? item.collection}</strong> <code className="wrap-anywhere">{item.id}</code>: {item.reason}</li>)}</ul></details>}
         {result.skippedDetailsTruncated && <p>O resumo detalhado foi limitado; as contagens incluem todos os itens ignorados.</p>}
-        {result.warnings.map(warning => <p key={warning}>{warning}</p>)}
+        {result.warnings.map((warning, index) => <p className={index > 0 || result.skippedDetailsTruncated ? 'mt-1.5' : undefined} key={warning}>{warning}</p>)}
       </div>}
       </div>
-      <footer className="dialog-footer"><button type="button" className="button primary" autoFocus onClick={() => setResultOpen(false)}>Fechar</button></footer>
+      <footer className={dialogFooter}><button type="button" className={buttonPrimary} autoFocus onClick={() => setResultOpen(false)}>Fechar</button></footer>
     </dialog>
   </section>;
 }

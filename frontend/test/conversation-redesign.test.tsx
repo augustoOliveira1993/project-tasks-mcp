@@ -42,7 +42,7 @@ test('filtro de critérios, fases e texto de atividade', () => {
 test('stepper marca concluída, atual e futura com texto para leitores de tela', () => {
   const html = renderToStaticMarkup(createElement(ConversationStepper, { phase: 3 }));
   assert.match(html, /aria-label="Fases da conversa"/);
-  assert.equal((html.match(/step-done/g) ?? []).length, 2);
+  assert.equal((html.match(/\(concluída\)/g) ?? []).length, 2);
   assert.equal((html.match(/aria-current="step"/g) ?? []).length, 1);
   assert.match(html, /Autorização<span class="sr-only"> \(fase atual\)/);
   assert.match(html, /Passo 3 de 4 · Autorização/);
@@ -64,7 +64,7 @@ test('cartão de proposta: pendente oferece pedir ajustes e autorizar; autorizad
   assert.doesNotMatch(approved, />Autorizar execução</);
   const outdated = render({ proposal: proposal(), taskVersion: 9 });
   assert.match(outdated, /Desatualizada/);
-  assert.match(outdated, /<button[^>]*authorize-button[^>]*disabled/);
+  assert.match(outdated, /<button[^>]*w-full[^>]*disabled/);
 });
 
 test('critérios: resumo "N de M", barra segmentada, filtros e disclosure', () => {
@@ -78,7 +78,9 @@ test('critérios: resumo "N de M", barra segmentada, filtros e disclosure', () =
   })));
   assert.match(html, /2 de 3 atendidos/);
   assert.match(html, /role="img" aria-label="2 de 3 critérios atendidos"/);
-  assert.equal((html.match(/class="segment( done)?"/g) ?? []).length, 3);
+  const segments = html.match(/role="img" aria-label="2 de 3 critérios atendidos">(.*?)<\/div>/)?.[1] ?? '';
+  assert.equal((segments.match(/<span /g) ?? []).length, 3);
+  assert.equal((segments.match(/bg-\[#1f8a4c\]/g) ?? []).length, 2);
   assert.match(html, /Todos 3/);
   assert.match(html, /Pendentes 1/);
   assert.match(html, /Atendidos 2/);

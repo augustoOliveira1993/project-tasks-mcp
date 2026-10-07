@@ -6,9 +6,18 @@ import { errorMessage } from '../../lib/format';
 import { AssigneePicker } from '../../components/ui/AssigneePicker';
 import { useAssignees } from './assignees';
 import { submitNewTask } from './task-create';
+import { buttonPrimary, buttonSecondary, eyebrow, notice } from '../../components/ui/classes';
 
 type Feature = { _id: string; name: string; archived?: boolean };
 type Repository = NonNullable<Project['repositories']>[number];
+
+const dialogBox = 'm-auto max-h-[min(850px,calc(100dvh-28px))] w-[min(calc(100%-28px),720px)] overflow-auto rounded-ui-lg border border-[#dfe4ed] bg-white p-0 text-[#455164] shadow-[0_24px_70px_#18223040] open:block backdrop:bg-[#18203388] backdrop:backdrop-blur-[3px]';
+const dialogHeader = 'flex items-start justify-between gap-4 border-b border-b-[#edf0f4] px-[23px] pt-[21px] pb-4 max-[760px]:px-4 max-[760px]:pt-[17px] max-[760px]:pb-[13px]';
+const iconButton = 'inline-grid size-[30px] flex-none place-items-center rounded-[7px] border border-transparent bg-transparent text-[20px] text-[#8792a2] hover:bg-[#f2f3f8] hover:text-[#4654c0]';
+const dialogNotice = 'mx-[22px] mt-[13px]';
+const field = 'grid gap-1.5 text-[10px] font-semibold text-[#566275]';
+const control = 'w-full resize-y rounded-[7px] border border-[#e1e5ed] bg-white px-2.5 py-[9px] text-[#344054] outline-none';
+const hint = 'text-[9px] leading-normal font-normal text-[#8a94a4]';
 
 export function CreateTaskDialog({ token, nonce, projectId, repositories, areas, tasks, defaultFeatureId, systemAdmin = false, close, onCreated }: {
   systemAdmin?: boolean;
@@ -66,29 +75,29 @@ export function CreateTaskDialog({ token, nonce, projectId, repositories, areas,
     });
   }
 
-  return <dialog ref={dialogRef} className="dialog create-task-dialog" aria-labelledby="create-task-title" onCancel={event => { event.preventDefault(); close(); }} onClick={event => { if (event.target === event.currentTarget) close(); }}>
-    <header className="dialog-header"><div><p className="eyebrow">NOVA TASK</p><h2 id="create-task-title">Criar tarefa</h2><p className="muted-text">Depois de criar, abra Conversas, selecione esta task ao iniciar o chat e explique o que precisa. A feature aparece identificada na conversa.</p></div><button type="button" className="icon-button" onClick={close} aria-label="Fechar">×</button></header>
-    {repositories.length === 0 && <div className="notice error">O projeto não possui repositório disponível para associar à task.</div>}
-    {features.isError && <div className="notice error">Não foi possível carregar as features: {errorMessage(features.error)}</div>}
-    {create.isError && <div className="notice error" role="alert">{errorMessage(create.error)}</div>}
-    <form className="stack-form create-task-form" onSubmit={submit}>
-      <label>Nome<input name="name" required maxLength={20000} autoFocus placeholder="Ex.: Adicionar exportação CSV" /></label>
-      <label>Instruções<textarea name="instructions" required maxLength={20000} rows={4} placeholder="Descreva o objetivo, limites e contexto para quem assumir a task." /></label>
-      <label>Critérios de aceite<textarea name="acceptance" required rows={4} placeholder={'Um critério por linha\nEx.: O botão exporta os filtros aplicados.'} /><small>Informe pelo menos um critério; cada linha vira um item separado.</small></label>
-      <div className="create-task-fields">
-        <label>Área<select name="area" defaultValue={defaultArea} required>{areas.map(area => <option value={area} key={area}>{area === 'backend' ? 'Backend' : area === 'frontend' ? 'Frontend' : area === 'outro' ? 'Outro' : area}</option>)}</select></label>
-        <label>Repositório<select name="repositoryId" required defaultValue={repositories.length === 1 ? repositories[0].id : ''}><option value="" disabled>Selecione</option>{repositories.map(repository => <option key={repository.id} value={repository.id}>{repository.name}</option>)}</select></label>
-        <label>Feature<select name="featureId" defaultValue={defaultFeatureId}><option value="">Sem feature</option>{(features.data ?? []).map(feature => <option key={feature._id} value={feature._id}>{feature.name}</option>)}</select>{features.isPending && <small>Carregando features…</small>}</label>
-        <label>Tipo<select name="type" defaultValue="feature">{['feature', 'fix', 'chore', 'docs', 'refactor', 'test', 'perf', 'build', 'ci', 'revert'].map(type => <option key={type} value={type}>{type}</option>)}</select></label>
-        <label>Prioridade<select name="priority" defaultValue="2">{[0, 1, 2, 3, 4, 5].map(priority => <option key={priority} value={priority}>{priority}</option>)}</select></label>
+  return <dialog ref={dialogRef} className={dialogBox} aria-labelledby="create-task-title" onCancel={event => { event.preventDefault(); close(); }} onClick={event => { if (event.target === event.currentTarget) close(); }}>
+    <header className={dialogHeader}><div><p className={eyebrow}>NOVA TASK</p><h2 id="create-task-title" className="mb-[5px] font-display text-[17px] leading-[normal] font-bold tracking-[-.035em] text-[#263246]">Criar tarefa</h2><p className="text-[10px] text-muted-strong">Depois de criar, abra Conversas, selecione esta task ao iniciar o chat e explique o que precisa. A feature aparece identificada na conversa.</p></div><button type="button" className={iconButton} onClick={close} aria-label="Fechar">×</button></header>
+    {repositories.length === 0 && <div className={`${notice.error} ${dialogNotice}`}>O projeto não possui repositório disponível para associar à task.</div>}
+    {features.isError && <div className={`${notice.error} ${dialogNotice}`}>Não foi possível carregar as features: {errorMessage(features.error)}</div>}
+    {create.isError && <div className={`${notice.error} ${dialogNotice}`} role="alert">{errorMessage(create.error)}</div>}
+    <form className="grid gap-[13px] px-[22px] pt-4 pb-5 max-[480px]:px-4 max-[480px]:pt-[13px] max-[480px]:pb-4" onSubmit={submit}>
+      <label className={field}>Nome<input className={control} name="name" required maxLength={20000} autoFocus placeholder="Ex.: Adicionar exportação CSV" /></label>
+      <label className={field}>Instruções<textarea className={control} name="instructions" required maxLength={20000} rows={4} placeholder="Descreva o objetivo, limites e contexto para quem assumir a task." /></label>
+      <label className={field}>Critérios de aceite<textarea className={control} name="acceptance" required rows={4} placeholder={'Um critério por linha\nEx.: O botão exporta os filtros aplicados.'} /><small className={hint}>Informe pelo menos um critério; cada linha vira um item separado.</small></label>
+      <div className="grid grid-cols-[repeat(2,minmax(0,1fr))] gap-3 max-[480px]:grid-cols-[1fr]">
+        <label className={field}>Área<select className={control} name="area" defaultValue={defaultArea} required>{areas.map(area => <option value={area} key={area}>{area === 'backend' ? 'Backend' : area === 'frontend' ? 'Frontend' : area === 'outro' ? 'Outro' : area}</option>)}</select></label>
+        <label className={field}>Repositório<select className={control} name="repositoryId" required defaultValue={repositories.length === 1 ? repositories[0].id : ''}><option value="" disabled>Selecione</option>{repositories.map(repository => <option key={repository.id} value={repository.id}>{repository.name}</option>)}</select></label>
+        <label className={field}>Feature<select className={control} name="featureId" defaultValue={defaultFeatureId}><option value="">Sem feature</option>{(features.data ?? []).map(feature => <option key={feature._id} value={feature._id}>{feature.name}</option>)}</select>{features.isPending && <small className={hint}>Carregando features…</small>}</label>
+        <label className={field}>Tipo<select className={control} name="type" defaultValue="feature">{['feature', 'fix', 'chore', 'docs', 'refactor', 'test', 'perf', 'build', 'ci', 'revert'].map(type => <option key={type} value={type}>{type}</option>)}</select></label>
+        <label className={field}>Prioridade<select className={control} name="priority" defaultValue="2">{[0, 1, 2, 3, 4, 5].map(priority => <option key={priority} value={priority}>{priority}</option>)}</select></label>
         <AssigneePicker name="responsible" label="Responsável (opcional)" assignees={assignees.data ?? []} isPending={assignees.isPending} isError={assignees.isError} />
       </div>
-      <div className="dependency-picker" role="group" aria-labelledby="task-dependencies-label">
-        <strong id="task-dependencies-label">Dependências (opcional)</strong>
-        <small>Marque somente as tasks que precisam terminar antes desta.</small>
-        {tasks.length ? <div className="dependency-options">{tasks.map(task => <label className="dependency-option" key={task._id}><input type="checkbox" name="dependencies" value={task._id} checked={dependencies.includes(task._id)} onChange={event => setDependencies(current => event.target.checked ? [...current, task._id] : current.filter(id => id !== task._id))} /><span>{task.name} · {task.status}</span></label>)}</div> : <p className="muted-text">Não há tasks disponíveis para adicionar como dependência.</p>}
+      <div className="grid gap-[7px] text-[10px] text-[#566275]" role="group" aria-labelledby="task-dependencies-label">
+        <strong id="task-dependencies-label" className="font-semibold">Dependências (opcional)</strong>
+        <small className={hint}>Marque somente as tasks que precisam terminar antes desta.</small>
+        {tasks.length ? <div className="grid max-h-[150px] gap-1 overflow-y-auto rounded-[7px] border border-[#e1e5ed] p-[7px]">{tasks.map(task => <label className="flex cursor-pointer items-center gap-2 px-0.5 py-1 text-[10px] font-normal text-[#566275]" key={task._id}><input className="size-[14px] flex-none rounded-[7px] border border-[#e1e5ed] bg-white p-0 text-[#344054] accent-accent outline-none" type="checkbox" name="dependencies" value={task._id} checked={dependencies.includes(task._id)} onChange={event => setDependencies(current => event.target.checked ? [...current, task._id] : current.filter(id => id !== task._id))} /><span>{task.name} · {task.status}</span></label>)}</div> : <p className="text-muted-strong">Não há tasks disponíveis para adicionar como dependência.</p>}
       </div>
-      <div className="button-row end-row"><button type="button" className="button secondary" onClick={close} disabled={create.isPending}>Cancelar</button><button className="button primary" disabled={create.isPending || features.isPending || repositories.length === 0 || features.isError}>{create.isPending ? 'Criando…' : 'Criar tarefa'}</button></div>
+      <div className="mt-1 flex items-center justify-end gap-2"><button type="button" className={buttonSecondary} onClick={close} disabled={create.isPending}>Cancelar</button><button className={buttonPrimary} disabled={create.isPending || features.isPending || repositories.length === 0 || features.isError}>{create.isPending ? 'Criando…' : 'Criar tarefa'}</button></div>
     </form>
   </dialog>;
 }

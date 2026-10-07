@@ -17,7 +17,7 @@ import { adminPage } from './admin-page.js';
 
 const MCP_AGENT_INSTRUCTIONS = [
   'Use apenas as ferramentas anunciadas nesta sessão. O guia operacional no repositório detalha todas as famílias; não assuma que uma capacidade documentada está conectada ao cliente atual.',
-  'Comece com get_session_context. Respeite o projeto indicado pelo usuário; se faltar, resolva pelo workspace Git com resolve_project_context e chame get_session_context novamente para receber availableAreas. Quando a área continuar ausente, peça a escolha entre as áreas cadastradas naquele projeto e registre a seleção em uma ferramenta compatível.',
+  'Comece com get_session_context. Se o pedido mencionar uma task do MCP por UUID ou prefixo curto, e o usuário não tiver indicado explicitamente outro projeto, chame resolve_task_context antes de resolver pelo workspace; em status matched, a ferramenta seleciona o projeto e a área da task na sessão. Chame get_session_context novamente e depois get_task_context. Projeto indicado explicitamente tem precedência e deve ser validado contra a task. Sem referência a task, use resolve_project_context pelo workspace quando faltar projeto. Peça a área somente quando ela continuar ausente.',
   'Para descobrir registros, use list_records; list_pending serve apenas para encontrar tasks pendentes executáveis. Use resumos para panorama e get_task_context antes de alterar ou assumir uma task. Contexto pode ser paginado/truncado: carregue detalhes sob demanda.',
   'Crie registros só quando solicitados e depois de procurar duplicatas. Para executar, leia dependências/status e claim_task com versão atual; durante a execução use heartbeat_task e record_progress. Atualize cada critério com evidência objetiva usando set_acceptance_criterion antes de submit_task. Escrever “ATENDIDO” ou emoji no texto do critério não atualiza acceptanceProgress.',
   'Em revisão, aprove com set_task_status somente após conferir diff e evidências de todos os critérios; devolva pendente descrevendo lacunas. block_task bloqueia a execução; não tente desbloquear com set_task_status. Permissões, credenciais, vínculo Git e configuração/liberação de automação são ações humanas administrativas.',
@@ -29,7 +29,7 @@ const MCP_AGENT_INSTRUCTIONS = [
 ].join(' ');
 
 const START_WORK_PROMPT = [
-  'Inicie o fluxo do Project Tasks MCP. Primeiro chame get_session_context. Use o projeto indicado pelo usuário; se projectId estiver ausente, obtenha a raiz absoluta do workspace e, se for checkout Git, remote e commit raiz, então chame resolve_project_context. Use automaticamente um resultado matched e chame get_session_context novamente para obter availableAreas; para ambiguous, not_found ou workspace indisponível, explique e peça esclarecimento. Se a área continuar ausente, pergunte qual área cadastrada do projeto deve ser assumida.',
+  'Inicie o fluxo do Project Tasks MCP. Primeiro chame get_session_context. Se o usuário referenciar uma task existente por UUID ou prefixo curto e não indicar projeto, chame resolve_task_context antes de usar o workspace; se matched, a sessão assume o projeto e a área retornados, então chame get_session_context e get_task_context. Se a task estiver ambiguous, peça o UUID completo; se not_found, explique que não foi possível resolver uma task acessível e peça o projeto/ID corretos, sem assumir o projeto do workspace para essa referência. Projeto indicado explicitamente tem precedência: use-o e verifique a task nesse projeto. Sem referência a task, se projectId estiver ausente, obtenha a raiz absoluta do workspace e, se for checkout Git, remote e commit raiz, então chame resolve_project_context. Use automaticamente um resultado matched; para ambiguous, not_found ou workspace indisponível, explique e peça esclarecimento. Pergunte a área somente se ela continuar ausente.',
   'Use o pedido atual como objetivo quando estiver claro. Use list_records/list_pending para localizar trabalho existente e nunca invente IDs. Se não houver correspondência, houver ambiguidade ou a única task correspondente estiver concluída/não executável, explique o que encontrou e pergunte como prosseguir antes de criar ou alterar registros.',
   'Para uma única task correspondente e executável, leia get_task_context antes de mutações, confira dependências e status, e claim_task com a versão atual. Siga heartbeat_task, record_progress e set_acceptance_criterion assim que houver evidência por critério; use block_task para impedimento e submit_task quando a entrega estiver pronta.',
   'Use o guia operacional para escolher as outras famílias de ferramentas: chat compartilhado, colaboração de task, Markdown, eventos, automação, Git ou transferência. Mensagens no chat não acordam automaticamente outra IA. Respeite aprovações humanas, versão, operationId, identidade e limites da sessão.'
@@ -37,6 +37,7 @@ const START_WORK_PROMPT = [
 
 const MCP_TOOL_GUIDANCE: Record<string, string> = {
   resolve_project_context: 'Passe a raiz absoluta do workspace e os metadados Git disponíveis. Um resultado matched seleciona o projeto; não concede acesso.',
+  resolve_task_context: 'Passe UUID completo ou prefixo com pelo menos oito caracteres hexadecimais. Busca somente tasks acessíveis; matched retorna e seleciona projeto/área, ambiguous exige UUID completo e not_found não deve ser substituído pelo projeto do workspace.',
   list_records: 'Use para localizar project, feature ou task com filtros/status. Inclua concluded/archived somente se a busca pedir.',
   list_pending: 'Lista somente tasks pendentes; use list_records para localizar tasks em execução, revisão, concluídas ou registros de outros tipos.',
   get_task_context: 'Leia antes de assumir ou alterar uma task. O contexto é limitado; use get_record e ferramentas paginadas para os detalhes omitidos.',
@@ -521,7 +522,7 @@ export function createApp(service: Service, origins: string[]) {
           if (name === 'get_session_context') {
             const missing: string[] = [];
             let availableAreas: string[] = [];
-            if (!session.projectId) missing.push('Use o projeto indicado pelo usuário quando houver; caso contrário, resolva-o pelo workspace com resolve_project_context antes de perguntar o nome.');
+            if (!session.projectId) missing.push('Se o pedido mencionar uma task por UUID ou prefixo curto, use resolve_task_context para assumir projeto e área; sem referência a task, resolva o projeto indicado ou o workspace com resolve_project_context.');
             else {
               const projects = await service.query(session.actor, 'list_records', { kind: 'project', projectId: session.projectId, archived: false, limit: 1 });
               const project = projects.items?.[0];
@@ -537,6 +538,7 @@ export function createApp(service: Service, origins: string[]) {
           }
           const result = await service.call({ ...session.actor, ...(session.clientName ? { clientName: session.clientName } : {}) }, name, args);
           if (name === 'resolve_project_context' && !session.projectId && result.status === 'matched') session.projectId = result.projectId;
+          if (name === 'resolve_task_context' && result.status === 'matched') { session.projectId = result.projectId; session.area = result.area; }
           if (args.projectId) session.projectId = args.projectId;
           if (args.area) session.area = args.area;
           if (args.data?.area) session.area = args.data.area;

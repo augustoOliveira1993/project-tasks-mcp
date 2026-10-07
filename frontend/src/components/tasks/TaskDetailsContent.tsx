@@ -30,6 +30,7 @@ import { TaskSectionRail, type TaskSection } from './TaskSectionRail';
 import { taskPageUrl } from '../../route-state';
 import { TaskMessageAuthor } from '../conversations/ConversationParts';
 import { openTaskConversation } from '../../features/tasks/task-conversation';
+import { buttonBase, buttonDanger, buttonGhost, buttonPrimary, buttonSecondarySmall, eyebrow, notice, textButton } from '../ui/classes';
 
 type Feature = { _id: string; name: string };
 export type TaskDetailsAction = 'details' | 'edit' | 'summary' | 'json' | 'criteria' | 'assign';
@@ -41,10 +42,33 @@ type TaskMessage = { _id: string; type: string; author: string; authorType?: str
 type Tab = 'summary' | 'criteria' | 'planning' | 'diffs' | 'activity' | 'attachments' | 'conversation';
 
 const reviewCopy: Record<TaskReviewDecision, { title: string; confirm: string; reasonLabel: string; required: boolean; hint: string; tone: string }> = {
-  approve: { title: 'Aprovar e concluir a tarefa', confirm: 'Aprovar e concluir', reasonLabel: 'Observação da aprovação (opcional)', required: false, hint: 'A tarefa vai para “Concluída”. Depois você ainda pode marcá-la como conferida.', tone: 'primary' },
-  return: { title: 'Devolver para ajustes', confirm: 'Devolver para pendente', reasonLabel: 'O que precisa ser ajustado?', required: true, hint: 'A tarefa volta para “Pendente” com o motivo registrado, e o agente poderá assumi-la de novo.', tone: 'danger-button' },
-  unblock: { title: 'Desbloquear a tarefa', confirm: 'Voltar para pendente', reasonLabel: 'Como o bloqueio foi resolvido?', required: true, hint: 'A tarefa volta para “Pendente” e fica disponível para ser assumida.', tone: 'primary' }
+  approve: { title: 'Aprovar e concluir a tarefa', confirm: 'Aprovar e concluir', reasonLabel: 'Observação da aprovação (opcional)', required: false, hint: 'A tarefa vai para “Concluída”. Depois você ainda pode marcá-la como conferida.', tone: buttonPrimary },
+  return: { title: 'Devolver para ajustes', confirm: 'Devolver para pendente', reasonLabel: 'O que precisa ser ajustado?', required: true, hint: 'A tarefa volta para “Pendente” com o motivo registrado, e o agente poderá assumi-la de novo.', tone: buttonDanger },
+  unblock: { title: 'Desbloquear a tarefa', confirm: 'Voltar para pendente', reasonLabel: 'Como o bloqueio foi resolvido?', required: true, hint: 'A tarefa volta para “Pendente” e fica disponível para ser assumida.', tone: buttonPrimary }
 };
+
+const chainLabel = 'text-ui-xs font-bold text-muted-strong';
+const emptyInline = 'rounded-ui-md border border-dashed border-line-strong px-4 py-3 text-ui-sm text-muted-strong';
+const sectionTitle = 'font-display text-ui-md leading-[normal] font-bold text-ink';
+const drawerSection = 'grid gap-3';
+// O CSS legado `.drawer-section h3` (sem camada) vencia os estilos dos títulos Markdown dentro da seção; `!` reproduz isso.
+const drawerSectionMarkdown = 'grid gap-3 [&_h3]:m-0! [&_h3]:font-display! [&_h3]:text-ui-md! [&_h3]:leading-[normal]! [&_h3]:font-bold! [&_h3]:text-ink!';
+const drawerBody = 'grid min-h-0 flex-[1_1_0] content-start gap-6 p-6 max-[760px]:p-4';
+const iconButton = 'inline-grid size-[34px] flex-none place-items-center rounded-[7px] border border-transparent bg-transparent text-[20px] text-[#8792a2] hover:bg-[#f2f3f8] hover:text-[#4654c0]';
+const idChip = 'inline-flex items-center gap-[5px] rounded-ui-sm border border-transparent bg-[#f3f4f8] px-[7px] py-0.5 text-ui-xs font-semibold text-muted-strong hover:border-line-strong hover:bg-white';
+const chipLink = 'inline-flex max-w-full cursor-pointer items-center gap-1 rounded-ui-sm px-2 py-0.5 text-[10.5px] leading-normal font-semibold whitespace-nowrap no-underline hover:border-focus hover:bg-tone-blue-bg hover:text-tone-blue';
+const areaTone: Record<string, string> = { backend: 'bg-[#eaeeff] text-[#3544a8]', frontend: 'bg-[#e1f4f1] text-[#136059]' };
+const priorityTone: Record<string, string> = { red: 'bg-tone-red-bg text-tone-red', amber: 'bg-tone-amber-bg text-tone-amber', muted: 'bg-tone-slate-bg text-tone-slate' };
+const actionButton = 'inline-flex min-h-[34px] items-center justify-center gap-2 rounded-lg border px-3 text-ui-xs font-bold transition max-[760px]:flex-auto';
+const actionPrimary = `${actionButton} border-transparent bg-accent text-white shadow-[0_3px_8px_#5364dd2a] hover:bg-accent-dark`;
+const actionSecondary = `${actionButton} border-[#e1e5ed] bg-white text-[#5d697b] hover:border-[#ccd2df] hover:bg-[#fafbff]`;
+const smallPrimary = `${buttonBase} min-h-[29px] border-transparent bg-accent px-2.5 text-white shadow-[0_3px_8px_#5364dd2a] hover:bg-accent-dark`;
+const smallGhost = `${buttonBase} min-h-[29px] border-transparent bg-transparent px-2.5 text-[#758093]`;
+const factCard = 'grid min-w-0 gap-1 rounded-ui-sm border border-line bg-[#fbfcfe] px-3 py-2.5';
+const factTerm = 'text-[10.5px] font-bold text-muted-strong';
+const factValue = 'text-ui-sm font-semibold text-ink-2 wrap-anywhere';
+const checkOk = 'flex items-center gap-1.5 text-tone-green';
+const checkWarn = 'flex items-center gap-1.5 text-tone-amber';
 
 const focusableSelector = 'button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), summary, [tabindex]:not([tabindex="-1"])';
 
@@ -302,47 +326,48 @@ export function TaskDetailsContent({ variant, token, nonce, projectId, project, 
 
   const nextPending = acceptance.findIndex((_item: string, index: number) => !acceptanceProgress[index]);
   const progressPercent = acceptance.length ? Math.round(completedCriteria * 100 / acceptance.length) : 0;
-  const railFooter = isDrawer ? undefined : <div className="task-rail-meta">
-    <div><span className="chain-label">Responsável</span><Person identity={taskData.responsible} /></div>
-    <div><span className="chain-label">Versão</span><span>{taskData.version !== undefined ? `v${taskData.version}` : '—'}</span></div>
-    <div><span className="chain-label">Atualizada</span><span title={formatDate(taskData.updatedAt)}>{relativeTime(taskData.updatedAt, now)}</span></div>
+  const railFooter = isDrawer ? undefined : <div className="grid gap-3 border-t border-line p-4 text-ui-sm text-ink-2 max-[960px]:hidden">
+    <div className="grid gap-[3px]"><span className={chainLabel}>Responsável</span><Person identity={taskData.responsible} /></div>
+    <div className="grid gap-[3px]"><span className={chainLabel}>Versão</span><span>{taskData.version !== undefined ? `v${taskData.version}` : '—'}</span></div>
+    <div className="grid gap-[3px]"><span className={chainLabel}>Atualizada</span><span title={formatDate(taskData.updatedAt)}>{relativeTime(taskData.updatedAt, now)}</span></div>
   </div>;
   const editorDialog = editing && !features.isPending && <TaskEditorDialog token={token} nonce={nonce} project={project} tasks={tasks} features={editorFeatures} task={taskData as Task} systemAdmin={systemAdmin} close={() => setEditing(false)} notify={notify} onSaved={() => setEditing(false)} />;
 
+  const fixed = isDrawer ? ' flex-none' : '';
   const details = <>
-      <header className="drawer-header task-header">
-        <div className="drawer-title">
-          {!isDrawer && <button type="button" className="text-button back-link" onClick={close}>‹ Voltar às tarefas</button>}
-          <p className="eyebrow">TAREFA · {areaLabel(task.area)}</p>
-          <h2 id="details-title">{task.name}</h2>
-          <div className="drawer-chips">
+      <header className={'flex items-start justify-between gap-4 border-b border-line px-6 pt-4 pb-3 max-[760px]:px-4 max-[760px]:pt-3' + fixed}>
+        <div className="min-w-0">
+          {!isDrawer && <button type="button" className={`${textButton} justify-self-start`} onClick={close}>‹ Voltar às tarefas</button>}
+          <p className={eyebrow}>TAREFA · {areaLabel(task.area)}</p>
+          <h2 className="mb-2 font-display text-ui-xl leading-[1.3] font-bold tracking-[-.03em] text-ink wrap-anywhere max-[760px]:text-[17px]" id="details-title">{task.name}</h2>
+          <div className="flex flex-wrap items-center gap-1.5">
             <Badge tone={statusTone[status]}>{statusLabels[status] ?? status}</Badge>
-            <span className={`priority priority-${priority.tone}`} title={priority.text}>{priority.text}</span>
-            {taskData.area ? <FilterLink param="area" value={taskData.area} projectId={projectId} className={`chip chip-area chip-area-${taskData.area} entity-chip`} title={`Filtrar pela área ${areaLabel(taskData.area)}`}>{areaLabel(taskData.area)}</FilterLink> : <span className="chip chip-area chip-area-none">{areaLabel(taskData.area)}</span>}
-            {taskData.type && <FilterLink param="type" value={taskData.type} projectId={projectId} className="chip chip-type entity-chip" title={`Filtrar pelo tipo ${typeLabel(taskData.type)}`}>{typeLabel(taskData.type)}</FilterLink>}
-            {currentFeature?.name && <FeatureLink featureId={currentFeature._id} projectId={projectId} className="chip chip-feature entity-chip" title={`Ver todas as tarefas da feature “${currentFeature.name}”`}><IconFeature size={11} /><span>{currentFeature.name}</span></FeatureLink>}
-            <button type="button" className="id-chip" title={`Copiar ID completo: ${task._id}`} aria-label={`Copiar ID da tarefa ${task._id}`} onClick={() => void copyText(task._id, 'ID da tarefa copiado.')}><code>{shortId(task._id)}</code><IconCopy size={11} /></button>
-            <button type="button" className="id-chip" title="Copiar link direto para esta tarefa" onClick={() => void copyText(window.location.origin + taskPageUrl(projectId, task._id), 'Link da tarefa copiado.')}>Copiar link</button>
-            {taskData.version !== undefined && <span className="id-chip version-chip" title="Versão atual da tarefa">v{taskData.version}</span>}
+            <span className={`inline-flex items-center rounded-ui-sm px-2 py-0.5 text-[10.5px] font-bold whitespace-nowrap ${priorityTone[priority.tone] ?? ''}`.trim()} title={priority.text}>{priority.text}</span>
+            {taskData.area ? <FilterLink param="area" value={taskData.area} projectId={projectId} className={`${chipLink} ${areaTone[taskData.area] ?? 'bg-tone-slate-bg text-tone-slate'}`} title={`Filtrar pela área ${areaLabel(taskData.area)}`}>{areaLabel(taskData.area)}</FilterLink> : <span className="inline-flex max-w-full items-center gap-1 rounded-ui-sm bg-tone-slate-bg px-2 py-0.5 text-[10.5px] leading-normal font-semibold whitespace-nowrap text-tone-slate">{areaLabel(taskData.area)}</span>}
+            {taskData.type && <FilterLink param="type" value={taskData.type} projectId={projectId} className={`${chipLink} bg-[#f4effc] text-[#603d99]`} title={`Filtrar pelo tipo ${typeLabel(taskData.type)}`}>{typeLabel(taskData.type)}</FilterLink>}
+            {currentFeature?.name && <FeatureLink featureId={currentFeature._id} projectId={projectId} className="inline-flex max-w-[240px] cursor-pointer items-center gap-1 rounded-ui-sm border border-line-strong bg-white px-2 py-0.5 text-[10.5px] leading-normal font-semibold whitespace-nowrap text-ink-2 no-underline hover:border-focus hover:bg-tone-blue-bg hover:text-tone-blue" title={`Ver todas as tarefas da feature “${currentFeature.name}”`}><IconFeature size={11} /><span className="overflow-hidden text-ellipsis">{currentFeature.name}</span></FeatureLink>}
+            <button type="button" className={idChip} title={`Copiar ID completo: ${task._id}`} aria-label={`Copiar ID da tarefa ${task._id}`} onClick={() => void copyText(task._id, 'ID da tarefa copiado.')}><code className="font-code text-[10px] leading-[normal] font-semibold">{shortId(task._id)}</code><IconCopy size={11} /></button>
+            <button type="button" className={idChip} title="Copiar link direto para esta tarefa" onClick={() => void copyText(window.location.origin + taskPageUrl(projectId, task._id), 'Link da tarefa copiado.')}>Copiar link</button>
+            {taskData.version !== undefined && <span className={idChip} title="Versão atual da tarefa">v{taskData.version}</span>}
           </div>
         </div>
-        {isDrawer && <div className="task-header-actions">
-          {onOpenPage && <button type="button" className="button secondary small-button" onClick={onOpenPage}>Abrir página</button>}
-          <button type="button" className="icon-button drawer-close" onClick={close} aria-label="Fechar detalhes (Esc)" title="Fechar (Esc)"><IconClose size={18} /></button>
+        {isDrawer && <div className="flex flex-none items-center gap-2">
+          {onOpenPage && <button type="button" className={buttonSecondarySmall} onClick={onOpenPage}>Abrir página</button>}
+          <button type="button" className={iconButton} onClick={close} aria-label="Fechar detalhes (Esc)" title="Fechar (Esc)"><IconClose size={18} /></button>
         </div>}
       </header>
 
-      <div className="drawer-actionbar" role="toolbar" aria-label="Ações da tarefa">
+      <div className={'flex flex-wrap items-center gap-2 border-b border-line bg-[#fbfcff] px-6 py-3 max-[760px]:px-4 max-[760px]:py-2' + fixed} role="toolbar" aria-label="Ações da tarefa">
         {status === 'em_revisao' && <>
-          <button type="button" className="button primary" disabled={!onReview} aria-pressed={review === 'approve'} onClick={() => startReview('approve')}><IconCheck size={13} /> Aprovar e concluir</button>
-          <button type="button" className="button secondary" disabled={!onReview} aria-pressed={review === 'return'} onClick={() => startReview('return')}>Devolver para ajustes</button>
+          <button type="button" className={actionPrimary} disabled={!onReview} aria-pressed={review === 'approve'} onClick={() => startReview('approve')}><IconCheck size={13} /> Aprovar e concluir</button>
+          <button type="button" className={actionSecondary} disabled={!onReview} aria-pressed={review === 'return'} onClick={() => startReview('return')}>Devolver para ajustes</button>
         </>}
-        {status === 'concluida' && <button type="button" className={taskData.checked ? 'button secondary' : 'button primary'} disabled={checking} aria-pressed={Boolean(taskData.checked)} onClick={() => onToggleChecked(taskData as Task)}>{checking ? 'Salvando…' : taskData.checked ? 'Desfazer conferência' : 'Marcar como conferida'}</button>}
-        {status === 'bloqueada' && <button type="button" className="button primary" disabled={!onReview} aria-pressed={review === 'unblock'} onClick={() => startReview('unblock')}>Desbloquear</button>}
-        <span className="actionbar-spacer" />
-        <button type="button" className="button secondary" disabled={openConversation.isPending} onClick={() => openConversation.mutate()}>{openConversation.isPending ? 'Abrindo…' : 'Abrir conversa'}</button>
-        <button type="button" className="button secondary" disabled={features.isPending} onClick={() => setEditing(true)}>Editar</button>
-        <DropdownMenu ariaLabel="Mais ações da tarefa" triggerClassName="button secondary" items={[
+        {status === 'concluida' && <button type="button" className={taskData.checked ? actionSecondary : actionPrimary} disabled={checking} aria-pressed={Boolean(taskData.checked)} onClick={() => onToggleChecked(taskData as Task)}>{checking ? 'Salvando…' : taskData.checked ? 'Desfazer conferência' : 'Marcar como conferida'}</button>}
+        {status === 'bloqueada' && <button type="button" className={actionPrimary} disabled={!onReview} aria-pressed={review === 'unblock'} onClick={() => startReview('unblock')}>Desbloquear</button>}
+        <span className="flex-auto max-[760px]:hidden" />
+        <button type="button" className={actionSecondary} disabled={openConversation.isPending} onClick={() => openConversation.mutate()}>{openConversation.isPending ? 'Abrindo…' : 'Abrir conversa'}</button>
+        <button type="button" className={actionSecondary} disabled={features.isPending} onClick={() => setEditing(true)}>Editar</button>
+        <DropdownMenu ariaLabel="Mais ações da tarefa" triggerClassName={actionSecondary} items={[
           { id: 'transfer', label: 'Transferir tarefa' },
           ...(onChangeStatus ? [{ id: 'status', label: 'Alterar status…' }] : []),
           { id: 'assign', label: 'Atribuir responsável…' },
@@ -355,78 +380,78 @@ export function TaskDetailsContent({ variant, token, nonce, projectId, project, 
           else setSpecial(id as 'full' | 'json');
         }}><IconMore size={14} /> Mais</DropdownMenu>
       </div>
-      {status === 'concluida' && taskData.checked && <p className="drawer-notice ok"><IconCheck size={12} /> Conferida por {taskData.checkedBy || 'usuário'} · {formatDate(taskData.checkedAt)}</p>}
-      {openConversation.isError && <div className="drawer-notice"><ErrorNotice error={openConversation.error} onRetry={() => openConversation.mutate()} title="Não foi possível abrir a conversa" /></div>}
+      {status === 'concluida' && taskData.checked && <p className={'flex items-center gap-1.5 border-b border-line bg-[#f4fbf7] px-6 py-2 text-ui-xs font-semibold text-tone-green' + fixed}><IconCheck size={12} /> Conferida por {taskData.checkedBy || 'usuário'} · {formatDate(taskData.checkedAt)}</p>}
+      {openConversation.isError && <div className={'border-b border-line px-6 py-2 text-ui-xs' + fixed}><ErrorNotice error={openConversation.error} onRetry={() => openConversation.mutate()} title="Não foi possível abrir a conversa" /></div>}
 
-      {review && copy && <form className="review-panel" onSubmit={event => void submitReview(event)} aria-label={copy.title}>
-        <h3>{copy.title}</h3>
-        <ul className="review-checklist">
-          <li className={completedCriteria === acceptance.length && acceptance.length > 0 ? 'ok' : 'warn'}>{completedCriteria === acceptance.length && acceptance.length > 0 ? <IconCheck size={12} /> : <IconAlert size={12} />}{acceptance.length ? `${completedCriteria} de ${acceptance.length} critérios atendidos` : 'Nenhum critério de aceite cadastrado'}</li>
-          <li className={diffCount ? 'ok' : 'warn'}>{diffCount ? <IconCheck size={12} /> : <IconAlert size={12} />}{diffCount ? `${plural(diffCount, 'diff Git publicado', 'diffs Git publicados')}` : 'Nenhum diff Git publicado'}</li>
+      {review && copy && <form className={'grid gap-3 border-b border-line bg-[#fffdf6] px-6 py-4 max-[760px]:px-4 max-[760px]:py-3' + fixed} onSubmit={event => void submitReview(event)} aria-label={copy.title}>
+        <h3 className="font-display text-ui-md leading-[normal] font-bold text-ink">{copy.title}</h3>
+        <ul className="grid gap-1 text-ui-xs">
+          <li className={completedCriteria === acceptance.length && acceptance.length > 0 ? checkOk : checkWarn}>{completedCriteria === acceptance.length && acceptance.length > 0 ? <IconCheck size={12} /> : <IconAlert size={12} />}{acceptance.length ? `${completedCriteria} de ${acceptance.length} critérios atendidos` : 'Nenhum critério de aceite cadastrado'}</li>
+          <li className={diffCount ? checkOk : checkWarn}>{diffCount ? <IconCheck size={12} /> : <IconAlert size={12} />}{diffCount ? `${plural(diffCount, 'diff Git publicado', 'diffs Git publicados')}` : 'Nenhum diff Git publicado'}</li>
         </ul>
-        <label>{copy.reasonLabel}<textarea rows={3} value={reviewReason} onChange={event => setReviewReason(event.target.value)} required={copy.required} autoFocus aria-describedby="review-hint" /></label>
-        <small id="review-hint">{copy.hint}</small>
-        <div className="button-row end-row"><button type="button" className="button ghost" onClick={() => setReview(null)} disabled={reviewBusy}>Cancelar</button><button className={`button ${copy.tone}`} disabled={reviewBusy || (copy.required && !reviewReason.trim())}>{reviewBusy ? 'Salvando…' : copy.confirm}</button></div>
+        <label className="grid gap-[5px] text-ui-xs font-bold text-ink-2">{copy.reasonLabel}<textarea className="w-full resize-y rounded-ui-sm border border-line-strong px-2.5 py-2 text-ui-sm" rows={3} value={reviewReason} onChange={event => setReviewReason(event.target.value)} required={copy.required} autoFocus aria-describedby="review-hint" /></label>
+        <small className="text-ui-xs text-muted-strong" id="review-hint">{copy.hint}</small>
+        <div className="mt-1 flex items-center justify-end gap-2"><button type="button" className={buttonGhost} onClick={() => setReview(null)} disabled={reviewBusy}>Cancelar</button><button className={copy.tone} disabled={reviewBusy || (copy.required && !reviewReason.trim())}>{reviewBusy ? 'Salvando…' : copy.confirm}</button></div>
       </form>}
 
-      {context.isPending ? <div className="drawer-body"><Skeleton rows={6} label="Carregando contexto da tarefa…" /></div> : context.isError ? <div className="drawer-body"><ErrorNotice error={context.error} onRetry={() => void context.refetch()} retrying={context.isFetching} title="Não foi possível carregar a tarefa" /></div> : <div className={'task-shell task-shell-' + variant}>
+      {context.isPending ? <div className={`${drawerBody} overflow-y-auto`}><Skeleton rows={6} label="Carregando contexto da tarefa…" /></div> : context.isError ? <div className={`${drawerBody} overflow-y-auto`}><ErrorNotice error={context.error} onRetry={() => void context.refetch()} retrying={context.isFetching} title="Não foi possível carregar a tarefa" /></div> : <div className={isDrawer ? 'flex min-h-0 flex-[1_1_0] flex-col' : 'grid min-h-[420px] grid-cols-[220px_minmax(0,1fr)] items-start max-[960px]:grid-cols-[minmax(0,1fr)]'}>
         <TaskSectionRail sections={tabs} active={special ? null : tab} orientation={isDrawer ? 'horizontal' : 'vertical'} onSelect={id => { setTab(id); setSpecial(null); }} footer={railFooter} />
-        <div className="drawer-body task-panel" id="task-tabpanel" role="tabpanel" aria-labelledby={special ? undefined : `task-tab-${tab}`} aria-label={special ? (special === 'json' ? 'JSON da tarefa' : 'Resumo completo da tarefa') : undefined}>
-          {special && <button type="button" className="text-button back-link" onClick={() => setSpecial(null)}>← Voltar aos detalhes</button>}
-          {special === 'json' ? <pre className="markdown-content json-content">{JSON.stringify(context.data, null, 2)}</pre>
+        <div className={`${drawerBody} ${isDrawer ? 'overflow-x-hidden overflow-y-auto' : 'overflow-visible'}`} id="task-tabpanel" role="tabpanel" aria-labelledby={special ? undefined : `task-tab-${tab}`} aria-label={special ? (special === 'json' ? 'JSON da tarefa' : 'Resumo completo da tarefa') : undefined}>
+          {special && <button type="button" className={`${textButton} justify-self-start`} onClick={() => setSpecial(null)}>← Voltar aos detalhes</button>}
+          {special === 'json' ? <pre className="mt-2 max-h-[300px] overflow-auto rounded-[8px] border border-[#edf0f4] bg-[#fafbfc] p-3 font-[ui-monospace,monospace] text-[10px] leading-[1.65] wrap-anywhere whitespace-pre-wrap text-[#526075]">{JSON.stringify(context.data, null, 2)}</pre>
             : special === 'full' ? <TaskSummaryPanel token={token} nonce={nonce} projectId={projectId} taskId={task._id} onOpenConversation={onOpenConversation} />
               : tab === 'summary' ? <>
-                {status === 'bloqueada' && <section className="blocked-reason-panel" aria-labelledby="blocked-reason-title"><h3 id="blocked-reason-title">Motivo do bloqueio</h3>{blockingReasons.length ? <ul>{blockingReasons.map((reason, index) => <li key={index}><MarkdownView content={reason} /></li>)}</ul> : <p>Não há um motivo registrado para este bloqueio.</p>}</section>}
-                <div className="task-overview-cards">
-                  <section className="task-progress-card" aria-label="Progresso dos critérios">
-                    <span className="chain-label">Critérios de aceite</span>
+                {status === 'bloqueada' && <section className="rounded-[9px] border border-[#efc9c9] bg-[#fff8f7] px-[15px] py-[13px] text-[#813840] max-[760px]:mx-4 [&_p]:text-ui-xs [&_p]:leading-[1.6]" aria-labelledby="blocked-reason-title"><h3 className="mb-2 text-ui-sm font-extrabold text-[#813840]" id="blocked-reason-title">Motivo do bloqueio</h3>{blockingReasons.length ? <ul className="grid gap-[7px] pl-[19px] text-ui-xs leading-[1.6] wrap-anywhere">{blockingReasons.map((reason, index) => <li key={index}><MarkdownView content={reason} /></li>)}</ul> : <p>Não há um motivo registrado para este bloqueio.</p>}</section>}
+                <div className="grid grid-cols-2 gap-3 max-[960px]:grid-cols-[minmax(0,1fr)]">
+                  <section className="grid min-w-0 content-start gap-2 rounded-ui-md border border-line bg-canvas px-4 py-3 [&_strong]:text-ui-md! [&_strong]:text-ink!" aria-label="Progresso dos critérios">
+                    <span className={chainLabel}>Critérios de aceite</span>
                     {acceptance.length ? <>
                       <strong>{completedCriteria} de {acceptance.length} atendidos</strong>
-                      <div className="criteria-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progressPercent} aria-label="Progresso dos critérios"><span style={{ width: `${progressPercent}%` }} /></div>
-                      <button type="button" className="text-button" onClick={() => setTab('criteria')}>Ver evidências e marcar →</button>
-                    </> : <p className="empty-inline">Nenhum critério de aceite cadastrado.</p>}
+                      <div className="h-2 overflow-hidden rounded-[999px] bg-[#e3e7ef]" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progressPercent} aria-label="Progresso dos critérios"><span className="block h-full rounded-[inherit] bg-[#1f9d5b] transition-[width] duration-200 ease-[ease]" style={{ width: `${progressPercent}%` }} /></div>
+                      <button type="button" className={`${textButton} justify-self-start`} onClick={() => setTab('criteria')}>Ver evidências e marcar →</button>
+                    </> : <p className={emptyInline}>Nenhum critério de aceite cadastrado.</p>}
                   </section>
-                  <section className="task-progress-card" aria-label="Próximo passo">
-                    <span className="chain-label">Próximo passo</span>
-                    {nextPending >= 0 ? <MarkdownView content={acceptance[nextPending]} /> : <p className="task-card-note">{acceptance.length ? 'Todos os critérios foram atendidos.' : 'Cadastre critérios de aceite para acompanhar o andamento.'}</p>}
+                  <section className="grid min-w-0 content-start gap-2 rounded-ui-md border border-line bg-canvas px-4 py-3 [&_strong]:text-ui-md! [&_strong]:text-ink!" aria-label="Próximo passo">
+                    <span className={chainLabel}>Próximo passo</span>
+                    {nextPending >= 0 ? <MarkdownView content={acceptance[nextPending]} /> : <p className="text-ui-sm text-muted-strong">{acceptance.length ? 'Todos os critérios foram atendidos.' : 'Cadastre critérios de aceite para acompanhar o andamento.'}</p>}
                   </section>
                 </div>
-                <section className="drawer-section task-description-section"><h3>Descrição</h3>{taskData.description || taskData.instructions ? <MarkdownView content={taskData.description || taskData.instructions} variant="description" /> : <p className="empty-inline">Sem descrição cadastrada.</p>}</section>
-                <section className="drawer-section" aria-label="Dados da tarefa"><h3>Dados</h3><dl className="facts-grid">
-                  <div className="fact-assignee"><dt>Responsável</dt><dd>{assigning ? <form className="assign-form" onSubmit={event => { event.preventDefault(); if (assignee.trim()) assign.mutate(assignee.trim()); }}><AssigneePicker assignees={assignees.data ?? []} isPending={assignees.isPending} isError={assignees.isError} defaultValue={taskData.responsible} allowEmpty={!taskData.responsible} label="Atribuir a" onChange={setAssignee} />{assign.isError && <p className="field-error" role="alert">{errorMessage(assign.error)}</p>}<div className="button-row"><button className="button primary small-button" disabled={assign.isPending || !assignee.trim() || assignee.trim() === (taskData.responsible ?? '')}>{assign.isPending ? 'Salvando…' : 'Atribuir'}</button><button type="button" className="button ghost small-button" disabled={assign.isPending} onClick={() => { setAssigning(false); assign.reset(); }}>Cancelar</button></div></form> : <span className="assignee-line"><Person identity={taskData.responsible} /><button type="button" className="text-button" onClick={() => { setAssignee(taskData.responsible ?? ''); setAssigning(true); }}>{taskData.responsible ? 'Alterar' : 'Atribuir'}</button></span>}</dd></div>
-                  <div><dt>Atualizada</dt><dd title={formatDate(taskData.updatedAt)}>{relativeTime(taskData.updatedAt, now)}</dd></div>
-                  <div><dt>Criada</dt><dd>{formatDate(taskData.createdAt)}</dd></div>
-                  <div><dt>Prazo da execução</dt><dd>{taskData.leaseUntil ? formatDate(taskData.leaseUntil) : '—'}</dd></div>
-                  <div><dt>Repositório</dt><dd>{repository?.name ?? '—'}</dd></div>
-                  <div><dt>Feature</dt><dd>{currentFeature ? <FeatureLink featureId={currentFeature._id} projectId={projectId}>{currentFeature.name}</FeatureLink> : 'Sem feature'}</dd></div>
+                <section className={drawerSectionMarkdown}><h3>Descrição</h3>{taskData.description || taskData.instructions ? <MarkdownView content={taskData.description || taskData.instructions} variant="description" /> : <p className={emptyInline}>Sem descrição cadastrada.</p>}</section>
+                <section className={drawerSection} aria-label="Dados da tarefa"><h3 className={sectionTitle}>Dados</h3><dl className="grid grid-cols-3 gap-2 max-[760px]:grid-cols-2 max-[420px]:grid-cols-[minmax(0,1fr)]">
+                  <div className={factCard + ' col-span-2 max-[760px]:col-auto'}><dt className={factTerm}>Responsável</dt><dd className={factValue}>{assigning ? <form className="grid gap-2 font-normal" onSubmit={event => { event.preventDefault(); if (assignee.trim()) assign.mutate(assignee.trim()); }}><AssigneePicker assignees={assignees.data ?? []} isPending={assignees.isPending} isError={assignees.isError} defaultValue={taskData.responsible} allowEmpty={!taskData.responsible} label="Atribuir a" onChange={setAssignee} />{assign.isError && <p className="mt-1 text-ui-xs font-semibold text-tone-red" role="alert">{errorMessage(assign.error)}</p>}<div className="flex items-center gap-2"><button className={smallPrimary} disabled={assign.isPending || !assignee.trim() || assignee.trim() === (taskData.responsible ?? '')}>{assign.isPending ? 'Salvando…' : 'Atribuir'}</button><button type="button" className={smallGhost} disabled={assign.isPending} onClick={() => { setAssigning(false); assign.reset(); }}>Cancelar</button></div></form> : <span className="flex items-center justify-between gap-2"><Person identity={taskData.responsible} /><button type="button" className={textButton} onClick={() => { setAssignee(taskData.responsible ?? ''); setAssigning(true); }}>{taskData.responsible ? 'Alterar' : 'Atribuir'}</button></span>}</dd></div>
+                  <div className={factCard}><dt className={factTerm}>Atualizada</dt><dd className={factValue} title={formatDate(taskData.updatedAt)}>{relativeTime(taskData.updatedAt, now)}</dd></div>
+                  <div className={factCard}><dt className={factTerm}>Criada</dt><dd className={factValue}>{formatDate(taskData.createdAt)}</dd></div>
+                  <div className={factCard}><dt className={factTerm}>Prazo da execução</dt><dd className={factValue}>{taskData.leaseUntil ? formatDate(taskData.leaseUntil) : '—'}</dd></div>
+                  <div className={factCard}><dt className={factTerm}>Repositório</dt><dd className={factValue}>{repository?.name ?? '—'}</dd></div>
+                  <div className={factCard}><dt className={factTerm}>Feature</dt><dd className={factValue}>{currentFeature ? <FeatureLink featureId={currentFeature._id} projectId={projectId}>{currentFeature.name}</FeatureLink> : 'Sem feature'}</dd></div>
                 </dl></section>
                 <TaskChainList projectId={projectId} dependencies={dependencies} dependents={dependents} />
-                <section className="drawer-section" aria-labelledby="task-status-history-title"><h3 id="task-status-history-title">Linha do tempo de status</h3><TaskTimeline history={statusHistory} events={taskActivity.data?.items ?? []} now={now} truncated={context.data?.contextMeta?.truncatedFields?.includes('task.statusHistory')} /></section>
+                <section className={drawerSection} aria-labelledby="task-status-history-title"><h3 className={sectionTitle} id="task-status-history-title">Linha do tempo de status</h3><TaskTimeline history={statusHistory} events={taskActivity.data?.items ?? []} now={now} truncated={context.data?.contextMeta?.truncatedFields?.includes('task.statusHistory')} /></section>
               </>
                 : tab === 'criteria' ? <TaskCriteriaPanel acceptance={acceptance} progress={acceptanceProgress} evidence={taskData.acceptanceEvidence ?? []} savingIndex={savingCriterion} feedback={criterionFeedback} onUpdate={(index, complete, evidence) => void updateCriterion(index, complete, evidence)} />
-                  : tab === 'planning' ? <section className="drawer-section" aria-label="Planejamento Markdown">
-                    {markdown ? <><div className="section-heading"><h3>{markdown.name}</h3><div className="button-row"><button type="button" className="text-button" onClick={() => void copyText(markdown.content, 'Markdown copiado.')}>Copiar</button><button type="button" className="text-button" onClick={() => setMarkdown(null)}>← Voltar à lista</button></div></div><div className="markdown-document-view"><MarkdownView content={markdown.content} variant="document" /></div></>
-                      : markdowns.isPending ? <Skeleton rows={3} label="Carregando documentos…" /> : markdowns.isError ? <ErrorNotice error={markdowns.error} onRetry={() => void markdowns.refetch()} /> : markdowns.data?.items?.length ? <div className="resource-list">{markdowns.data.items.map(item => <button type="button" className="resource-row" key={item._id} onClick={() => void openMarkdown(item)}><span><strong>{item.name}</strong><small>{item.summary}</small></span><Badge>rev. {item.revision}</Badge></button>)}</div> : <p className="empty-inline">Nenhum documento de planejamento vinculado.</p>}
+                  : tab === 'planning' ? <section className={drawerSectionMarkdown} aria-label="Planejamento Markdown">
+                    {markdown ? <><div className="mb-[11px] flex items-center justify-between gap-[14px]"><h3>{markdown.name}</h3><div className="flex items-center gap-2"><button type="button" className={`${textButton} flex-none`} onClick={() => void copyText(markdown.content, 'Markdown copiado.')}>Copiar</button><button type="button" className={`${textButton} flex-none`} onClick={() => setMarkdown(null)}>← Voltar à lista</button></div></div><div className="mt-2 overflow-auto rounded-[8px] border border-[#edf0f4] bg-[#fafbfc] p-3"><MarkdownView content={markdown.content} variant="document" /></div></>
+                      : markdowns.isPending ? <Skeleton rows={3} label="Carregando documentos…" /> : markdowns.isError ? <ErrorNotice error={markdowns.error} onRetry={() => void markdowns.refetch()} /> : markdowns.data?.items?.length ? <div className="grid gap-[3px]">{markdowns.data.items.map(item => <button type="button" className="flex w-full items-center justify-between gap-3 rounded-[8px] border border-[#edf0f4] bg-white p-2.5 text-left hover:border-[#d9def9] hover:bg-[#fafaff]" key={item._id} onClick={() => void openMarkdown(item)}><span className="grid min-w-0 gap-1"><strong className="overflow-hidden text-[10px] text-ellipsis whitespace-nowrap text-[#414c5e]">{item.name}</strong><small className="overflow-hidden text-[9px] text-ellipsis whitespace-nowrap text-[#909aaa]">{item.summary}</small></span><Badge>rev. {item.revision}</Badge></button>)}</div> : <p className={emptyInline}>Nenhum documento de planejamento vinculado.</p>}
                   </section>
-                    : tab === 'diffs' ? <section className="drawer-section" aria-label="Diffs publicados"><TaskDiffsPanel token={token} nonce={nonce} projectId={projectId} taskId={task._id} items={diffs.data?.items ?? []} isPending={diffs.isPending} isError={diffs.isError} error={diffs.error} onRetry={() => void diffs.refetch()} /></section>
+                    : tab === 'diffs' ? <section className={drawerSection} aria-label="Diffs publicados"><TaskDiffsPanel token={token} nonce={nonce} projectId={projectId} taskId={task._id} items={diffs.data?.items ?? []} isPending={diffs.isPending} isError={diffs.isError} error={diffs.error} onRetry={() => void diffs.refetch()} /></section>
                       : tab === 'activity' ? <TaskActivityPanel events={taskActivity.data?.items ?? []} isPending={taskActivity.isPending} isError={taskActivity.isError} error={taskActivity.error} onRetry={() => void taskActivity.refetch()} executions={contextExecutions} now={now} />
                         : tab === 'attachments' ? <TaskAttachmentsPanel token={token} nonce={nonce} projectId={projectId} taskId={task._id} />
-                          : <section className="drawer-section" aria-label="Conversa da tarefa">
-                          <div className="drawer-section-head"><h3>Colaboração da tarefa</h3><button type="button" className="button secondary small-button" disabled={openConversation.isPending} onClick={() => openConversation.mutate()}>{openConversation.isPending ? 'Abrindo…' : 'Abrir conversa completa'}</button></div>
-                          <div className="chain-group"><span className="chain-label">Conversas vinculadas</span>{linkedConversations.isPending ? <Skeleton rows={1} label="Carregando conversas…" /> : linkedConversations.isError ? <ErrorNotice error={linkedConversations.error} onRetry={() => void linkedConversations.refetch()} /> : linkedConversations.data?.linkedConversations?.length ? <ul className="chain-list">{linkedConversations.data.linkedConversations.map(item => <li key={item.conversationId}><ConversationLink conversationId={item.conversationId} projectId={projectId}>{item.title || 'Conversa sem título'}</ConversationLink><small>{plural(item.messageCount, 'mensagem', 'mensagens')}{item.lastActivityAt ? ' · ' + relativeTime(item.lastActivityAt, now) : ''}</small></li>)}</ul> : <p className="empty-inline">Nenhuma conversa vinculada ainda.</p>}</div>
-                          {messages.length ? <ul className="activity-list">{messages.slice(0, 10).map(message => <li key={message._id}><div className="activity-row-body"><div className="activity-row-head message-head"><Badge tone={message.type === 'resposta' ? 'green' : message.type === 'pergunta' ? 'blue' : message.type === 'bloqueio' ? 'red' : 'muted'}>{message.type === 'resposta' ? 'Resposta' : message.type === 'pergunta' ? 'Pergunta' : message.type === 'bloqueio' ? 'Bloqueio' : message.type || 'Atualização'}</Badge><TaskMessageAuthor message={{ ...message, authorType: message.authorType === 'agent' || message.authorType === 'human' ? message.authorType : 'unknown', clientName: message.clientName ?? null }} /><time dateTime={message.createdAt} title={formatDate(message.createdAt)}>{relativeTime(message.createdAt, now)}</time></div><MarkdownView content={message.message} /></div></li>)}</ul> : <p className="empty-inline">Nenhuma mensagem de colaboração. Use “Abrir conversa completa” para falar com a IA sobre esta tarefa.</p>}
+                          : <section className={drawerSectionMarkdown} aria-label="Conversa da tarefa">
+                          <div className="flex flex-wrap items-center justify-between gap-3"><h3>Colaboração da tarefa</h3><button type="button" className={buttonSecondarySmall} disabled={openConversation.isPending} onClick={() => openConversation.mutate()}>{openConversation.isPending ? 'Abrindo…' : 'Abrir conversa completa'}</button></div>
+                          <div className="grid gap-1.5"><span className={chainLabel}>Conversas vinculadas</span>{linkedConversations.isPending ? <Skeleton rows={1} label="Carregando conversas…" /> : linkedConversations.isError ? <ErrorNotice error={linkedConversations.error} onRetry={() => void linkedConversations.refetch()} /> : linkedConversations.data?.linkedConversations?.length ? <ul className="grid gap-1.5">{linkedConversations.data.linkedConversations.map(item => <li className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-ui-sm border border-line bg-[#fbfcfe] px-2.5 py-2 text-ui-sm" key={item.conversationId}><ConversationLink conversationId={item.conversationId} projectId={projectId}>{item.title || 'Conversa sem título'}</ConversationLink><small className="text-ui-xs text-muted-strong">{plural(item.messageCount, 'mensagem', 'mensagens')}{item.lastActivityAt ? ' · ' + relativeTime(item.lastActivityAt, now) : ''}</small></li>)}</ul> : <p className={emptyInline}>Nenhuma conversa vinculada ainda.</p>}</div>
+                          {messages.length ? <ul className="grid gap-3 [&_p]:text-ui-sm [&_p]:leading-normal [&_p]:text-ink-2">{messages.slice(0, 10).map(message => <li className="flex items-start gap-2.5 border-b border-[#eef0f5] pb-3 last:border-b-0" key={message._id}><div className="grid min-w-0 flex-1 gap-1"><div className="flex flex-wrap items-start gap-x-2.5 gap-y-1 text-ui-xs text-muted-strong [&>div]:min-w-0 [&>div]:flex-1 [&_small]:text-ui-xs [&_strong]:text-ui-sm [&_strong]:text-ink"><Badge tone={message.type === 'resposta' ? 'green' : message.type === 'pergunta' ? 'blue' : message.type === 'bloqueio' ? 'red' : 'muted'}>{message.type === 'resposta' ? 'Resposta' : message.type === 'pergunta' ? 'Pergunta' : message.type === 'bloqueio' ? 'Bloqueio' : message.type || 'Atualização'}</Badge><TaskMessageAuthor message={{ ...message, authorType: message.authorType === 'agent' || message.authorType === 'human' ? message.authorType : 'unknown', clientName: message.clientName ?? null }} variant="head" /><time className="ml-auto whitespace-nowrap" dateTime={message.createdAt} title={formatDate(message.createdAt)}>{relativeTime(message.createdAt, now)}</time></div><MarkdownView content={message.message} /></div></li>)}</ul> : <p className={emptyInline}>Nenhuma mensagem de colaboração. Use “Abrir conversa completa” para falar com a IA sobre esta tarefa.</p>}
                         </section>}
         </div>
       </div>}
-      <div className="drawer-notices" aria-live="polite">
-        {markRead.isPending && <p className="notice" role="status">Marcando atividades como lidas…</p>}
-        {markRead.isError && <div className="notice error" role="alert"><span>Não foi possível marcar as atividades como lidas: {errorMessage(markRead.error)}</span><button type="button" className="text-button" disabled={markRead.isPending} onClick={() => { const attempt = readAttempt.current; if (attempt?.taskId === task._id) markRead.mutate(attempt); }}>Tentar novamente</button></div>}
+      <div className={'grid gap-1.5 px-6 empty:hidden' + fixed} aria-live="polite">
+        {markRead.isPending && <p className={notice.info} role="status">Marcando atividades como lidas…</p>}
+        {markRead.isError && <div className={notice.error} role="alert"><span>Não foi possível marcar as atividades como lidas: {errorMessage(markRead.error)}</span><button type="button" className={textButton} disabled={markRead.isPending} onClick={() => { const attempt = readAttempt.current; if (attempt?.taskId === task._id) markRead.mutate(attempt); }}>Tentar novamente</button></div>}
       </div>
   </>;
 
-  if (!isDrawer) return <section className="task-details task-details-page" aria-labelledby="details-title">{details}{editorDialog}</section>;
-  return <div className="overlay drawer-overlay" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) close(); }}>
-    <section ref={dialogRef} tabIndex={-1} className="dialog detail-dialog task-drawer task-details" role="dialog" aria-modal="true" aria-labelledby="details-title">
+  if (!isDrawer) return <section className="overflow-hidden rounded-ui-md border border-line bg-surface" aria-labelledby="details-title">{details}{editorDialog}</section>;
+  return <div className="fixed inset-0 z-50 flex items-stretch justify-end overflow-hidden bg-slate-900/45 p-0 backdrop-blur-sm" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) close(); }}>
+    <section ref={dialogRef} tabIndex={-1} className="flex h-dvh w-[min(100%,900px)] flex-col overflow-hidden border-l border-line bg-white shadow-2xl animate-[drawer-in_.2s_ease-out] focus:outline-none max-[760px]:w-full" role="dialog" aria-modal="true" aria-labelledby="details-title">
       {details}
     </section>
     {editorDialog}

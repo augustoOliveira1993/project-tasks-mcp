@@ -34,13 +34,14 @@ test('página da tarefa mostra cabeçalho, trilho vertical com contadores e card
   const client = seeded();
   const html = renderToStaticMarkup(createElement(QueryClientProvider, { client }, createElement(TaskPage, { ...base, taskId: 'task-1' })));
   client.clear();
-  assert.match(html, /task-details-page/);
+  assert.match(html, /<section[^>]*aria-labelledby="details-title"/);
+  assert.doesNotMatch(html, /role="dialog"/);
   assert.match(html, /Voltar às tarefas/);
   assert.match(html, /Redesenhar detalhes/);
   assert.match(html, /aria-orientation="vertical"/);
   for (const tab of ['Visão geral', 'Critérios', 'Planejamento', 'Diffs', 'Atividade', 'Arquivos', 'Conversa']) assert.match(html, new RegExp('role="tab"[^>]*>' + tab));
-  assert.match(html, /role="tab"[^>]*>Arquivos<span class="tab-count">3<\/span>/);
-  assert.match(html, /role="tab"[^>]*>Atividade<span class="tab-count">\d+<\/span>/);
+  assert.match(html, /role="tab"[^>]*>Arquivos<span class="[^"]*">3<\/span>/);
+  assert.match(html, /role="tab"[^>]*>Atividade<span class="[^"]*">\d+<\/span>/);
   assert.match(html, /1 de 2 atendidos/);
   assert.match(html, /Segundo critério/);
   assert.match(html, /API pronta/);
@@ -60,7 +61,7 @@ test('drawer usa o mesmo conteúdo com trilho horizontal e atalho para a página
   const client = seeded();
   const html = renderToStaticMarkup(createElement(QueryClientProvider, { client }, createElement(TaskDetailsDialog, { ...base, task, onOpenPage() {} })));
   client.clear();
-  assert.match(html, /task-drawer/);
+  assert.match(html, /role="dialog"[^>]*aria-modal="true"/);
   assert.match(html, /aria-orientation="horizontal"/);
   assert.match(html, /Abrir página/);
   assert.match(html, /aria-label="Fechar detalhes \(Esc\)"/);

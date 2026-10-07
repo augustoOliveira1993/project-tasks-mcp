@@ -1091,7 +1091,7 @@ export class Service {
   }
   private async read(actor: Actor, name: string, a: any) {
     if (a.projectId) await this.access(actor, a.projectId);
-    else requireThat((name === 'list_records' && a.kind === 'project') || name === 'resolve_project_context' || name === 'get_global_activity', 'Project required', 400);
+    else requireThat((name === 'list_records' && a.kind === 'project') || name === 'resolve_project_context' || name === 'resolve_task_context' || name === 'get_global_activity', 'Project required', 400);
     if (name === 'preview_task_transfer') {
       const plan = await this.taskTransferPlan(actor, a);
       const { internal: _internal, ...preview } = plan;
@@ -1247,6 +1247,28 @@ export class Service {
       }
       if (kind === 'project') result.items = result.items.map(projectDto);
       return result;
+    }
+    if (name === 'resolve_task_context') {
+      if (actor.scope !== 'trusted_local' && actor.scope !== 'system') requireThat(await Credential.exists({ _id: actor.id, revoked: false, scope: actor.scope }), 'Credential revoked', 401);
+      const projectAccessFilter = actor.scope === 'trusted_local'
+        ? actor.projectToken ? { $or: [{ visibility: { $ne: 'private' } }, { accessTokenHash: hash(actor.projectToken) }] } : { visibility: { $ne: 'private' } }
+        : actor.systemAdmin ? {} : { [`members.${memberKey(actor.userId)}`]: { $exists: true } };
+      const projects = await Project.find({ ...projectAccessFilter, archived: false }).select('_id name').lean();
+      const projectIds = projects.map(project => project._id);
+      if (!projectIds.length) return { status: 'not_found' };
+      const escaped = a.taskReference.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const tasks = await Task.find({ _id: new RegExp(`^${escaped}`), projectId: { $in: projectIds }, archived: false }).select('_id projectId area name').limit(2).lean();
+      const projectsById = new Map(projects.map(project => [String(project._id), project]));
+      const matches = tasks.map(task => ({
+        taskId: task._id,
+        taskName: task.name,
+        projectId: task.projectId,
+        projectName: projectsById.get(String(task.projectId))?.name,
+        area: task.area
+      }));
+      if (!matches.length) return { status: 'not_found' };
+      if (matches.length > 1) return { status: 'ambiguous', matches };
+      return { status: 'matched', ...matches[0] };
     }
     if (name === 'resolve_project_context') {
       const accessFilter = actor.scope === 'trusted_local'

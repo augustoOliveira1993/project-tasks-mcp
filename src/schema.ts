@@ -43,6 +43,9 @@ export const tools = {
     remoteUrl: z.string().min(1).max(2048).optional().describe('Git remote URL reported by the current checkout.'),
     rootCommit: z.string().regex(/^[0-9a-f]{40}$/i).optional().describe('Root commit reported by the current checkout.')
   }).strict(),
+  resolve_task_context: z.object({
+    taskReference: z.string().trim().min(8).max(36).regex(/^[0-9a-f-]+$/i).refine(value => value.replaceAll('-', '').length >= 8, 'Task reference must contain at least eight hexadecimal characters').describe('Full task UUID or an ID prefix of at least eight hexadecimal characters.')
+  }).strict(),
   create_project: z.object({ ...op, data: projectData }).strict(),
   create_feature: z.object({ ...op, projectId: id, data: featureData }).strict(),
   create_task: z.object({ ...op, projectId: id, data: taskData }).strict(),

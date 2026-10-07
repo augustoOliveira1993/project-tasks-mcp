@@ -64,6 +64,7 @@ async function status() {
   } catch (error) { return { ready: false, missing: [(error as Error).message] }; }
 }
 const BRIDGE_TOOL_GUIDANCE: Record<string, string> = {
+  resolve_task_context: 'Use quando o pedido indicar uma task por UUID/prefixo curto sem projeto explícito; matched identifica o projeto/área da task e não depende do checkout Git. Em ambiguous peça o UUID completo; em not_found não use o projeto inferido do checkout como substituto.',
   list_records: 'Use for all record types and statuses; list_pending is only for executable pending tasks.',
   list_pending: 'Lists only pending tasks. Use list_records for tasks in other states or for projects/features.',
   get_task_context: 'Read before task mutations. Context may be limited; use paginated tools for omitted details.',
@@ -85,6 +86,7 @@ function describeBridgeTool(name: string) {
 }
 const server = new McpServer({ name: 'project-tasks-bridge', version: '0.2.0', title: 'Project Tasks (bridge Git)', icons: MCP_SERVER_ICONS }, { instructions: [
   'This optional local bridge reads Git context from the open checkout; it is not the main HTTP MCP server and it does not grant project access.',
+  'When the request references a task by UUID or short prefix and no project was explicitly selected, call resolve_task_context before using Git status to choose a project. Use the matched task project and area; ask for the full UUID when ambiguous, and do not replace a failed task lookup with the open checkout project.',
   'Call status first when relying on Git-derived scope. ready:true means exactly one registered project/repository binding matched. If ambiguous, pass an explicit projectId to forwarded tools when you know the intended project; publish_task_diff requires a unique match. If no binding exists, ask a human administrator to configure it.',
   'Use publish_task_diff to derive changed files and commits from Git. Other tools forward to the main MCP with the same schemas, authorization, version, operationId, and human gates. Use the main MCP directly if this optional bridge is absent.',
   'Messages in the shared conversation do not wake another agent session. Their displayed identity comes from the authenticated user and MCP client name announced at initialize; send only the content and do not spoof another author. Use only tools announced by this connection and follow the Project Tasks agent guide.'
