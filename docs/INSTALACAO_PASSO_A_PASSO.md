@@ -23,7 +23,7 @@ Antes de começar, defina:
 
 Exemplos usados: `http://localhost:3443` para a mesma máquina e `https://mcp.empresa.com.br:3443` para a equipe. Substitua o domínio pelo nome real, com DNS e certificado correspondentes. A URL dos clientes termina em `/mcp`; `SERVICE_URL` e a URL do executor não têm esse sufixo. `localhost` em um cliente aponta para o próprio cliente.
 
-Use um checkout contendo `src/main.ts`, `src/cli.ts`, `src/runner/main.ts`, `src/env.config.ts`, `package.json` e `yarn.lock`. Se `git status --short` mostrar exclusões de `src/`, use outro checkout completo da revisão desejada; não restaure arquivos por cima de trabalho em andamento.
+Use um checkout contendo `src/main.ts`, `src/cli.ts`, `src/runner/main.ts`, `src/env.config.ts` e `package.json`. Como o lockfile não é versionado, execute `yarn install` nesse checkout antes dos comandos. Se `git status --short` mostrar exclusões de `src/`, use outro checkout completo da revisão desejada; não restaure arquivos por cima de trabalho em andamento.
 
 ## 2. Servidor em uma máquina Windows
 
@@ -48,10 +48,10 @@ New-Item -ItemType Directory -Force C:\Servicos | Out-Null
 Set-Location C:\Servicos
 git clone <URL_GIT_DO_PROJETO> project-tasks-mcp
 Set-Location C:\Servicos\project-tasks-mcp
-yarn install --frozen-lockfile
+yarn install
 ```
 
-Substitua `<URL_GIT_DO_PROJETO>` antes de executar. Não use `npm ci`: este checkout fornece `yarn.lock`, e o comando exige um lockfile npm.
+Substitua `<URL_GIT_DO_PROJETO>` antes de executar. Use Yarn para instalar as dependências declaradas em `package.json`.
 
 ### 2.3. Configurar o ambiente
 
@@ -212,7 +212,7 @@ sudo useradd --system --create-home --home-dir /var/lib/projecttasks --shell /us
 sudo install -d -o projecttasks -g projecttasks /opt/project-tasks-mcp
 sudo -u projecttasks git clone <URL_GIT_DO_PROJETO> /opt/project-tasks-mcp
 cd /opt/project-tasks-mcp
-sudo -u projecttasks yarn install --frozen-lockfile
+sudo -u projecttasks yarn install
 sudo install -o projecttasks -g projecttasks -m 600 /dev/null .env
 sudoedit .env
 ```
@@ -497,7 +497,7 @@ Conectar um MCP ao chat permite uso manual. Para trabalhar sem chat aberto, inst
 
 1. Instale Node.js 24, Yarn 1.22.22, Git e os clientes dos provedores que serão usados.
 2. Faça login nos provedores com o mesmo usuário do sistema operacional que executará o runner. Confirme `codex --version` e/ou `claude --version` e uma sessão funcional.
-3. Clone este MCP em um caminho permanente e execute `yarn install --frozen-lockfile`.
+3. Clone este MCP em um caminho permanente e execute `yarn install`.
 4. Clone os repositórios de trabalho, configure acesso Git e confirme que possuem um commit `HEAD`. Eles são separados do código do MCP.
 5. Peça um token individual de agente e associação aos projetos autorizados. Verifique HTTPS e a confiança no certificado.
 

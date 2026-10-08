@@ -14,7 +14,7 @@ Duas instancias HTTP precisam de afinidade por `Mcp-Session-Id`. Se uma cair, re
 
 ## Configuracao local
 
-Instale dependencias com `yarn install --frozen-lockfile`. Use Codex CLI e Claude Code autenticados no perfil de cada operador. O SDK Claude esta fixado no lockfile. O servidor nunca recebe credenciais dos provedores.
+Instale dependencias com `yarn install`. Use Codex CLI e Claude Code autenticados no perfil de cada operador. A versao do SDK Claude esta declarada em `package.json`. O servidor nunca recebe credenciais dos provedores.
 
 Crie um JSON fora dos repositorios de trabalho, substituindo os UUIDs e caminhos:
 

@@ -13,7 +13,7 @@ MCP_AUTH_MODE=trusted_local
 ```
 
 ```powershell
-yarn install --frozen-lockfile
+yarn install
 yarn mongo:local
 # em outro terminal
 yarn start

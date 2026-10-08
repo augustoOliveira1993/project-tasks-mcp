@@ -116,7 +116,12 @@ function internalErrorDetails(error: unknown) {
 }
 
 export const mcpError = (error: unknown, reference?: string) => {
-  if (error instanceof ZodError) return JSON.stringify({ ...advice('INVALID_ARGUMENTS', 'Os argumentos não atendem ao schema da ferramenta.', true, 'Corrija campos, tipos, IDs e limites de acordo com o schema antes de tentar novamente.'), error: error.message });
+  if (error instanceof ZodError) {
+    if (error.issues.some(issue => issue.path.includes('executionId'))) {
+      return JSON.stringify({ ...advice('EXECUTION_ID_INVALID', 'O executionId enviado não está em formato UUID válido.', true, 'Não repita claim_task para uma tarefa ativa. Chame diagnose_task_execution com projectId/taskId, sem reportedExecutionId (ou informe o valor recebido). Se a execução estiver válida, use o executionId canônico retornado. Se o diagnóstico apontar vínculo inconsistente, chame recover_task_execution com a versão atual, operationId novo e motivo; para estado ambíguo, solicite intervenção de um administrador.'), error: error.message });
+    }
+    return JSON.stringify({ ...advice('INVALID_ARGUMENTS', 'Os argumentos não atendem ao schema da ferramenta.', true, 'Corrija campos, tipos, IDs e limites de acordo com o schema antes de tentar novamente.'), error: error.message });
+  }
   if (!(error instanceof DomainError)) {
     const internalAdvice = reference
       ? advice('INTERNAL_ERROR', 'A chamada falhou; a referência permite localizar o motivo técnico no log do servidor.', false, `Informe a referência ${reference} ao administrador; detalhes internos foram ocultados nesta resposta.`)

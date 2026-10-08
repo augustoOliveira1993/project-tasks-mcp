@@ -9,3 +9,4 @@ coverage/
 .local/
 certs/
 dist/
+yarn.lock

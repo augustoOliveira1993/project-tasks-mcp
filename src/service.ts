@@ -1197,9 +1197,11 @@ export class Service {
       const activeExecutions = executions.filter(item => item.status === 'em_execucao');
       const current = task.executionId ? executions.find(item => String(item._id) === String(task.executionId)) : undefined;
       const hasValidTaskId = !!task.executionId && idSchema.safeParse(String(task.executionId)).success;
-      const leaseActive = !!task.leaseUntil && task.leaseUntil > new Date();
+      const now = new Date();
+      const leaseActive = !!task.leaseUntil && task.leaseUntil > now;
+      const activeJobs = jobs.filter(item => item.reservationUntil != null && item.reservationUntil > now);
       let classification = 'not_running';
-      if (task.status === 'em_execucao' && (activeExecutions.length > 1 || jobs.filter(item => item.reservationUntil > new Date()).length > 1)) classification = 'ambiguous';
+      if (task.status === 'em_execucao' && (activeExecutions.length > 1 || activeJobs.length > 1)) classification = 'ambiguous';
       else if (task.status === 'em_execucao' && task.executionId && !hasValidTaskId) classification = 'invalid_persisted_id';
       else if (task.status === 'em_execucao' && current?.status === 'em_execucao' && hasValidTaskId) {
         classification = a.reportedExecutionId !== undefined && a.reportedExecutionId !== String(task.executionId) ? 'client_id_mismatch' : 'active_valid';
@@ -1217,7 +1219,7 @@ export class Service {
         executionStatus: current?.status ?? null, leaseActive,
         reportedIdMatches: a.reportedExecutionId === undefined ? null : a.reportedExecutionId === String(task.executionId),
         activeExecutionCount: activeExecutions.length,
-        activeRunnerCount: jobs.filter(item => item.reservationUntil > new Date()).length,
+        activeRunnerCount: activeJobs.length,
         nextAction
       };
     }

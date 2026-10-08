@@ -9,6 +9,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { connect, Project, Task, Event, Execution, Credential, TaskMessage, MarkdownDocument, MarkdownRevision, Conversation, ConversationMessage, ConversationRead, ConversationType, ActionProposal } from '../src/db.js';
 import { DomainError, Service, authenticate, bootstrap, recoverHumanToken, trustedLocal, type Actor } from '../src/service.js';
 import { createApp, mcpError } from '../src/http.js';
+import { tools } from '../src/schema.js';
 
 let repl: MongoMemoryReplSet;
 let service: Service;
@@ -438,6 +439,22 @@ test('cooperative task messages are durable, scoped and idempotent', async () =>
   await assert.rejects(service.call(other, 'list_task_messages', { projectId: p._id, taskId: front._id }), /access denied/);
 });
 test('MCP error catalog explains recovery paths without exposing internals', () => {
+  const invalidExecutionInput = tools.record_progress.safeParse({ operationId: op(), projectId: op(), taskId: op(), executionId: 'truncated-execution-id', version: 1, message: 'Progress' });
+  assert.equal(invalidExecutionInput.success, false);
+  if (!invalidExecutionInput.success) {
+    const invalidExecution = JSON.parse(mcpError(invalidExecutionInput.error));
+    assert.equal(invalidExecution.code, 'EXECUTION_ID_INVALID');
+    assert.match(invalidExecution.nextAction, /diagnose_task_execution/);
+    assert.match(invalidExecution.nextAction, /recover_task_execution/);
+    assert.match(invalidExecution.nextAction, /Não repita claim_task/);
+  }
+  const invalidOtherInput = tools.record_progress.safeParse({ operationId: op(), projectId: op(), taskId: op(), executionId: op(), version: 1, message: '' });
+  assert.equal(invalidOtherInput.success, false);
+  if (!invalidOtherInput.success) {
+    const invalidArguments = JSON.parse(mcpError(invalidOtherInput.error));
+    assert.equal(invalidArguments.code, 'INVALID_ARGUMENTS');
+    assert.match(invalidArguments.nextAction, /Corrija campos/);
+  }
   const conflict = JSON.parse(mcpError(new DomainError('Task missing or version conflict')));
   assert.equal(conflict.code, 'VERSION_CONFLICT');
   assert.match(conflict.nextAction, /version atual/);
