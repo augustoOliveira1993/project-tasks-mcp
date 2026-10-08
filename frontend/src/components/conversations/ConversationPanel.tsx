@@ -6,14 +6,13 @@ import { copyToClipboard } from '../../lib/clipboard';
 import { errorMessage, formatDate } from '../../lib/format';
 import { areaLabel, personInitials, plural, relativeTime } from '../../lib/labels';
 import { activityText, conversationPhase, stripTaskPrefix, suggestionsFor } from '../../lib/conversation-ui';
-import { routeUrl } from '../../route-state';
 import { statusLabels, statusTone } from '../../features/tasks/status';
 import { AgentClientIcon } from '../ui/AgentClientIcon';
 import { Badge } from '../ui/Badge';
 import { DropdownMenu } from '../ui/DropdownMenu';
 import { ErrorNotice } from '../ui/ErrorNotice';
 import { IconChevron, IconFeature, IconMore } from '../ui/icons';
-import { FeatureLink, FilterLink } from '../ui/Links';
+import { FeatureLink, FilterLink, TaskLink } from '../ui/Links';
 import { MarkdownView } from '../ui/MarkdownView';
 import { Skeleton } from '../ui/Skeleton';
 import { buttonBase, buttonGhost, buttonSecondarySmall, notice as noticeTone, textButton } from '../ui/classes';
@@ -491,10 +490,10 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
     <div className="flex flex-wrap items-center gap-1.5">
       <Badge tone={statusTone[latest.task.status] ?? 'muted'}>{statusLabels[latest.task.status] ?? latest.task.status}</Badge>
       {latest.task.area ? <FilterLink param="area" value={latest.task.area} projectId={projectId} className={areaChipTones[latest.task.area] ?? areaChipDefault} title={`Filtrar tarefas pela área ${areaLabel(latest.task.area)}`}>{areaLabel(latest.task.area)}</FilterLink> : null}
-      {latest.task.featureId ? <FeatureLink featureId={latest.task.featureId} projectId={projectId} className={featureChip} title="Ver todas as tarefas desta feature"><IconFeature size={11} /><span className="overflow-hidden text-ellipsis">{featureLabelForTask(latest.task._id)}</span></FeatureLink> : null}
+      {latest.task.featureId ? <FeatureLink featureId={latest.task.featureId} name={featureLabelForTask(latest.task._id)} projectId={projectId} className={featureChip} title="Ver todas as tarefas desta feature"><IconFeature size={11} /><span className="overflow-hidden text-ellipsis">{featureLabelForTask(latest.task._id)}</span></FeatureLink> : null}
       <small className="text-ui-xs text-muted-strong">v{taskContext.data?.task.version ?? latest.task.version}</small>
     </div>
-    <a className="text-[13px] font-semibold text-[#2455a6] wrap-anywhere hover:text-[#173e80] hover:underline" href={routeUrl('tasks', `taskId=${encodeURIComponent(latest.task._id)}`, projectId)} aria-label={`Abrir tarefa ${latest.task.name} na listagem`} onClick={event => { if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); onOpenTask(latest.task!._id); }}>Abrir tarefa ↗</a>
+    <TaskLink taskId={latest.task._id} name={latest.task.name} projectId={projectId} className="text-[13px] font-semibold text-[#2455a6] wrap-anywhere hover:text-[#173e80] hover:underline" title={`Abrir tarefa ${latest.task.name} na listagem`} onOpen={() => onOpenTask(latest.task!._id)}>{latest.task.name}<span aria-hidden="true"> ↗</span></TaskLink>
   </div> : null;
 
   return <div className={workspaceBase}>

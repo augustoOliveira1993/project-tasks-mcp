@@ -25,7 +25,7 @@ const RUNNER_TOOL_GUIDANCE: Record<string, string> = {
   send_collaboration_message: 'Use only for task collaboration or the explicit linked consultation; it does not provide general access to another task.',
   send_conversation_message: 'Replies to the authorized task conversation. Use it to answer new human messages delivered by the runner.',
   record_progress: 'Records a concise milestone for the active execution.',
-  set_acceptance_criterion: 'Set one zero-based criterion with objective evidence as soon as proven; use the returned version next.',
+  set_acceptance_criterion: 'Set complete=true only when the criterion is fully met and its implementation is present and verified in the checkout; plans or partial changes are not enough. Cite the concrete file/diff and verification, or objective proof for non-code criteria. Leave pending items false and use the returned version next; no published diff is required without the Git bridge.',
   block_task: 'Report the concrete impediment when work cannot safely continue.',
   submit_task: 'Submits the implementation and evidence for review; a final text response does not submit the task.',
   set_task_status: 'After submission, approve only if every criterion is evidenced; otherwise return the task with concrete gaps.'
