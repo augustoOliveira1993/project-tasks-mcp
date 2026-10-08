@@ -20,7 +20,6 @@ import { buttonBase, buttonGhost, buttonSecondarySmall, notice as noticeTone, te
 import { confirmConversationDeletion, conversationInboxAfterFilter, conversationInboxAfterSelection, createProjectConversation, deleteProjectConversation, historyAfterConversationDeletion, historyAfterConversationTitleUpdate, linkConversationTask, listConversationTypes, markConversationRead, nextConversationReadAttempt, scheduleTaskSearch, searchProjectTasks, updateConversationTitle, type ConversationInboxState, type ConversationReadAttempt } from './conversation-actions';
 import { ConversationAside } from './ConversationAside';
 import { ConversationStepper } from './ConversationStepper';
-import { ConversationTypesManager } from './ConversationTypesManager';
 import { ProposalCard } from './ProposalCard';
 import { authorDisplayName } from './ConversationParts';
 import type { Conversation, ConversationDetail, ConversationPage, ConversationType, Feature, Proposal, TaskActivity, TaskOption } from './conversation-types';
@@ -98,7 +97,6 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
     setInbox(current => conversationInboxAfterFilter(current, filter));
     onConversationSelected?.('');
   };
-  const [showTypesManager, setShowTypesManager] = useState(false);
   const [newConversationTypeId, setNewConversationTypeId] = useState('00000000-0000-4000-8000-000000000001');
   const [titleEditing, setTitleEditing] = useState(false);
   const [titleDraft, setTitleDraft] = useState('');
@@ -377,7 +375,6 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
   function fillDraft(text: string) { setDraft(text); window.requestAnimationFrame(() => composerRef.current?.focus()); }
 
   const renderNewConversationButton = (inHeading: boolean) => <button type="button" className={newConversationButtonBase + (inHeading ? ' min-h-11 px-[18px]' : ' min-h-10 px-3.5')} onClick={() => create.mutate()} disabled={create.isPending}>{create.isPending ? 'Criando…' : 'Nova conversa'}</button>;
-  const renderManageTypesButton = (inHeading: boolean) => <button type="button" className={(inHeading ? 'min-h-11 px-3.5' : 'min-h-10 px-3') + ' rounded-ui-md border border-line-strong bg-white text-[11px] font-semibold text-ink-2 hover:border-[#aeb5f7] hover:bg-[#f5f6ff]'} onClick={() => setShowTypesManager(true)}>Tipos e etapas</button>;
   const taskCard = latest?.task ? <div className="grid items-center gap-2.5">
     <p className="font-display text-[15px] leading-[1.4] font-semibold text-ink wrap-anywhere">{renderInlineCode(stripTaskPrefix(latest.task.name))}</p>
     <div className="flex flex-wrap items-center gap-1.5">
@@ -389,12 +386,10 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
     <a className="text-[13px] font-semibold text-[#2455a6] wrap-anywhere hover:text-[#173e80] hover:underline" href={routeUrl('tasks', `taskId=${encodeURIComponent(latest.task._id)}`, projectId)} aria-label={`Abrir tarefa ${latest.task.name} na listagem`} onClick={event => { if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); onOpenTask(latest.task!._id); }}>Abrir tarefa ↗</a>
   </div> : null;
 
-  if (showTypesManager) return <ConversationTypesManager token={token} nonce={nonce} projectId={projectId} onClose={() => setShowTypesManager(false)} />;
-
   return <section className={`${layoutBase} ${showAside ? layoutColumnsAside : layoutColumns}${showAside && !asideOpen ? ` ${layoutCollapsed}` : ''}`} data-view={mobileView} data-tab={detailTab}>
     <aside className={`${sidebarBase} ${showAside ? sidebarWithAside : sidebarPlain}`} aria-label="Lista de conversas">
       <div className="flex flex-wrap items-center justify-between gap-2"><div><h2 className="mb-1 font-display text-[14px] leading-[normal] font-bold tracking-[-.02em] text-[#273245]">Conversas</h2><p className="mt-0.5 text-ui-sm text-muted-strong">Histórico compartilhado do projeto</p></div>
-        {headingSlot ? null : <div className="flex flex-wrap gap-1.5">{renderManageTypesButton(false)}{renderNewConversationButton(false)}</div>}</div>
+        {headingSlot ? null : <div className="flex flex-wrap gap-1.5">{renderNewConversationButton(false)}</div>}</div>
       <input type="search" className={`min-h-11 w-full rounded-ui-md border border-line-strong bg-white py-0 pr-3 pl-9 text-ui-md ${searchIcon}`} value={listSearch} onChange={event => setListSearch(event.target.value)} placeholder="Buscar conversas" aria-label="Buscar conversas" />
       <label className="grid gap-1 text-[10px] font-semibold text-[#566275]">Tipo da nova conversa<select className="min-h-9 w-full rounded-ui-md border border-line-strong bg-white px-2.5 text-ui-sm text-ink-2" aria-label="Tipo da nova conversa" value={selectableConversationTypes.some(type => type._id === newConversationTypeId) ? newConversationTypeId : '00000000-0000-4000-8000-000000000001'} onChange={event => setNewConversationTypeId(event.target.value)} disabled={conversationTypes.isPending || conversationTypes.isError}><option value="00000000-0000-4000-8000-000000000001">Geral · fluxo padrão</option>{selectableConversationTypes.filter(type => !type.isDefault).map(type => <option value={type._id} key={type._id}>{type.name}</option>)}</select>{conversationTypes.isError && <small role="alert" className="font-normal text-[#a63942]">Não carreguei os tipos; novas conversas usarão Geral.</small>}</label>
       <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filtrar conversas">{listFilters.map(item => <button type="button" key={item.id} className="inline-flex min-h-8 cursor-pointer items-center gap-1.5 rounded-full border border-[#d5dae3] bg-white px-3 py-[5px] text-ui-xs font-semibold text-[#5b6475] aria-pressed:border-[#c9cbf3] aria-pressed:bg-[#eceefc] aria-pressed:text-[#2f31a0]" aria-pressed={listFilter === item.id} onClick={() => setListFilter(item.id)}>{item.label}{item.count > 0 && item.id !== 'all' && <span className="font-bold text-[#1f6b3a]">{item.count}</span>}</button>)}</div>
@@ -449,7 +444,7 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
         </>}
       </>}
     </section>
-    {headingSlot && createPortal(<div className="flex flex-wrap gap-2">{renderManageTypesButton(true)}{renderNewConversationButton(true)}</div>, headingSlot)}
+    {headingSlot && createPortal(<div className="flex flex-wrap gap-2">{renderNewConversationButton(true)}</div>, headingSlot)}
     {showAside && latest && <ConversationAside detail={latest} taskContext={taskContext} onOpenAdmin={onOpenAdmin} tabs={renderTabs(false)} collapsed={!asideOpen} token={token} nonce={nonce} projectId={projectId} hasPendingProposal={Boolean(pendingProposal)} taskCard={taskCard} />}
   </section>;
 }
