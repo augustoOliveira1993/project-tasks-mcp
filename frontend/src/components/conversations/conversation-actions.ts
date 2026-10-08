@@ -1,8 +1,37 @@
 import { operationId, query, request } from '../../api';
 import type { ConversationStage, ConversationType } from './conversation-types';
 
-export type ConversationFilter = 'all' | 'unread' | 'review' | 'done';
+export type ConversationFilter = 'all' | 'unread' | 'review' | 'done' | 'summary-waiting' | 'summary-in-progress' | 'summary-completed';
 export type ConversationInboxState = { filter: ConversationFilter; selectedId: string; chooseAfterFilter: boolean };
+export type ConversationSummaryCategory = 'waiting' | 'inProgress' | 'completed';
+
+export async function listAllProjectConversations<T>(token: string, projectId: string) {
+  const items: T[] = [];
+  let after: string | undefined;
+  do {
+    const page = await query<{ items: T[]; next?: string | null }>(token, 'list_conversations', { projectId, limit: 100, ...(after ? { after } : {}) });
+    items.push(...page.items);
+    if (!page.next || page.next === after) break;
+    after = page.next;
+  } while (true);
+  return items;
+}
+
+export function conversationSummaryCounts<T>(items: readonly T[], taskStatus: (item: T) => string | undefined) {
+  return items.reduce((counts, item) => {
+    const status = taskStatus(item);
+    if (conversationMatchesSummaryCategory(status, 'waiting')) counts.waiting += 1;
+    else if (conversationMatchesSummaryCategory(status, 'completed')) counts.completed += 1;
+    else if (conversationMatchesSummaryCategory(status, 'inProgress')) counts.inProgress += 1;
+    return counts;
+  }, { waiting: 0, inProgress: 0, completed: 0 });
+}
+
+export function conversationMatchesSummaryCategory(status: string | undefined, category: ConversationSummaryCategory) {
+  if (category === 'waiting') return status === 'bloqueada' || status === 'em_revisao';
+  if (category === 'completed') return status === 'concluida';
+  return status !== 'bloqueada' && status !== 'em_revisao' && status !== 'concluida' && status !== 'cancelada';
+}
 
 export function conversationInboxAfterFilter(state: ConversationInboxState, filter: ConversationFilter): ConversationInboxState {
   return { ...state, filter, selectedId: '', chooseAfterFilter: true };

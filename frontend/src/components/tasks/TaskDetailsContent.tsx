@@ -31,7 +31,7 @@ import { TaskSectionRail, type TaskSection } from './TaskSectionRail';
 import { taskPageUrl } from '../../route-state';
 import { TaskMessageAuthor } from '../conversations/ConversationParts';
 import { openTaskConversation } from '../../features/tasks/task-conversation';
-import { buttonBase, buttonDanger, buttonGhost, buttonPrimary, buttonSecondarySmall, eyebrow, notice, textButton } from '../ui/classes';
+import { buttonBase, buttonDanger, buttonGhost, buttonPrimary, buttonSecondarySmall, eyebrow, textButton } from '../ui/classes';
 
 type Feature = { _id: string; name: string };
 export type TaskDetailsAction = 'details' | 'edit' | 'summary' | 'json' | 'criteria' | 'assign';
@@ -189,23 +189,19 @@ export function TaskDetailsContent({ variant, token, nonce, projectId, project, 
       queryClient.invalidateQueries({ queryKey: ['task-context', nonce, projectId, task._id] })
     ]))
   });
-  const markReadAutomatically = useCallback((unread: TaskUnreadState | undefined) => {
-    if (!unread || unread.count <= 0 || unread.cursor === null) return;
+  const markUnreadAsRead = useCallback(() => {
+    if (!unreadActivity || unreadActivity.count <= 0 || unreadActivity.cursor === null || markRead.isPending) return;
     const previous = readAttempt.current;
-    if (previous?.taskId === task._id && previous.cursor === unread.cursor) return;
-    const attempt = { taskId: task._id, cursor: unread.cursor, operationId: operationId() };
+    const attempt = previous?.taskId === task._id && previous.cursor === unreadActivity.cursor
+      ? previous
+      : { taskId: task._id, cursor: unreadActivity.cursor, operationId: operationId() };
     readAttempt.current = attempt;
     markRead.mutate(attempt);
-  }, [markRead.mutate, task._id]);
+  }, [markRead.isPending, markRead.mutate, task._id, unreadActivity?.count, unreadActivity?.cursor]);
   useEffect(() => {
     readAttempt.current = null;
     markRead.reset();
   }, [markRead.reset, task._id]);
-  useEffect(() => {
-    if (tab !== 'activity' || !context.data || taskActivity.isPending || taskActivity.isError) return;
-    if ((unreadActivity?.count ?? 0) > 0 && typeof taskData.readCursor === 'number' && !unreadActivityEvents.isSuccess) return;
-    markReadAutomatically(unreadActivity);
-  }, [tab, context.data, taskActivity.isPending, taskActivity.isError, unreadActivity?.count, unreadActivity?.cursor, taskData.readCursor, unreadActivityEvents.isSuccess, markReadAutomatically]);
   const diffs = useQuery({
     queryKey: ['task-diffs', nonce, projectId, task._id],
     queryFn: () => query<{ items: TaskDiff[] }>(token, 'list_task_diffs', { projectId, taskId: task._id, limit: 20 })
@@ -382,6 +378,7 @@ export function TaskDetailsContent({ variant, token, nonce, projectId, project, 
 
   const nextPending = acceptance.findIndex((_item: string, index: number) => !acceptanceProgress[index]);
   const progressPercent = acceptance.length ? Math.round(completedCriteria * 100 / acceptance.length) : 0;
+  const fixed = isDrawer ? ' flex-none' : '';
   const railFooter = isDrawer ? undefined : <div className="grid gap-3 border-t border-line p-4 text-ui-sm text-ink-2 max-[960px]:hidden">
     <div className="grid gap-[3px]"><span className={chainLabel}>Responsável</span><Person identity={taskData.responsible} /></div>
     <div className="grid gap-[3px]"><span className={chainLabel}>Versão</span><span>{taskData.version !== undefined ? `v${taskData.version}` : '—'}</span></div>
@@ -389,7 +386,6 @@ export function TaskDetailsContent({ variant, token, nonce, projectId, project, 
   </div>;
   const editorDialog = editing && !features.isPending && <TaskEditorDialog token={token} nonce={nonce} project={project} tasks={tasks} features={editorFeatures} task={taskData as Task} systemAdmin={systemAdmin} close={() => setEditing(false)} notify={notify} onSaved={() => setEditing(false)} />;
 
-  const fixed = isDrawer ? ' flex-none' : '';
   const details = <>
       <header className={'flex items-start justify-between gap-4 border-b border-line px-6 pt-4 pb-3 max-[760px]:px-4 max-[760px]:pt-3' + fixed}>
         <div className="min-w-0">
@@ -490,7 +486,7 @@ export function TaskDetailsContent({ variant, token, nonce, projectId, project, 
                       : markdowns.isPending ? <Skeleton rows={3} label="Carregando documentos…" /> : markdowns.isError ? <ErrorNotice error={markdowns.error} onRetry={() => void markdowns.refetch()} /> : markdowns.data?.items?.length ? <div className="grid gap-[3px]">{markdowns.data.items.map(item => <button type="button" className="flex w-full items-center justify-between gap-3 rounded-[8px] border border-[#edf0f4] bg-white p-2.5 text-left hover:border-[#d9def9] hover:bg-[#fafaff]" key={item._id} onClick={() => void openMarkdown(item)}><span className="grid min-w-0 gap-1"><strong className="overflow-hidden text-[10px] text-ellipsis whitespace-nowrap text-[#414c5e]">{item.name}</strong><small className="overflow-hidden text-[9px] text-ellipsis whitespace-nowrap text-[#909aaa]">{item.summary}</small></span><Badge>rev. {item.revision}</Badge></button>)}</div> : <p className={emptyInline}>Nenhum documento de planejamento vinculado.</p>}
                   </section>
                     : tab === 'diffs' ? <section className={drawerSection} aria-label="Diffs publicados"><TaskDiffsPanel token={token} nonce={nonce} projectId={projectId} taskId={task._id} items={diffs.data?.items ?? []} isPending={diffs.isPending} isError={diffs.isError} error={diffs.error} onRetry={() => void diffs.refetch()} /></section>
-                      : tab === 'activity' ? <TaskActivityPanel events={taskActivity.data?.items ?? []} unreadEvents={unreadActivity?.count ? unreadActivityEvents.data ?? [] : []} unreadEventsPending={unreadActivityEvents.isPending && (unreadActivity?.count ?? 0) > 0} unreadEventsError={unreadActivityEvents.isError} onRetryUnreadEvents={() => void unreadActivityEvents.refetch()} isPending={taskActivity.isPending} isError={taskActivity.isError} error={taskActivity.error} onRetry={() => void taskActivity.refetch()} executions={contextExecutions} now={now} />
+                      : tab === 'activity' ? <TaskActivityPanel events={taskActivity.data?.items ?? []} unreadEvents={unreadActivity?.count ? unreadActivityEvents.data ?? [] : []} unreadCount={unreadActivity?.count ?? 0} markReadPending={markRead.isPending} markReadError={markRead.isError ? errorMessage(markRead.error) : undefined} onMarkRead={unreadActivity?.cursor !== null && unreadActivity?.cursor !== undefined ? markUnreadAsRead : undefined} onRetryMarkRead={markUnreadAsRead} unreadEventsPending={unreadActivityEvents.isPending && (unreadActivity?.count ?? 0) > 0} unreadEventsError={unreadActivityEvents.isError} onRetryUnreadEvents={() => void unreadActivityEvents.refetch()} isPending={taskActivity.isPending} isError={taskActivity.isError} error={taskActivity.error} onRetry={() => void taskActivity.refetch()} executions={contextExecutions} now={now} />
                         : tab === 'attachments' ? <TaskAttachmentsPanel token={token} nonce={nonce} projectId={projectId} taskId={task._id} onAttachmentViewed={markAttachmentViewed} />
                           : <section className={drawerSectionMarkdown} aria-label="Conversa da tarefa">
                           <div className="flex flex-wrap items-center justify-between gap-3"><h3>Colaboração da tarefa</h3><button type="button" className={buttonSecondarySmall} disabled={openConversation.isPending} onClick={() => openConversation.mutate()}>{openConversation.isPending ? 'Abrindo…' : 'Abrir conversa completa'}</button></div>
@@ -499,10 +495,6 @@ export function TaskDetailsContent({ variant, token, nonce, projectId, project, 
                         </section>}
         </div>
       </div>}
-      <div className={'grid gap-1.5 px-6 empty:hidden' + fixed} aria-live="polite">
-        {markRead.isPending && <p className={notice.info} role="status">Marcando atividades como lidas…</p>}
-        {markRead.isError && <div className={notice.error} role="alert"><span>Não foi possível marcar as atividades como lidas: {errorMessage(markRead.error)}</span><button type="button" className={textButton} disabled={markRead.isPending} onClick={() => { const attempt = readAttempt.current; if (attempt?.taskId === task._id) markRead.mutate(attempt); }}>Tentar novamente</button></div>}
-      </div>
   </>;
 
   if (!isDrawer) return <section className="overflow-hidden rounded-ui-md border border-line bg-surface" aria-labelledby="details-title">{details}{editorDialog}</section>;

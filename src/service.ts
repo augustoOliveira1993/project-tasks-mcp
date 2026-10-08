@@ -19,6 +19,7 @@ import { exportProject } from './services/project-export-service.js';
 import { importProject, ProjectImportError } from './services/project-import-service.js';
 import { eventOrigin } from './event-origin.js';
 import { areasForProject } from './area-catalog.js';
+import { normalizeGitRemote } from './git-remote.js';
 import { tools, adminSchema, approveActionProposalSchema, approveTasksSchema, changeTaskStatusSchema, setTaskAcceptanceCriterionSchema, setTaskCheckedSchema, projectData, featureData, taskData, states, userId as userIdSchema } from './schema.js';
 
 export class DomainError extends Error { constructor(message: string, public status = 409) { super(message); } }
@@ -41,9 +42,6 @@ function normalizeWorkspaceRoot(value: string) {
   }
   root = root.replaceAll('\\', '/').replace(/^\/([a-z]:\/)/i, '$1').replace(/\/+$/, '');
   return /^[a-z]:\//i.test(root) ? root.toLowerCase() : root;
-}
-function normalizeGitRemote(value: string) {
-  return value.trim().replace(/^git@([^:]+):/i, '$1/').replace(/^(?:https?|ssh):\/\//i, '').replace(/^git@/i, '').replace(/\.git\/?$/i, '').replace(/\/+$/, '').toLowerCase();
 }
 function requireThat(value: unknown, message: string, status = 409): asserts value { if (!value) throw new DomainError(message, status); }
 function taskAttachmentFileName(value: string) {
@@ -1290,7 +1288,9 @@ export class Service {
         const binding = repository.git;
         const remoteMatches = !!remoteUrl && normalizeGitRemote(binding?.canonicalRemoteUrl ?? repository.url) === remoteUrl
           && (!rootCommit || !binding?.rootCommit || binding.rootCommit.toLowerCase() === rootCommit);
-        return pathMatches || remoteMatches;
+        // When Git metadata is present, it is the repository identity. The workspace path
+        // remains a fallback for clients that cannot report a remote.
+        return remoteUrl ? remoteMatches : pathMatches;
       }).map((repository: any) => ({ projectId: project._id, projectName: project.name, repositoryId: repository.id, repositoryName: repository.name })));
       const byProject = new Map<string, typeof matches>();
       for (const match of matches) byProject.set(String(match.projectId), [...(byProject.get(String(match.projectId)) ?? []), match]);

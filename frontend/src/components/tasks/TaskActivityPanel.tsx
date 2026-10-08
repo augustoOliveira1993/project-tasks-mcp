@@ -24,12 +24,29 @@ export function taskActivityEventKey(event: TaskActivityEvent) {
   return JSON.stringify([timestamp, event.kind ?? '', event.summary ?? '', event.detail ?? '', event.author?.trim() || 'Autor não identificado', event.origin?.trim() || 'Origem não identificada', event.toolName ?? '', event.conversationId ?? '']);
 }
 
-export function TaskActivityPanel({ events, unreadEvents = [], unreadEventsPending = false, unreadEventsError = false, onRetryUnreadEvents, isPending, isError, error, onRetry, executions, now }: {
-  events: TaskActivityEvent[]; unreadEvents?: TaskActivityEvent[]; unreadEventsPending?: boolean; unreadEventsError?: boolean; onRetryUnreadEvents?: () => void; isPending: boolean; isError: boolean; error: unknown; onRetry: () => void; executions: Execution[]; now: number;
+function taskActivityIdentity(event: TaskActivityEvent) {
+  return event._id ?? taskActivityEventKey(event);
+}
+
+export function TaskActivityPanel({ events, unreadEvents = [], unreadCount = 0, markReadPending = false, markReadError, onMarkRead, onRetryMarkRead, unreadEventsPending = false, unreadEventsError = false, onRetryUnreadEvents, isPending, isError, error, onRetry, executions, now }: {
+  events: TaskActivityEvent[]; unreadEvents?: TaskActivityEvent[]; unreadCount?: number; markReadPending?: boolean; markReadError?: string; onMarkRead?: () => void; onRetryMarkRead?: () => void; unreadEventsPending?: boolean; unreadEventsError?: boolean; onRetryUnreadEvents?: () => void; isPending: boolean; isError: boolean; error: unknown; onRetry: () => void; executions: Execution[]; now: number;
 }) {
   const [showTechnical, setShowTechnical] = useState(false);
-  const visible = events.filter(event => showTechnical || !isTechnicalEvent(event));
-  const hidden = events.length - events.filter(event => !isTechnicalEvent(event)).length;
+  const recentCounts = new Map<string, number>();
+  for (const event of events) {
+    const identity = taskActivityIdentity(event);
+    recentCounts.set(identity, (recentCounts.get(identity) ?? 0) + 1);
+  }
+  const missingNovelties: TaskActivityEvent[] = [];
+  for (const event of unreadEvents) {
+    const identity = taskActivityIdentity(event);
+    const recentCount = recentCounts.get(identity) ?? 0;
+    if (recentCount > 0) recentCounts.set(identity, recentCount - 1);
+    else missingNovelties.push(event);
+  }
+  const allEvents = [...missingNovelties, ...events];
+  const visible = allEvents.filter(event => showTechnical || !isTechnicalEvent(event));
+  const hidden = allEvents.length - allEvents.filter(event => !isTechnicalEvent(event)).length;
   const unreadCounts = new Map<string, number>();
   for (const event of unreadEvents) {
     const key = taskActivityEventKey(event);
@@ -44,7 +61,13 @@ export function TaskActivityPanel({ events, unreadEvents = [], unreadEventsPendi
       </li>)}</ul>
     </section>}
     <section className={section} aria-label="Eventos da tarefa">
-      <div className="flex flex-wrap items-center justify-between gap-3"><h3>Eventos</h3>{hidden > 0 && <label className="inline-flex items-center gap-1.5 text-ui-xs text-muted-strong"><input type="checkbox" checked={showTechnical} onChange={event => setShowTechnical(event.target.checked)} /> Mostrar chamadas MCP e heartbeats ({hidden})</label>}</div>
+      <div className="flex flex-wrap items-center justify-between gap-3"><h3>Eventos</h3><div className="flex flex-wrap items-center gap-3">
+        {unreadCount > 0 && <span className="rounded-full bg-[#fff2d8] px-2.5 py-1 text-ui-xs font-bold text-[#9a5c00]" role="status">{unreadCount} {unreadCount === 1 ? 'novidade não lida' : 'novidades não lidas'}</span>}
+        {hidden > 0 && <label className="inline-flex items-center gap-1.5 text-ui-xs text-muted-strong"><input type="checkbox" checked={showTechnical} onChange={event => setShowTechnical(event.target.checked)} /> Mostrar chamadas MCP e heartbeats ({hidden})</label>}
+        {unreadCount > 0 && onMarkRead && <button type="button" className="inline-flex min-h-[32px] items-center justify-center rounded-[7px] border border-[#e2c488] bg-white px-3 text-ui-xs font-bold text-[#855400] hover:bg-[#fffaf0] disabled:cursor-not-allowed disabled:opacity-55" disabled={markReadPending || unreadEventsPending} onClick={onMarkRead}>{markReadPending ? 'Marcando…' : unreadEventsPending ? 'Carregando novidades…' : 'Marcar novidades como lidas'}</button>}
+      </div></div>
+      {unreadCount > 0 && <p className="text-ui-xs text-muted-strong">As novidades permanecem destacadas até você marcá-las como lidas.</p>}
+      {markReadError && <div className="flex flex-wrap items-center gap-2 rounded-ui-sm border border-[#efd7d9] bg-[#fffafa] px-3 py-2 text-ui-xs text-tone-red" role="alert"><span>Não foi possível marcar as novidades como lidas: {markReadError}</span>{onRetryMarkRead && <button type="button" className="font-bold underline" disabled={markReadPending} onClick={onRetryMarkRead}>Tentar novamente</button>}</div>}
       {unreadEventsPending && <p className="text-ui-xs text-muted-strong" role="status">Carregando novidades da tarefa…</p>}
       {unreadEventsError && <div className="flex flex-wrap items-center gap-2 rounded-ui-sm border border-[#efd7d9] bg-[#fffafa] px-3 py-2 text-ui-xs text-tone-red" role="alert"><span>Não foi possível identificar os eventos novos. A leitura continua pendente.</span>{onRetryUnreadEvents && <button type="button" className="font-bold underline" onClick={onRetryUnreadEvents}>Tentar novamente</button>}</div>}
       {isPending ? <Skeleton rows={4} label="Carregando atividade…" /> : isError ? <ErrorNotice error={error} onRetry={onRetry} title="Não foi possível carregar a atividade" /> : visible.length ? <ul className={list}>{visible.map((event, index) => {

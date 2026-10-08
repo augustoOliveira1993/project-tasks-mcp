@@ -1,3 +1,5 @@
+import { normalizeGitRemote } from '../git-remote.js';
+
 type ToolCall = (name: string, args: Record<string, unknown>) => Promise<any>;
 
 export async function listAccessibleProjects(callTool: ToolCall) {
@@ -12,7 +14,9 @@ export async function listAccessibleProjects(callTool: ToolCall) {
 }
 
 export function matchGitProjects(projects: any[], repository: { remoteUrl: string; rootCommit: string }) {
+  const remoteUrl = normalizeGitRemote(repository.remoteUrl);
+  const rootCommit = repository.rootCommit.toLowerCase();
   return projects.flatMap(project => (project.repositories ?? [])
-    .filter((binding: any) => binding.git?.canonicalRemoteUrl === repository.remoteUrl && binding.git?.rootCommit === repository.rootCommit)
+    .filter((binding: any) => normalizeGitRemote(binding.git?.canonicalRemoteUrl ?? '') === remoteUrl && binding.git?.rootCommit?.toLowerCase() === rootCommit)
     .map((binding: any) => ({ project, repository: binding })));
 }

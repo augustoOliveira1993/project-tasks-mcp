@@ -17,7 +17,7 @@ import { FeatureLink, FilterLink } from '../ui/Links';
 import { MarkdownView } from '../ui/MarkdownView';
 import { Skeleton } from '../ui/Skeleton';
 import { buttonBase, buttonGhost, buttonSecondarySmall, notice as noticeTone, textButton } from '../ui/classes';
-import { confirmConversationDeletion, conversationInboxAfterFilter, conversationInboxAfterSelection, createProjectConversation, deleteProjectConversation, historyAfterConversationDeletion, historyAfterConversationTitleUpdate, linkConversationTask, listConversationTypes, markConversationRead, nextConversationReadAttempt, scheduleTaskSearch, searchProjectTasks, updateConversationTitle, type ConversationInboxState, type ConversationReadAttempt } from './conversation-actions';
+import { confirmConversationDeletion, conversationInboxAfterFilter, conversationInboxAfterSelection, conversationMatchesSummaryCategory, conversationSummaryCounts, createProjectConversation, deleteProjectConversation, historyAfterConversationDeletion, historyAfterConversationTitleUpdate, linkConversationTask, listAllProjectConversations, listConversationTypes, markConversationRead, nextConversationReadAttempt, scheduleTaskSearch, searchProjectTasks, updateConversationTitle, type ConversationInboxState, type ConversationReadAttempt } from './conversation-actions';
 import { ConversationAside } from './ConversationAside';
 import { ConversationStepper } from './ConversationStepper';
 import { ProposalCard } from './ProposalCard';
@@ -41,11 +41,12 @@ const featureChip = 'inline-flex max-w-[240px] cursor-pointer items-center gap-1
 const searchIcon = `bg-[url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%20fill='none'%20stroke='%23596077'%20stroke-width='1.75'%20stroke-linecap='round'%3E%3Ccircle%20cx='11'%20cy='11'%20r='6.5'/%3E%3Cpath%20d='M20%2020l-4-4'/%3E%3C/svg%3E")] bg-[length:16px] bg-[position:12px_center] bg-no-repeat`;
 
 // Grade do painel: 3 colunas com contexto, 2 sem; recolhido só vale a partir de 1280px. max-[N+1px] reproduz `max-width: Npx`.
-const layoutBase = 'group/conv grid h-[calc(100dvh_-_255px)] min-h-[560px] items-stretch gap-0 overflow-hidden rounded-[16px] border border-[#e2e5eb] bg-white shadow-[0_1px_2px_rgba(20,24,34,.04)] max-[768px]:h-[calc(100dvh_-_215px)] max-[768px]:min-h-[480px] max-[768px]:grid-cols-[minmax(0,1fr)]';
+const workspaceBase = 'flex h-[calc(100dvh_-_255px)] min-h-[560px] flex-col gap-3 max-[768px]:h-[calc(100dvh_-_215px)] max-[768px]:min-h-[480px]';
+const layoutBase = 'group/conv grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)] items-stretch gap-0 overflow-hidden rounded-[16px] border border-[#e2e5eb] bg-white shadow-[0_1px_2px_rgba(20,24,34,.04)] max-[768px]:grid-cols-[minmax(0,1fr)]';
 const layoutColumns = 'grid-cols-[minmax(280px,340px)_minmax(0,1fr)] max-[1280px]:grid-cols-[minmax(260px,320px)_minmax(0,1fr)]';
 const layoutColumnsAside = 'grid-cols-[minmax(260px,300px)_minmax(0,1fr)_minmax(320px,360px)] max-[1280px]:grid-cols-[minmax(260px,320px)_minmax(0,1fr)]';
 const layoutCollapsed = 'min-[1280px]:grid-cols-[minmax(260px,300px)_minmax(0,1fr)]';
-const sidebarBase = 'flex min-h-0 min-w-0 flex-col gap-2.5 self-start overflow-hidden border-r border-r-[#e2e5eb] bg-[#fafbfd] p-4 max-[961px]:self-stretch group-data-[view=detail]/conv:max-[768px]:hidden';
+const sidebarBase = 'flex min-h-0 min-w-0 flex-col gap-2.5 self-stretch overflow-hidden border-r border-r-[#e2e5eb] bg-[#fafbfd] p-4 group-data-[view=detail]/conv:max-[768px]:hidden';
 const sidebarPlain = 'max-[768px]:col-start-1 max-[768px]:row-start-1';
 const sidebarWithAside = 'max-[1281px]:[grid-row:1/span_2] max-[961px]:row-auto max-[768px]:col-start-1';
 const mainBase = 'flex min-h-0 min-w-0 flex-col overflow-hidden bg-white max-[768px]:overflow-y-auto group-data-[view=list]/conv:max-[768px]:hidden';
@@ -74,6 +75,47 @@ export function ConversationTaskSearch({ value, debouncedValue, isFetching, isEr
   return <section className="grid flex-none gap-[7px] rounded-[9px] border border-[#dfe4f4] bg-[#fafbff] p-3"><label className={fieldLabel} htmlFor="conversation-task-search">Buscar tarefa</label><input className={fieldInput} id="conversation-task-search" type="search" value={value} onChange={event => onChange(event.target.value)} placeholder="Digite o início do nome da tarefa…" autoComplete="off" /><small className="text-[9px] text-[#8791a1]">Digite ao menos 2 caracteres. A busca considera tarefas ativas deste projeto.</small>{debouncedValue.length < 2 ? <div className={emptyStateBox}>Digite ao menos 2 caracteres para buscar tarefas.</div> : isFetching ? <div className="px-[18px] py-7 text-center text-[11px] text-[#8792a2]">Buscando tarefas…</div> : isError ? <div className={noticeTone.error}>{errorMessage(error)}</div> : tasks.length ? <div className="grid max-h-[280px] gap-1.5 overflow-y-auto" role="listbox" aria-label="Tarefas encontradas">{tasks.map(task => <button type="button" role="option" aria-selected="false" className="grid w-full min-w-0 cursor-pointer gap-1 rounded-[8px] border border-[#e3e7f0] bg-white p-2.5 text-left enabled:hover:border-[#cdd3ff] enabled:hover:bg-[#f5f6ff] disabled:cursor-wait disabled:opacity-65" key={task._id} onClick={() => onSelect(task._id)} disabled={disabled}><strong className="text-[11px] leading-[1.45] text-[#3f4b60] wrap-anywhere">{task.name}</strong><span className="flex min-w-0 flex-wrap items-start gap-1.5"><Badge tone="blue" wrap>Área · {areaLabel(task.area)}</Badge><Badge tone={statusTone[task.status] ?? 'muted'} wrap>Status · {statusLabels[task.status] ?? task.status}</Badge><Badge tone="muted" wrap>Feature · {featureLabel(task)}</Badge></span></button>)}</div> : <div className={emptyStateBox}>Nenhuma tarefa ativa corresponde à busca.</div>}</section>;
 }
 
+function ConversationTypeDialog({ open, types, selectedTypeId, loading, error, creating, creationError, onSelect, onClose, onCreate }: {
+  open: boolean; types: ConversationType[]; selectedTypeId: string; loading: boolean; error: boolean; creating: boolean; creationError?: string;
+  onSelect: (typeId: string) => void; onClose: () => void; onCreate: () => void;
+}) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (open && dialog && !dialog.open) dialog.showModal();
+    else if (!open && dialog?.open) dialog.close();
+  }, [open]);
+  const selectedType = types.find(type => type._id === selectedTypeId) ?? types.find(type => type.isDefault) ?? types[0];
+
+  return <dialog id="new-conversation-type-dialog" ref={dialogRef} aria-labelledby="new-conversation-title" onClose={onClose} onCancel={event => { event.preventDefault(); onClose(); }} onClick={event => { if (event.target === event.currentTarget) onClose(); }} className="fixed left-1/2 top-1/2 m-0 max-h-[min(90dvh,760px)] w-[min(760px,calc(100%_-_24px))] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-[18px] border border-[#e2e5eb] bg-white p-0 text-ink shadow-[0_24px_70px_#18223040] backdrop:bg-[#18223070]">
+    <div className="grid max-h-[min(90dvh,760px)] grid-rows-[auto_minmax(0,1fr)_auto]">
+      <header className="flex items-start justify-between gap-4 border-b border-[#edf0f5] px-5 py-4 max-[600px]:px-4">
+        <div><p className="mb-1 text-[10px] font-bold tracking-[.12em] text-[#5964cc]">NOVA CONVERSA</p><h2 id="new-conversation-title" className="font-display text-[19px] font-bold text-[#263246]">Escolha o fluxo</h2><p className="mt-1 text-[12px] leading-[1.5] text-muted-strong">Cada tipo orienta a IA por etapas diferentes. Você poderá autorizar qualquer proposta antes da execução.</p></div>
+        <button type="button" className={buttonGhostSmall} onClick={onClose} aria-label="Fechar escolha de tipo">Fechar</button>
+      </header>
+      <div className="grid min-h-0 grid-cols-[minmax(180px,.85fr)_minmax(0,1.15fr)] gap-4 overflow-y-auto p-5 max-[600px]:grid-cols-1 max-[600px]:p-4">
+        <section className="grid content-start gap-2" role="radiogroup" aria-label="Tipos de conversa">
+          {loading ? <div className="py-6 text-center text-[12px] text-muted-strong" role="status">Carregando tipos…</div> : error ? <div className={noticeTone.error} role="alert">Não foi possível carregar os tipos do projeto. Você ainda pode criar uma conversa Geral.</div> : types.map(type => <button key={type._id} type="button" role="radio" aria-checked={selectedType?._id === type._id} onClick={() => onSelect(type._id)} className="grid min-w-0 gap-1 rounded-[11px] border border-[#dfe4ed] bg-white p-3 text-left aria-checked:border-[#646ee1] aria-checked:bg-[#f5f6ff] aria-checked:ring-2 aria-checked:ring-[#646ee1]/20">
+            <span className="flex min-w-0 items-center justify-between gap-2"><strong className="text-[12px] text-[#334155] wrap-anywhere">{type.name}</strong>{type.isDefault && <Badge tone="blue">Padrão</Badge>}</span>
+            <small className="text-[10px] text-muted-strong">{type.stages.length ? `${type.stages.length} ${type.stages.length === 1 ? 'etapa' : 'etapas'}` : 'Fluxo padrão'}</small>
+          </button>)}
+          {!loading && !error && !types.length && <p className="text-[11px] leading-[1.5] text-muted-strong">Nenhum tipo personalizado foi configurado. A conversa usará o fluxo Geral.</p>}
+        </section>
+        <section className="min-w-0 rounded-[12px] border border-[#e6e9f0] bg-[#fafbfd] p-4" aria-live="polite">
+          <h3 className="font-display text-[15px] font-bold text-[#334155]">{selectedType?.name ?? 'Geral'}</h3>
+          {selectedType?.description ? <MarkdownView content={selectedType.description} variant="compact" className="mt-2" /> : <p className="mt-2 text-[11px] leading-[1.6] text-muted-strong">Fluxo padrão para esclarecer o pedido, preparar uma proposta e aguardar sua autorização.</p>}
+          <h4 className="mt-4 mb-2 text-[10px] font-bold uppercase tracking-[.08em] text-[#718096]">Etapas do fluxo</h4>
+          {selectedType?.stages.length ? <ol className="grid gap-2">{selectedType.stages.map((stage, index) => <li key={stage.id} className="grid grid-cols-[22px_minmax(0,1fr)] items-start gap-2 rounded-[9px] border border-[#e5e8ef] bg-white p-2.5"><span className="inline-grid size-[22px] place-items-center rounded-full bg-[#eceefc] text-[10px] font-bold text-[#4b4fcb]">{index + 1}</span><div className="min-w-0"><strong className="text-[11px] text-[#435064]">{stage.title}</strong>{(stage.description || stage.instruction) && <MarkdownView content={stage.description || stage.instruction} variant="compact" className="mt-1" />}</div></li>)}</ol> : <p className="text-[11px] text-muted-strong">Esclarecer · Proposta · Autorização · Execução</p>}
+        </section>
+      </div>
+      <footer className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2 border-t border-[#edf0f5] bg-white px-5 py-3.5 max-[600px]:grid-cols-1 max-[600px]:px-4">
+        <p className="m-0 min-w-0 text-[10px] text-muted-strong">O chat começa no escopo do projeto; você pode vincular uma tarefa depois.</p>
+        <div className="grid min-w-0 justify-items-end gap-2 max-[600px]:justify-items-stretch">{creationError && <p className={`${noticeTone.error} m-0 max-w-full wrap-anywhere`} role="alert">{creationError}</p>}<div className="flex min-w-0 flex-wrap items-center justify-end gap-2 max-[600px]:w-full"><button type="button" className={`${buttonSecondarySmall} max-[600px]:flex-1`} onClick={onClose} disabled={creating}>Cancelar</button><button type="button" className={`${buttonPrimarySmall} min-h-10 min-w-0 px-4 max-[600px]:flex-1`} onClick={onCreate} disabled={creating || loading}>{creating ? 'Criando…' : `Criar conversa · ${selectedType?.name ?? 'Geral'}`}</button></div></div>
+      </footer>
+    </div>
+  </dialog>;
+}
+
 export function ConversationTitleEditor({ title, editing, draft, editable, saving, error, onEdit, onDraftChange, onSave, onCancel }: {
   title: string; editing: boolean; draft: string; editable: boolean; saving: boolean; error?: unknown;
   onEdit: () => void; onDraftChange: (value: string) => void; onSave: (event: FormEvent<HTMLFormElement>) => void; onCancel: () => void;
@@ -97,7 +139,11 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
     setInbox(current => conversationInboxAfterFilter(current, filter));
     onConversationSelected?.('');
   };
-  const [newConversationTypeId, setNewConversationTypeId] = useState('00000000-0000-4000-8000-000000000001');
+  const [newConversationTypeId, setNewConversationTypeId] = useState('');
+  const [newConversationOpen, setNewConversationOpen] = useState(false);
+  const [selectedTypeIds, setSelectedTypeIds] = useState<string[]>([]);
+  const [typeSearch, setTypeSearch] = useState('');
+  const [debouncedTypeSearch, setDebouncedTypeSearch] = useState('');
   const [titleEditing, setTitleEditing] = useState(false);
   const [titleDraft, setTitleDraft] = useState('');
   const [linkTaskOpen, setLinkTaskOpen] = useState(false);
@@ -106,6 +152,7 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
   const [draft, setDraft] = useState('');
   const [notice, setNotice] = useState('');
   const [listSearch, setListSearch] = useState('');
+  const [debouncedListSearch, setDebouncedListSearch] = useState('');
   const [mobileView, setMobileView] = useState<'list' | 'detail'>(requestedConversationId ? 'detail' : 'list');
   const [detailTab, setDetailTab] = useState<'chat' | 'criteria'>('chat');
   const [asideOpen, setAsideOpen] = useState(true);
@@ -121,12 +168,22 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
   const [hasNewBelow, setHasNewBelow] = useState(false);
   const [olderConversationPages, setOlderConversationPages] = useState<ConversationPage[]>([]);
   const [olderMessagePages, setOlderMessagePages] = useState<ConversationDetail[]>([]);
-  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [loadingOlderConversations, setLoadingOlderConversations] = useState(false);
+  const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
+  const [filteredConversationLimit, setFilteredConversationLimit] = useState(50);
+  const conversationListRef = useRef<HTMLDivElement>(null);
+  const conversationListSentinelRef = useRef<HTMLDivElement>(null);
   const conversations = useQuery({
     queryKey: ['conversations', nonce, projectId],
     enabled: Boolean(token && nonce && projectId),
     queryFn: () => query<ConversationPage>(token, 'list_conversations', { projectId, limit: 50 }),
     refetchInterval: 5000
+  });
+  const conversationSummary = useQuery({
+    queryKey: ['conversation-summary', nonce, projectId],
+    enabled: Boolean(token && nonce && projectId && conversations.data?.next),
+    queryFn: () => listAllProjectConversations<Conversation>(token, projectId),
+    refetchInterval: 30_000
   });
   const features = useQuery({
     queryKey: ['project-features', nonce, projectId],
@@ -144,25 +201,50 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
   }, [conversationTypes.data, newConversationTypeId]);
   const conversationItems = [...(conversations.data?.items ?? []), ...olderConversationPages.flatMap(page => page.items)];
   const uniqueConversationItems = [...new Map(conversationItems.map(item => [item._id, item])).values()];
+  const summaryItems = conversationSummary.data ?? uniqueConversationItems;
+  const conversationTypeOptions = new Map<string, { id: string; name: string; archived: boolean }>();
+  for (const type of conversationTypes.data?.items ?? []) conversationTypeOptions.set(type._id, { id: type._id, name: type.name, archived: type.archived });
+  for (const item of summaryItems) {
+    const id = item.conversationTypeId ?? item.conversationType?._id;
+    if (id && !conversationTypeOptions.has(id)) conversationTypeOptions.set(id, { id, name: item.conversationType?.name ?? 'Tipo arquivado', archived: true });
+  }
+  const allConversationTypes = [...conversationTypeOptions.values()].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+  const defaultConversationTypeId = selectableConversationTypes.find(type => type.isDefault)?._id ?? '';
+  const typeIdForConversation = (item: Conversation) => item.conversationTypeId ?? item.conversationType?._id ?? defaultConversationTypeId;
+  const typeSearchNeedle = debouncedTypeSearch.trim().toLocaleLowerCase('pt-BR');
+  const filteredTypeOptions = allConversationTypes.filter(type => !typeSearchNeedle || type.name.toLocaleLowerCase('pt-BR').includes(typeSearchNeedle));
   const statusOf = (item: Conversation) => item.taskId ? tasks.find(task => task._id === item.taskId)?.status : undefined;
+  const summaryCounts = conversationSummaryCounts(summaryItems, statusOf);
+  const hasConversationFilters = Boolean(debouncedListSearch.trim() || selectedTypeIds.length || listFilter !== 'all');
+  const conversationItemsForFilter = hasConversationFilters ? summaryItems : uniqueConversationItems;
   const listFilters = [
-    { id: 'all' as const, label: 'Todas', count: uniqueConversationItems.length },
-    { id: 'unread' as const, label: 'Não lidas', count: uniqueConversationItems.filter(item => (item.unread?.count ?? 0) > 0).length },
-    { id: 'review' as const, label: 'Em revisão', count: uniqueConversationItems.filter(item => statusOf(item) === 'em_revisao').length },
-    { id: 'done' as const, label: 'Concluídas', count: uniqueConversationItems.filter(item => statusOf(item) === 'concluida').length }
+    { id: 'all' as const, label: 'Todas', count: summaryItems.length },
+    { id: 'unread' as const, label: 'Não lidas', count: summaryItems.filter(item => (item.unread?.count ?? 0) > 0).length },
+    { id: 'review' as const, label: 'Em revisão', count: summaryItems.filter(item => statusOf(item) === 'em_revisao').length },
+    { id: 'done' as const, label: 'Concluídas', count: summaryItems.filter(item => statusOf(item) === 'concluida').length }
   ];
-  const searchNeedle = listSearch.trim().toLocaleLowerCase('pt-BR');
-  const visibleConversationItems = uniqueConversationItems.filter(item => {
+  const searchNeedle = debouncedListSearch.trim().toLocaleLowerCase('pt-BR');
+  const filteredConversationItems = conversationItemsForFilter.filter(item => {
+    const status = statusOf(item);
     const matchesFilter = listFilter === 'all' || item._id === selectedId
       || listFilter === 'unread' && (item.unread?.count ?? 0) > 0
-      || listFilter === 'review' && statusOf(item) === 'em_revisao'
-      || listFilter === 'done' && statusOf(item) === 'concluida';
-    return matchesFilter && (!searchNeedle || stripTaskPrefix(item.title).toLocaleLowerCase('pt-BR').includes(searchNeedle));
+      || listFilter === 'review' && status === 'em_revisao'
+      || listFilter === 'done' && status === 'concluida'
+      || listFilter === 'summary-waiting' && conversationMatchesSummaryCategory(status, 'waiting')
+      || listFilter === 'summary-in-progress' && conversationMatchesSummaryCategory(status, 'inProgress')
+      || listFilter === 'summary-completed' && conversationMatchesSummaryCategory(status, 'completed');
+    const typeId = typeIdForConversation(item);
+    const typeName = item.conversationType?.name ?? conversationTypeOptions.get(typeId ?? '')?.name ?? '';
+    const taskName = item.taskId ? tasks.find(task => task._id === item.taskId)?.name ?? '' : '';
+    const searchable = [stripTaskPrefix(item.title), taskName, typeName].join(' ').toLocaleLowerCase('pt-BR');
+    return matchesFilter && (!selectedTypeIds.length || selectedTypeIds.includes(typeId ?? '')) && (!searchNeedle || searchable.includes(searchNeedle));
   });
+  const visibleConversationItems = hasConversationFilters ? filteredConversationItems.slice(0, filteredConversationLimit) : filteredConversationItems;
+  const filteredHistoryPending = hasConversationFilters && Boolean(conversations.data?.next) && conversationSummary.isPending;
   useEffect(() => {
     if (!inbox.chooseAfterFilter && !selectedId && uniqueConversationItems[0]) setSelectedId(uniqueConversationItems[0]._id);
   }, [conversations.data, selectedId, inbox.chooseAfterFilter, olderConversationPages]);
-  useEffect(() => { setOlderConversationPages([]); setOlderMessagePages([]); setSelectedId(''); setNewConversationTypeId('00000000-0000-4000-8000-000000000001'); setTitleEditing(false); setTitleDraft(''); setLinkTaskOpen(false); setTaskSearch(''); setDebouncedTaskSearch(''); setDraft(''); setNotice(''); }, [projectId]);
+  useEffect(() => { setOlderConversationPages([]); setOlderMessagePages([]); setSelectedId(''); setNewConversationTypeId(''); setNewConversationOpen(false); setSelectedTypeIds([]); setTypeSearch(''); setDebouncedTypeSearch(''); setListSearch(''); setDebouncedListSearch(''); setFilteredConversationLimit(50); setTitleEditing(false); setTitleDraft(''); setLinkTaskOpen(false); setTaskSearch(''); setDebouncedTaskSearch(''); setDraft(''); setNotice(''); }, [projectId]);
   useEffect(() => {
     if (!requestedConversationId) return;
     setSelectedId(requestedConversationId);
@@ -170,6 +252,9 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
   }, [requestedConversationId]);
   useEffect(() => { setOlderMessagePages([]); setTitleEditing(false); setTitleDraft(''); setLinkTaskOpen(false); setTaskSearch(''); }, [selectedId]);
   useEffect(() => scheduleTaskSearch(taskSearch, setDebouncedTaskSearch), [taskSearch]);
+  useEffect(() => scheduleTaskSearch(listSearch, setDebouncedListSearch, 300), [listSearch]);
+  useEffect(() => scheduleTaskSearch(typeSearch, setDebouncedTypeSearch, 200), [typeSearch]);
+  useEffect(() => { setFilteredConversationLimit(50); }, [debouncedListSearch, selectedTypeIds, listFilter]);
 
   const detail = useQuery({
     queryKey: ['conversation', nonce, projectId, selectedId],
@@ -178,11 +263,14 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
     refetchInterval: 4000
   });
   const latest = selectedId && detail.data?.conversation._id === selectedId ? detail.data : undefined;
+  const lastMessagePage = olderMessagePages.at(-1);
+  const messageCursor = lastMessagePage ? lastMessagePage.next ?? undefined : latest?.next ?? undefined;
   const readAttempt = useRef<ConversationReadAttempt | null>(null);
   const markRead = useMutation({
     mutationFn: (attempt: ConversationReadAttempt) => markConversationRead(token, projectId, attempt),
     onSuccess: async (_result, attempt) => Promise.all([
       client.invalidateQueries({ queryKey: ['conversations', nonce, projectId] }),
+      client.invalidateQueries({ queryKey: ['conversation-summary', nonce, projectId] }),
       client.invalidateQueries({ queryKey: ['conversation', nonce, projectId, attempt.conversationId] })
     ])
   });
@@ -219,34 +307,53 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
   const refresh = async (conversationId = selectedId) => {
     await Promise.all([
       client.invalidateQueries({ queryKey: ['conversations', nonce, projectId] }),
+      client.invalidateQueries({ queryKey: ['conversation-summary', nonce, projectId] }),
       client.invalidateQueries({ queryKey: ['conversation', nonce, projectId, conversationId] })
     ]);
   };
   async function loadOlderConversations() {
-    const after = olderConversationPages.at(-1)?.next ?? conversations.data?.next;
-    if (!after || loadingOlder) return;
-    setLoadingOlder(true);
+    const lastPage = olderConversationPages.at(-1);
+    const after = lastPage ? lastPage.next ?? undefined : conversations.data?.next ?? undefined;
+    if (!after || loadingOlderConversations) return;
+    setLoadingOlderConversations(true);
     try {
       const page = await query<ConversationPage>(token, 'list_conversations', { projectId, limit: 50, after });
       setOlderConversationPages(current => [...current, page]);
     }
     catch (error) { setNotice(errorMessage(error)); }
-    finally { setLoadingOlder(false); }
+    finally { setLoadingOlderConversations(false); }
   }
   async function loadOlderMessages() {
-    const after = olderMessagePages.at(-1)?.next ?? latest?.next;
-    if (!after || loadingOlder) return;
-    setLoadingOlder(true);
+    const lastPage = olderMessagePages.at(-1);
+    const after = lastPage ? lastPage.next ?? undefined : latest?.next ?? undefined;
+    if (!after || loadingOlderMessages) return;
+    setLoadingOlderMessages(true);
     try {
       const page = await query<ConversationDetail>(token, 'get_conversation', { projectId, conversationId: selectedId, limit: 50, after });
       setOlderMessagePages(current => [...current, page]);
     }
     catch (error) { setNotice(errorMessage(error)); }
-    finally { setLoadingOlder(false); }
+    finally { setLoadingOlderMessages(false); }
   }
+  const lastConversationPage = olderConversationPages.at(-1);
+  const conversationCursor = lastConversationPage ? lastConversationPage.next ?? undefined : conversations.data?.next ?? undefined;
+  const hasMoreFilteredItems = visibleConversationItems.length < filteredConversationItems.length;
+  const canLoadConversationList = hasConversationFilters ? hasMoreFilteredItems || Boolean(!conversationSummary.data && conversationCursor) : Boolean(conversationCursor);
+  useEffect(() => {
+    const list = conversationListRef.current;
+    const sentinel = conversationListSentinelRef.current;
+    if (!list || !sentinel || !canLoadConversationList || loadingOlderConversations || loadingOlderMessages || typeof IntersectionObserver === 'undefined') return;
+    const observer = new IntersectionObserver(entries => {
+      if (!entries.some(entry => entry.isIntersecting)) return;
+      if (hasConversationFilters && hasMoreFilteredItems) setFilteredConversationLimit(current => current + 50);
+      else if (conversationCursor) void loadOlderConversations();
+    }, { root: list, rootMargin: '120px' });
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [canLoadConversationList, loadingOlderConversations, loadingOlderMessages, hasConversationFilters, hasMoreFilteredItems, conversationCursor]);
   const create = useMutation({
-    mutationFn: () => createProjectConversation<Conversation>(token, projectId, newConversationTypeId),
-    onSuccess: async created => { setSelectedId(created._id); onConversationSelected?.(created._id); setNotice('Conversa criada no escopo do projeto e compartilhada com as IAs via MCP.'); await refresh(created._id); },
+    mutationFn: (typeId?: string) => createProjectConversation<Conversation>(token, projectId, typeId),
+    onSuccess: async created => { setNewConversationOpen(false); setSelectedId(created._id); onConversationSelected?.(created._id); setNotice('Conversa criada no escopo do projeto e compartilhada com as IAs via MCP.'); await refresh(created._id); },
     onError: error => setNotice(errorMessage(error))
   });
   const linkTask = useMutation({
@@ -263,7 +370,10 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
       setSelectedId(history.selectedId);
       onConversationSelected?.(history.selectedId);
       setNotice('Conversa excluída do histórico. Tarefas e execuções foram mantidas.');
-      await client.invalidateQueries({ queryKey: ['conversations', nonce, projectId] });
+      await Promise.all([
+        client.invalidateQueries({ queryKey: ['conversations', nonce, projectId] }),
+        client.invalidateQueries({ queryKey: ['conversation-summary', nonce, projectId] })
+      ]);
     },
     onError: error => setNotice(errorMessage(error))
   });
@@ -374,7 +484,8 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
   function chooseConversation(id: string) { setSelectedId(id); setMobileView('detail'); setDetailTab('chat'); onConversationSelected?.(id); }
   function fillDraft(text: string) { setDraft(text); window.requestAnimationFrame(() => composerRef.current?.focus()); }
 
-  const renderNewConversationButton = (inHeading: boolean) => <button type="button" className={newConversationButtonBase + (inHeading ? ' min-h-11 px-[18px]' : ' min-h-10 px-3.5')} onClick={() => create.mutate()} disabled={create.isPending}>{create.isPending ? 'Criando…' : 'Nova conversa'}</button>;
+  const selectedNewConversationType = selectableConversationTypes.find(type => type._id === newConversationTypeId) ?? selectableConversationTypes.find(type => type.isDefault) ?? selectableConversationTypes[0];
+  const renderNewConversationButton = (inHeading: boolean) => <button type="button" aria-haspopup="dialog" aria-expanded={newConversationOpen} aria-controls="new-conversation-type-dialog" className={newConversationButtonBase + (inHeading ? ' min-h-11 px-[18px]' : ' min-h-10 px-3.5')} onClick={() => setNewConversationOpen(true)} disabled={create.isPending}>{create.isPending ? 'Criando…' : 'Nova conversa'}</button>;
   const taskCard = latest?.task ? <div className="grid items-center gap-2.5">
     <p className="font-display text-[15px] leading-[1.4] font-semibold text-ink wrap-anywhere">{renderInlineCode(stripTaskPrefix(latest.task.name))}</p>
     <div className="flex flex-wrap items-center gap-1.5">
@@ -386,19 +497,47 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
     <a className="text-[13px] font-semibold text-[#2455a6] wrap-anywhere hover:text-[#173e80] hover:underline" href={routeUrl('tasks', `taskId=${encodeURIComponent(latest.task._id)}`, projectId)} aria-label={`Abrir tarefa ${latest.task.name} na listagem`} onClick={event => { if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); onOpenTask(latest.task!._id); }}>Abrir tarefa ↗</a>
   </div> : null;
 
-  return <section className={`${layoutBase} ${showAside ? layoutColumnsAside : layoutColumns}${showAside && !asideOpen ? ` ${layoutCollapsed}` : ''}`} data-view={mobileView} data-tab={detailTab}>
+  return <div className={workspaceBase}>
+    <section className="grid flex-none grid-cols-3 gap-3 max-[640px]:grid-cols-1" aria-label="Indicadores de conversas">
+      {[{ filter: 'summary-waiting' as const, label: 'Aguardando você', count: summaryCounts.waiting, tone: 'text-[#b56717]', surface: 'border-[#f0d9a8] bg-[#fffaf0]' }, { filter: 'summary-in-progress' as const, label: 'Em andamento', count: summaryCounts.inProgress, tone: 'text-[#4b4fcb]', surface: 'border-[#dfe4f4] bg-[#f8f9fc]' }, { filter: 'summary-completed' as const, label: 'Concluídas', count: summaryCounts.completed, tone: 'text-[#168458]', surface: 'border-[#d2eadb] bg-[#f5fbf7]' }].map(item => <button key={item.filter} type="button" aria-label={`Filtrar conversas: ${item.label} (${item.count})`} aria-pressed={listFilter === item.filter} onClick={() => setListFilter(listFilter === item.filter ? 'all' : item.filter)} className={`group grid min-h-[56px] cursor-pointer grid-cols-[1fr_auto] items-center gap-x-3 rounded-[12px] border px-4 py-2 text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4b4fcb] aria-pressed:ring-2 aria-pressed:ring-[#4b4fcb] ${item.surface}`}>
+        <span className="text-ui-sm font-semibold text-[#566275]">{item.label}</span><strong className={`row-span-2 text-[22px] leading-none font-bold tabular-nums ${item.tone}`} aria-label={`${item.count} ${item.count === 1 ? 'conversa' : 'conversas'}`}>{item.count}</strong><small className="text-ui-xs text-muted-strong">{item.count === 1 ? 'conversa' : 'conversas'}</small>
+      </button>)}
+    </section>
+    <section className={`${layoutBase} ${showAside ? layoutColumnsAside : layoutColumns}${showAside && !asideOpen ? ` ${layoutCollapsed}` : ''}`} data-view={mobileView} data-tab={detailTab}>
     <aside className={`${sidebarBase} ${showAside ? sidebarWithAside : sidebarPlain}`} aria-label="Lista de conversas">
       <div className="flex flex-wrap items-center justify-between gap-2"><div><h2 className="mb-1 font-display text-[14px] leading-[normal] font-bold tracking-[-.02em] text-[#273245]">Conversas</h2><p className="mt-0.5 text-ui-sm text-muted-strong">Histórico compartilhado do projeto</p></div>
         {headingSlot ? null : <div className="flex flex-wrap gap-1.5">{renderNewConversationButton(false)}</div>}</div>
-      <input type="search" className={`min-h-11 w-full rounded-ui-md border border-line-strong bg-white py-0 pr-3 pl-9 text-ui-md ${searchIcon}`} value={listSearch} onChange={event => setListSearch(event.target.value)} placeholder="Buscar conversas" aria-label="Buscar conversas" />
-      <label className="grid gap-1 text-[10px] font-semibold text-[#566275]">Tipo da nova conversa<select className="min-h-9 w-full rounded-ui-md border border-line-strong bg-white px-2.5 text-ui-sm text-ink-2" aria-label="Tipo da nova conversa" value={selectableConversationTypes.some(type => type._id === newConversationTypeId) ? newConversationTypeId : '00000000-0000-4000-8000-000000000001'} onChange={event => setNewConversationTypeId(event.target.value)} disabled={conversationTypes.isPending || conversationTypes.isError}><option value="00000000-0000-4000-8000-000000000001">Geral · fluxo padrão</option>{selectableConversationTypes.filter(type => !type.isDefault).map(type => <option value={type._id} key={type._id}>{type.name}</option>)}</select>{conversationTypes.isError && <small role="alert" className="font-normal text-[#a63942]">Não carreguei os tipos; novas conversas usarão Geral.</small>}</label>
-      <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filtrar conversas">{listFilters.map(item => <button type="button" key={item.id} className="inline-flex min-h-8 cursor-pointer items-center gap-1.5 rounded-full border border-[#d5dae3] bg-white px-3 py-[5px] text-ui-xs font-semibold text-[#5b6475] aria-pressed:border-[#c9cbf3] aria-pressed:bg-[#eceefc] aria-pressed:text-[#2f31a0]" aria-pressed={listFilter === item.id} onClick={() => setListFilter(item.id)}>{item.label}{item.count > 0 && item.id !== 'all' && <span className="font-bold text-[#1f6b3a]">{item.count}</span>}</button>)}</div>
-      {conversations.isPending ? <Skeleton rows={5} label="Carregando conversas…" /> : conversations.isError ? <div className={noticeTone.error}>{errorMessage(conversations.error)}</div> : visibleConversationItems.length ? <><div className="grid min-h-0 min-w-0 flex-auto gap-1.5 overflow-x-hidden overflow-y-auto overscroll-contain max-[961px]:grid-cols-[repeat(auto-fit,minmax(min(210px,100%),1fr))]">{visibleConversationItems.map(item => {
+      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-2" role="search" aria-label="Buscar e filtrar conversas">
+        <input type="search" className={`min-h-11 min-w-0 rounded-ui-md border border-line-strong bg-white py-0 pr-3 pl-9 text-ui-md ${searchIcon}`} value={listSearch} onChange={event => setListSearch(event.target.value)} placeholder="Buscar conversas" aria-label="Buscar conversas" />
+        <details className="group/type-filter min-w-0 [&[open]]:col-span-2">
+          <summary className="inline-flex min-h-11 cursor-pointer list-none items-center gap-1.5 rounded-ui-md border border-line-strong bg-white px-3 text-ui-sm font-semibold text-ink-2 marker:hidden focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4b4fcb] [&::-webkit-details-marker]:hidden"><span aria-hidden="true">Tipo</span><span className="max-w-[110px] overflow-hidden text-ellipsis whitespace-nowrap">{selectedTypeIds.length ? `${selectedTypeIds.length} selecionado(s)` : 'Todos'}</span><IconChevron size={12} /></summary>
+          <div className="mt-2 grid w-full min-w-0 gap-2 rounded-[12px] border border-[#e2e5eb] bg-white p-3">
+            <strong className="text-[11px] text-[#435064]">Filtrar por tipo</strong>
+            <input className={`${fieldInput} min-w-0`} type="search" value={typeSearch} onChange={event => setTypeSearch(event.target.value)} placeholder="Buscar tipo de conversa" aria-label="Buscar tipos de conversa" />
+            {typeSearch.trim() !== debouncedTypeSearch && <small className="text-[10px] text-muted-strong" role="status">Buscando tipos…</small>}
+            {conversationTypes.isPending ? <p className="py-3 text-center text-[11px] text-muted-strong" role="status">Carregando tipos…</p> : conversationTypes.isError ? <p className="text-[11px] text-[#a63942]" role="alert">Não foi possível carregar os tipos.</p> : <div className="grid max-h-40 gap-1 overflow-y-auto overscroll-contain" role="group" aria-label="Tipos de conversa">
+              <button type="button" aria-pressed={!selectedTypeIds.length} onClick={() => { setSelectedTypeIds([]); setInbox(current => conversationInboxAfterFilter(current, current.filter)); onConversationSelected?.(''); }} className="flex min-h-9 items-center justify-between gap-2 rounded-[7px] px-2.5 text-left text-[11px] font-semibold text-[#485469] hover:bg-[#f5f6fa] aria-pressed:bg-[#eceefc] aria-pressed:text-[#343da5]">Todos os tipos<span className="text-[10px] tabular-nums text-muted-strong">{summaryItems.length}</span></button>
+              {filteredTypeOptions.map(type => <button key={type.id} type="button" aria-pressed={selectedTypeIds.includes(type.id)} onClick={() => toggleTypeFilter(type.id)} className="flex min-h-9 items-center justify-between gap-2 rounded-[7px] px-2.5 text-left text-[11px] text-[#485469] hover:bg-[#f5f6fa] aria-pressed:bg-[#eceefc] aria-pressed:text-[#343da5]"><span className="min-w-0 truncate">{type.name}{type.archived ? <small className="ml-1.5 text-[9px] text-muted-strong">Arquivado</small> : null}</span><span className="text-[10px] tabular-nums text-muted-strong">{summaryItems.filter(item => typeIdForConversation(item) === type.id).length}</span></button>)}
+              {!filteredTypeOptions.length && <p className="px-2 py-3 text-center text-[11px] text-muted-strong">Nenhum tipo corresponde à busca.</p>}
+            </div>}
+          </div>
+        </details>
+      </div>
+      <div className="flex flex-wrap gap-1.5" role="group" aria-label="Status das tarefas vinculadas">{listFilters.map(item => <button type="button" key={item.id} className="inline-flex min-h-8 cursor-pointer items-center gap-1.5 rounded-full border border-[#d5dae3] bg-white px-2.5 py-[5px] text-ui-xs font-semibold text-[#5b6475] aria-pressed:border-[#c9cbf3] aria-pressed:bg-[#eceefc] aria-pressed:text-[#2f31a0]" aria-pressed={listFilter === item.id} onClick={() => setListFilter(item.id)} title={item.id === 'review' ? 'Tarefas em revisão' : item.id === 'done' ? 'Tarefas concluídas' : undefined}>{item.label}{item.id !== 'done' && <span className="font-bold tabular-nums text-[#687386]">{item.count}</span>}</button>)}</div>
+      {listSearch.trim() !== debouncedListSearch && <p className="-my-1 text-[10px] text-muted-strong" role="status">Buscando conversas…</p>}
+      {filteredHistoryPending && <p className="-my-1 text-[10px] text-muted-strong" role="status">Buscando no histórico completo…</p>}
+      {hasConversationFilters && conversations.data?.next && conversationSummary.isError && <div className={`${noticeTone.error} flex-none`} role="alert">A busca pode estar limitada às páginas carregadas. {errorMessage(conversationSummary.error)} <button type="button" className={textButton} onClick={() => void conversationSummary.refetch()}>Tentar novamente</button></div>}
+      {conversations.isPending ? <Skeleton rows={5} label="Carregando conversas…" /> : conversations.isError ? <div className={noticeTone.error}>{errorMessage(conversations.error)}</div> : visibleConversationItems.length ? <div ref={conversationListRef} className="grid min-h-0 min-w-0 flex-auto content-start gap-1.5 overflow-x-hidden overflow-y-auto overscroll-contain max-[961px]:grid-cols-[repeat(auto-fit,minmax(min(210px,100%),1fr))]">{visibleConversationItems.map(item => {
         const task = item.taskId ? taskForId(item.taskId) : undefined;
         const unreadCount = item.unread?.count ?? 0;
         const lastActivity = item.lastMessageAt || (unreadCount > 0 ? item.updatedAt : undefined);
-        return <button type="button" key={item._id} aria-current={selectedId === item._id ? 'true' : undefined} className={selectedId === item._id ? listItemTones.active : unreadCount > 0 ? listItemTones.unread : listItemTones.idle} onClick={() => chooseConversation(item._id)}><div className="flex items-start justify-between gap-2"><strong className={'line-clamp-3 text-[13.5px] leading-[1.4] wrap-anywhere ' + (unreadCount > 0 ? 'font-extrabold text-[#1f2937]' : 'font-semibold text-[#3f4b60]')}>{stripTaskPrefix(item.title) || 'Nova conversa'}</strong>{unreadCount > 0 && <span className="inline-flex h-[22px] min-w-[22px] flex-none items-center justify-center rounded-full bg-[#1f9d5b] px-1.5 text-center text-[11px] leading-none font-bold text-white" aria-label={`${unreadCount} ${unreadCount === 1 ? 'mensagem não lida' : 'mensagens não lidas'}`}>{unreadCount > 99 ? '99+' : unreadCount}</span>}</div><div className="flex flex-wrap items-center gap-x-2 gap-y-1">{task && <Badge tone={statusTone[task.status] ?? 'muted'}>{statusLabels[task.status] ?? task.status}</Badge>}<span className={'min-w-0 text-[12px] leading-[1.35] wrap-anywhere ' + messageStateTones[unreadCount > 0 ? 'unread' : lastActivity ? 'read' : 'empty']} title={lastActivity ? formatDate(lastActivity) : undefined}>{activityText(unreadCount, lastActivity, relativeTime)}</span></div></button>;
-      })}</div>{(olderConversationPages.at(-1)?.next ?? conversations.data?.next) && <button type="button" className={buttonGhost} disabled={loadingOlder} onClick={() => void loadOlderConversations()}>{loadingOlder ? 'Carregando…' : 'Carregar conversas anteriores'}</button>}</> : conversations.data?.items.length ? <div className={emptyStateBox}><h3 className={emptyHeading}>Nenhuma conversa nesse filtro.</h3><button type="button" className={buttonSecondarySmall} onClick={() => { setListFilter('all'); setListSearch(''); }}>Limpar filtro</button></div> : <div className={emptyStateBox}><h3 className={emptyHeading}>Comece uma conversa</h3><p className={emptyText}>Crie uma conversa geral e vincule uma tarefa pelo cabeçalho do chat.</p></div>}
+        const typeId = typeIdForConversation(item);
+        const typeName = item.conversationType?.name ?? conversationTypeOptions.get(typeId)?.name ?? 'Geral';
+        return <button type="button" key={item._id} aria-current={selectedId === item._id ? 'true' : undefined} className={selectedId === item._id ? listItemTones.active : unreadCount > 0 ? listItemTones.unread : listItemTones.idle} onClick={() => chooseConversation(item._id)}><div className="flex items-start justify-between gap-2"><strong className={'line-clamp-3 text-[13.5px] leading-[1.4] wrap-anywhere ' + (unreadCount > 0 ? 'font-extrabold text-[#1f2937]' : 'font-semibold text-[#3f4b60]')}>{stripTaskPrefix(item.title) || 'Nova conversa'}</strong>{unreadCount > 0 && <span className="inline-flex h-[22px] min-w-[22px] flex-none items-center justify-center rounded-full bg-[#1f9d5b] px-1.5 text-center text-[11px] leading-none font-bold text-white" aria-label={`${unreadCount} ${unreadCount === 1 ? 'mensagem não lida' : 'mensagens não lidas'}`}>{unreadCount > 99 ? '99+' : unreadCount}</span>}</div><div className="flex flex-wrap items-center gap-x-2 gap-y-1"><Badge tone="blue" wrap>{typeName}</Badge>{task && <Badge tone={statusTone[task.status] ?? 'muted'} wrap>{statusLabels[task.status] ?? task.status}</Badge>}<span className={'min-w-0 text-[12px] leading-[1.35] wrap-anywhere ' + messageStateTones[unreadCount > 0 ? 'unread' : lastActivity ? 'read' : 'empty']} title={lastActivity ? formatDate(lastActivity) : undefined}>{activityText(unreadCount, lastActivity, relativeTime)}</span>{item.createdAt && <time className="text-[10px] leading-[1.35] text-muted-strong" dateTime={item.createdAt} title={formatDate(item.createdAt)}>Criada {relativeTime(item.createdAt)}</time>}</div></button>;
+      })}{canLoadConversationList && <div ref={conversationListSentinelRef} className="grid justify-items-center gap-1 p-2.5">
+          {hasMoreFilteredItems ? <button type="button" className={buttonGhost} onClick={() => setFilteredConversationLimit(current => current + 50)}>Carregar mais resultados</button> : conversationCursor ? <button type="button" className={buttonGhost} disabled={loadingOlderConversations} onClick={() => void loadOlderConversations()}>{loadingOlderConversations ? 'Carregando…' : 'Carregar conversas anteriores'}</button> : null}
+          {loadingOlderConversations && <span className="text-[10px] text-muted-strong" role="status">Carregando conversas…</span>}
+        </div>}</div> : filteredHistoryPending ? <div className={emptyStateBox} role="status">Buscando conversas no histórico…</div> : (hasConversationFilters || conversations.data?.items.length) ? <div className={emptyStateBox}><h3 className={emptyHeading}>Nenhuma conversa nesse filtro.</h3><button type="button" className={buttonSecondarySmall} onClick={() => { setListFilter('all'); setListSearch(''); setSelectedTypeIds([]); }}>Limpar filtros</button></div> : <div className={emptyStateBox}><h3 className={emptyHeading}>Comece uma conversa</h3><p className={emptyText}>Crie uma conversa Geral ou escolha outro fluxo e vincule uma tarefa pelo cabeçalho do chat.</p></div>}
     </aside>
     <section className={`${mainBase} ${showAside ? mainWithAside : mainPlain}`} aria-label="Conversa">
       {!selectedId ? <div className="grid flex-none justify-items-center gap-2 px-5 py-[54px] text-center"><h2 className="font-display text-[16px] leading-[normal] font-bold text-[#394558]">{inbox.chooseAfterFilter ? 'Escolha uma conversa' : 'Conversa do projeto'}</h2><p className={emptyText}>{inbox.chooseAfterFilter ? 'O painel está limpo. Selecione uma conversa nos resultados do filtro.' : 'Selecione uma conversa ou crie uma nova para começar.'}</p></div> : <>
@@ -420,7 +559,7 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
         {markRead.isError && readAttempt.current?.conversationId === selectedId && <ConversationReadFailure error={markRead.error} retrying={markRead.isPending} retry={() => { if (readAttempt.current) markRead.mutate(readAttempt.current); }} />}
         {detail.isPending ? <Skeleton rows={6} label="Carregando mensagens…" /> : detail.isError ? <ErrorNotice error={detail.error} onRetry={() => void detail.refetch()} retrying={detail.isFetching} title="Não foi possível carregar a conversa" /> : <>
           <div className="flex min-h-0 flex-auto flex-col max-[768px]:flex-[1_0_auto]">
-            {(olderMessagePages.at(-1)?.next ?? latest?.next) && <button type="button" className={`${buttonGhost} m-2 flex-none self-center`} disabled={loadingOlder} onClick={() => void loadOlderMessages()}>{loadingOlder ? 'Carregando…' : 'Carregar mensagens anteriores'}</button>}
+            {messageCursor && <button type="button" className={`${buttonGhost} m-2 flex-none self-center`} disabled={loadingOlderMessages} onClick={() => void loadOlderMessages()}>{loadingOlderMessages ? 'Carregando…' : 'Carregar mensagens anteriores'}</button>}
             <div className="relative flex min-h-0 flex-auto max-[768px]:min-h-[240px]"><div className="grid min-h-0 flex-auto content-start gap-3.5 overflow-y-auto bg-white px-[max(20px,calc((100%_-_740px)/2))] py-6 max-[768px]:px-3.5 max-[768px]:py-3" aria-live="polite" ref={messagesRef} onScroll={onMessagesScroll} tabIndex={0} aria-label="Mensagens da conversa">{orderedMessages.length || sortedProposals.length ? <>
               {orderedMessages.map(message => {
                 const agent = message.authorType === 'agent';
@@ -446,5 +585,7 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
     </section>
     {headingSlot && createPortal(<div className="flex flex-wrap gap-2">{renderNewConversationButton(true)}</div>, headingSlot)}
     {showAside && latest && <ConversationAside detail={latest} taskContext={taskContext} onOpenAdmin={onOpenAdmin} tabs={renderTabs(false)} collapsed={!asideOpen} token={token} nonce={nonce} projectId={projectId} hasPendingProposal={Boolean(pendingProposal)} taskCard={taskCard} />}
-  </section>;
+    </section>
+    <ConversationTypeDialog open={newConversationOpen} types={selectableConversationTypes} selectedTypeId={newConversationTypeId} loading={conversationTypes.isPending} error={conversationTypes.isError} creating={create.isPending} creationError={create.isError ? errorMessage(create.error) : undefined} onSelect={setNewConversationTypeId} onClose={() => setNewConversationOpen(false)} onCreate={() => create.mutate(selectedNewConversationType?._id)} />
+  </div>;
 }

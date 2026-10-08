@@ -13,7 +13,7 @@ const { ConversationTypesManager } = await vite.ssrLoadModule('/src/components/c
 const conversationActions = await vite.ssrLoadModule('/src/components/conversations/conversation-actions.ts');
 after(async () => { await vite.close(); });
 
-function renderPanel(items: Array<Record<string, unknown>>, next: string | null = null, error?: Error, requestedConversationId?: string, messages: Array<Record<string, unknown>> = [], detailOverrides: Record<string, unknown> = {}, typeItems: Array<Record<string, unknown>> = []) {
+function renderPanel(items: Array<Record<string, unknown>>, next: string | null = null, error?: Error, requestedConversationId?: string, messages: Array<Record<string, unknown>> = [], detailOverrides: Record<string, unknown> = {}, typeItems: Array<Record<string, unknown>> = [], taskItems: Array<Record<string, unknown>> = [{ _id: 'task-1', name: 'Task A', status: 'pendente', area: 'backend', featureId: 'feature-1' }]) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
   const queryKey = ['conversations', 'session-nonce', 'project-id'];
   client.setQueryData(queryKey, { items, next });
@@ -28,7 +28,7 @@ function renderPanel(items: Array<Record<string, unknown>>, next: string | null 
     cached?.setState({ ...cached.state, status: 'error', error, fetchStatus: 'idle' });
   }
   const html = renderToStaticMarkup(createElement(QueryClientProvider, { client }, createElement(ConversationPanel, {
-    token: 'session-token', nonce: 'session-nonce', projectId: 'project-id', tasks: [{ _id: 'task-1', name: 'Task A', status: 'pendente', area: 'backend', featureId: 'feature-1' }], requestedConversationId, onRequestedConversationSelected() {}, onOpenAdmin() {}
+    token: 'session-token', nonce: 'session-nonce', projectId: 'project-id', tasks: taskItems as any, requestedConversationId, onRequestedConversationSelected() {}, onOpenAdmin() {}
   })));
   client.clear();
   return html;
@@ -61,6 +61,48 @@ test('painel inicia conversa no escopo do projeto e oferece retomada paginada', 
   assert.doesNotMatch(html, /Autorizar execução/);
   assert.doesNotMatch(html, /Tipos e etapas/);
   assert.match(html, /Tipo da nova conversa/);
+});
+
+test('indicadores do topo exibem as três categorias e contagens, incluindo zero', () => {
+  const zero = renderPanel([]);
+  assert.match(zero, /aria-label="Indicadores de conversas"/);
+  assert.match(zero, /Aguardando você<\/span><strong[^>]*aria-label="0 conversas">0/);
+  assert.match(zero, /Em andamento<\/span><strong[^>]*aria-label="0 conversas">0/);
+  assert.match(zero, /Concluídas<\/span><strong[^>]*aria-label="0 conversas">0/);
+
+  const conversations = [
+    { _id: 'c-blocked', projectId: 'project-id', taskId: 't-blocked', title: 'Bloqueada', status: 'open' },
+    { _id: 'c-review', projectId: 'project-id', taskId: 't-review', title: 'Em revisão', status: 'open' },
+    { _id: 'c-active', projectId: 'project-id', taskId: 't-active', title: 'Pendente', status: 'open' },
+    { _id: 'c-done', projectId: 'project-id', taskId: 't-done', title: 'Concluída', status: 'open' },
+    { _id: 'c-cancelled', projectId: 'project-id', taskId: 't-cancelled', title: 'Cancelada', status: 'open' }
+  ];
+  const tasks = [
+    { _id: 't-blocked', status: 'bloqueada' }, { _id: 't-review', status: 'em_revisao' },
+    { _id: 't-active', status: 'em_execucao' }, { _id: 't-done', status: 'concluida' }, { _id: 't-cancelled', status: 'cancelada' }
+  ];
+  const html = renderPanel(conversations, null, undefined, undefined, [], {}, [], tasks);
+  assert.match(html, /Aguardando você<\/span><strong[^>]*aria-label="2 conversas">2/);
+  assert.match(html, /Em andamento<\/span><strong[^>]*aria-label="1 conversa">1/);
+  assert.match(html, /Concluídas<\/span><strong[^>]*aria-label="1 conversa">1/);
+});
+
+test('busca conversas em todas as páginas para calcular os indicadores do projeto', async () => {
+  const originalFetch = globalThis.fetch;
+  const calls: Array<{ args: Record<string, unknown> }> = [];
+  globalThis.fetch = async (_input, init) => {
+    const body = JSON.parse(String(init?.body));
+    const args = body.arguments as Record<string, unknown>;
+    calls.push({ args });
+    const page = args.after ? { items: [{ _id: 'conversation-2' }], next: null } : { items: [{ _id: 'conversation-1' }], next: 'cursor-2' };
+    return new Response(JSON.stringify(page), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  try {
+    const items = await conversationActions.listAllProjectConversations('session-token', 'project-id');
+    assert.deepEqual(items, [{ _id: 'conversation-1' }, { _id: 'conversation-2' }]);
+    assert.deepEqual(calls.map(call => call.args.after), [undefined, 'cursor-2']);
+    assert.ok(calls.every(call => call.args.limit === 100 && call.args.projectId === 'project-id'));
+  } finally { globalThis.fetch = originalFetch; }
 });
 
 test('mudar qualquer filtro limpa a seleção e exige escolher uma conversa dos resultados', () => {
@@ -123,7 +165,13 @@ test('clique em filtro limpa o painel atual até a seleção de outra conversa c
   dom.document.body.append(host);
   const root = createRoot(host as unknown as Element);
   const tick = () => new Promise(resolve => setTimeout(resolve, 0));
-  const button = (text: string) => (Array.from(host.querySelectorAll('button')) as unknown as HTMLButtonElement[]).find(item => item.textContent?.trim().startsWith(text));
+  const button = (text: string) => {
+    const filterChip = Array.from(host.querySelectorAll('[aria-label="Filtrar conversas"] button')) as unknown as HTMLButtonElement[];
+    return filterChip.find(item => item.textContent?.trim().startsWith(text))
+      ?? (Array.from(host.querySelectorAll('button')) as unknown as HTMLButtonElement[]).find(item => item.textContent?.trim().startsWith(text));
+  };
+  const indicator = (label: string) => (Array.from(host.querySelectorAll('button[aria-label^="Filtrar conversas:"]')) as unknown as HTMLButtonElement[]).find(item => item.getAttribute('aria-label')?.startsWith(`Filtrar conversas: ${label} `));
+  const list = () => host.querySelector('[aria-label="Lista de conversas"]')?.textContent ?? '';
   try {
     await act(async () => { root.render(createElement(QueryClientProvider, { client }, createElement(ConversationPanel, {
       token: 'session-token', nonce: 'session-nonce', projectId: 'project-id', tasks: [
@@ -149,6 +197,25 @@ test('clique em filtro limpa o painel atual até a seleção de outra conversa c
     await act(async () => { button('Todas')?.click(); await tick(); });
     assert.match(panel(), /Escolha uma conversa/);
     assert.doesNotMatch(panel(), /Conversa concluída/);
+    await act(async () => { indicator('Aguardando você')?.click(); await tick(); });
+    assert.match(list(), /Primeira conversa/);
+    assert.doesNotMatch(list(), /Conversa não lida|Conversa concluída/);
+    assert.match(panel(), /Escolha uma conversa/);
+    assert.equal(indicator('Aguardando você')?.getAttribute('aria-pressed'), 'true');
+    assert.equal(selected.at(-1), '');
+    await act(async () => { indicator('Em andamento')?.click(); await tick(); });
+    assert.match(list(), /Conversa não lida/);
+    assert.doesNotMatch(list(), /Primeira conversa|Conversa concluída/);
+    await act(async () => { indicator('Concluídas')?.click(); await tick(); });
+    assert.match(list(), /Conversa concluída/);
+    assert.doesNotMatch(list(), /Primeira conversa|Conversa não lida/);
+    await act(async () => { indicator('Concluídas')?.click(); await tick(); });
+    assert.match(list(), /Primeira conversa/);
+    assert.match(list(), /Conversa não lida/);
+    assert.match(list(), /Conversa concluída/);
+    assert.equal(indicator('Concluídas')?.getAttribute('aria-pressed'), 'false');
+    assert.match(panel(), /Escolha uma conversa/);
+    assert.equal(selected.at(-1), '');
   } finally {
     await act(async () => root.unmount());
     client.clear();

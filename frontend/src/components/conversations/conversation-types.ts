@@ -5,7 +5,7 @@ export type ConversationStage = {
   condition?: { fieldId: string; operator: 'is_set' | 'is_not_set' | 'equals' | 'not_equals' | 'contains'; value?: string };
 };
 export type ConversationType = { _id: string; projectId: string; name: string; description: string; version: number; archived: boolean; isDefault: boolean; stages: ConversationStage[] };
-export type Conversation = { _id: string; projectId: string; taskId: string | null; title: string; status: string; version: number; conversationTypeId?: string; conversationType?: Pick<ConversationType, '_id' | 'name' | 'version' | 'isDefault'> & Partial<Pick<ConversationType, 'description' | 'stages'>>; updatedAt?: string; lastMessageAt?: string | null; unread?: { count: number; cursor: string | null } };
+export type Conversation = { _id: string; projectId: string; taskId: string | null; title: string; status: string; version: number; conversationTypeId?: string; conversationType?: Pick<ConversationType, '_id' | 'name' | 'version' | 'isDefault'> & Partial<Pick<ConversationType, 'description' | 'stages'>>; createdAt?: string; updatedAt?: string; lastMessageAt?: string | null; unread?: { count: number; cursor: string | null } };
 export type Message = { _id: string; author: string; authorType: 'human' | 'agent'; clientName?: string | null; content: string; createdAt: string };
 export type Proposal = {
   _id: string; taskId: string; expectedTaskVersion: number; title: string; summary: string;
