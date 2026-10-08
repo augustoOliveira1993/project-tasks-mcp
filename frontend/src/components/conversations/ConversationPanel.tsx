@@ -138,9 +138,16 @@ export function ConversationPanel({ token, nonce, projectId, tasks, requestedCon
     setInbox(current => conversationInboxAfterFilter(current, filter));
     onConversationSelected?.('');
   };
+  const [selectedTypeIds, setSelectedTypeIds] = useState<string[]>([]);
+  function toggleTypeFilter(typeId: string) {
+    setSelectedTypeIds(current => current.includes(typeId)
+      ? current.filter(id => id !== typeId)
+      : [...current, typeId]);
+    setInbox(current => conversationInboxAfterFilter(current, current.filter));
+    onConversationSelected?.('');
+  }
   const [newConversationTypeId, setNewConversationTypeId] = useState('');
   const [newConversationOpen, setNewConversationOpen] = useState(false);
-  const [selectedTypeIds, setSelectedTypeIds] = useState<string[]>([]);
   const [typeSearch, setTypeSearch] = useState('');
   const [debouncedTypeSearch, setDebouncedTypeSearch] = useState('');
   const [titleEditing, setTitleEditing] = useState(false);

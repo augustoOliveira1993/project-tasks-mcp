@@ -26,6 +26,6 @@ export type TaskOption = { _id: string; name: string; status: string; area?: str
 export type Feature = { _id: string; name: string };
 export type TaskActivity = {
   task: { _id: string; version: number; status: string; acceptance: string[]; acceptanceProgress: boolean[]; acceptanceEvidence: Array<string | null> };
-  messages: Array<{ _id: string; type: string; author: string; authorType: 'human' | 'agent' | 'unknown'; clientName: string | null; message: string; createdAt: string }>;
+  messages: Array<{ _id: string; type: string; author: string; authorType: 'human' | 'agent' | 'unknown'; clientName: string | null; message: string; createdAt: string; truncated?: boolean }>;
   executions: Array<{ _id: string; status: string; startedAt: string; result?: { summary?: string; evidence?: string[] } }>;
 };

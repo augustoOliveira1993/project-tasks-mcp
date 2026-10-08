@@ -12,6 +12,7 @@ import { relativeTime } from '../../lib/labels';
 import { buttonBase, textButton } from '../ui/classes';
 import { filterCriteria, jobStatusLabel, shortCriterionTitle, type CriteriaFilter } from '../../lib/conversation-ui';
 import { TaskMessageAuthor, taskMessageTypeLabel } from './ConversationParts';
+import { TaskMessageBody } from '../tasks/TaskMessageBody';
 import type { ConversationDetail, TaskActivity } from './conversation-types';
 
 const sectionBase = 'grid min-w-0 border-b border-b-[#eef0f4] bg-white';
@@ -129,7 +130,7 @@ export function ConversationAside({ detail, taskContext, onOpenAdmin, tabs, toke
       <summary className={summaryClass}>Progresso e decisões recentes ({Math.min(5, context.messages.length)})</summary>
       {context.messages.slice(0, 5).map(message => <article key={message._id} className="rounded-ui-sm border border-line bg-[#fbfcfe] px-2.5 py-2">
         <div className="flex items-start justify-between gap-x-3 gap-y-[7px]"><TaskMessageAuthor message={message} /><div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-[7px] text-[9px] text-[#8791a1]"><Badge tone={message.type === 'resposta' ? 'green' : 'blue'}>{taskMessageTypeLabel(message.type)}</Badge><small title={formatDate(message.createdAt)}>{relativeTime(message.createdAt)}</small></div></div>
-        <MarkdownView content={message.message} variant="aside" />
+        <TaskMessageBody token={token} nonce={nonce} projectId={projectId} taskId={context.task._id} message={message} variant="aside" />
       </article>)}
     </details> : null}
 

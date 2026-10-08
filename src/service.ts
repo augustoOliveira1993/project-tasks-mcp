@@ -1210,12 +1210,14 @@ export class Service {
       const readMessages = async () => {
         const filter: any = { projectId: a.projectId, $or: [{ taskId: a.taskId }, { relatedTaskId: a.taskId }] };
         if (a.after) { const cursor = await TaskMessage.findOne({ ...filter, _id: a.after }).lean(); requireThat(cursor, 'Invalid message cursor', 400); filter.$and = [{ $or: [{ createdAt: { $gt: cursor.createdAt } }, { createdAt: cursor.createdAt, _id: { $gt: a.after } }] }]; }
+        if (name === 'list_task_messages' && a.messageId) filter._id = a.messageId;
         const items = await TaskMessage.find(filter).select('_id projectId taskId relatedTaskId executionId author type message references createdAt conversationId replyTo').sort({ createdAt: 1, _id: 1 }).limit(a.limit).lean();
+        if (name === 'list_task_messages' && a.messageId) requireThat(items.length === 1, 'Task message not found in the requested task', 404);
         let feed;
         try { feed = name === 'wait_task_events' ? await readEvents({ projectId: a.projectId, taskIds: [a.taskId] }, a.eventAfter, a.limit, !a.eventAfter) : undefined; }
         catch (error) { throw new DomainError((error as Error).message, 400); }
         const events = name === 'wait_task_events' ? a.eventAfter ? feed!.items : await Event.find({ projectId: a.projectId, entityId: a.taskId }).sort({ at: -1 }).limit(a.limit).lean() : [];
-        return { items, events, next: items.length === a.limit ? items.at(-1)!._id : null, messageCursor: items.at(-1)?._id ?? a.after ?? null, eventCursor: feed?.cursor };
+        return { items, events, next: a.messageId ? null : items.length === a.limit ? items.at(-1)!._id : null, messageCursor: items.at(-1)?._id ?? a.after ?? null, eventCursor: feed?.cursor };
       };
       let result = await readMessages();
       if (name === 'wait_task_events' && !result.items.length && !result.events.length && a.timeoutMs > 0) { const deadline = Date.now() + a.timeoutMs; while (Date.now() < deadline && !result.items.length && !result.events.length) { await this.events.wait({ projectId: a.projectId, taskIds: [a.taskId] }, Math.min(1000, deadline - Date.now())).promise; await this.access(actor, a.projectId); result = await readMessages(); } }

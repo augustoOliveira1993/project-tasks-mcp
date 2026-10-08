@@ -36,7 +36,7 @@ export const toolDocs: readonly ToolDoc[] = [
   ['Diffs Git', 'get_task_diff', 'Busca os metadados e, se armazenado, o patch de um diff específico.', 'Leitura'],
   ['Colaboração', 'send_task_message', 'Envia uma mensagem de mudança, pergunta, resposta, decisão, bloqueio, contrato ou progresso ligada à execução da tarefa.', 'Gravação'],
   ['Colaboração', 'send_collaboration_message', 'Envia mensagem tipada na task como membro autorizado; respostas podem ser vinculadas automaticamente a perguntas abertas.', 'Gravação'],
-  ['Colaboração', 'list_task_messages', 'Consulta mensagens e decisões registradas para uma tarefa.', 'Leitura'],
+  ['Colaboração', 'list_task_messages', 'Consulta mensagens integrais por cursor ou por ID, sempre no escopo da tarefa informada.', 'Leitura'],
   ['Conversas com IA', 'create_conversation', 'Inicia uma conversa compartilhada no escopo do projeto.', 'Gravação'],
   ['Conversas com IA', 'open_task_conversation', 'Abre ou cria uma conversa multi-turno vinculada à tarefa; use send_task_message para progresso pontual.', 'Gravação'],
   ['Conversas com IA', 'list_conversations', 'Retoma conversas compartilhadas do projeto.', 'Leitura'],

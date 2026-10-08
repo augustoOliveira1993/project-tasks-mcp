@@ -168,7 +168,7 @@ export const tools = {
   subscribe_project_events: z.object({ ...eventFilter, cursor: cursor.optional() }).strict(),
   unsubscribe_project_events: z.object(eventFilter).strict(),
   wait_project_events: z.object({ ...eventFilter, cursor: cursor.optional(), timeoutMs: z.number().int().min(0).max(30000).default(25000), limit: z.number().int().min(1).max(100).default(50) }).strict(),
-  list_task_messages: z.object({ projectId: id, taskId: id, after: id.optional(), limit: z.number().int().min(1).max(100).default(50) }).strict(),
+  list_task_messages: z.object({ projectId: id, taskId: id, after: id.optional(), messageId: id.describe('Busca uma mensagem específica e retorna o corpo integral, desde que vinculada à tarefa informada.').optional(), limit: z.number().int().min(1).max(100).default(50) }).strict().refine(({ after, messageId }) => !after || !messageId, 'Use after ou messageId, não ambos.'),
   wait_task_events: z.object({ projectId: id, taskId: id, after: id.optional(), eventAfter: cursor.optional(), timeoutMs: z.number().int().min(0).max(30000).default(25000), limit: z.number().int().min(1).max(100).default(50) }).strict(),
   subscribe_task_events: z.object({ projectId: id, taskId: id }).strict(),
   claim_task: z.object({ ...op, projectId: id, taskId: id, version: z.number().int().nonnegative(), agent: text }).strict(),

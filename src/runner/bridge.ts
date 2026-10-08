@@ -20,7 +20,7 @@ const RUNNER_TOOL_GUIDANCE: Record<string, string> = {
   get_task_context: 'Returns only the authorized task context; inspect saved acceptanceProgress, not status text.',
   list_markdowns: 'Lists documents linked to the authorized task or feature; retrieve only needed content.',
   get_markdown: 'Reads a document in bounded lines; do not assume omitted lines were included.',
-  list_task_messages: 'Reads messages for the authorized task and supports cursor-based continuation.',
+  list_task_messages: 'Reads full messages for the authorized task using cursor-based continuation or a task-scoped messageId lookup.',
   send_task_message: 'Requires an active writable execution and is for its operational progress/questions.',
   send_collaboration_message: 'Use only for task collaboration or the explicit linked consultation; it does not provide general access to another task.',
   send_conversation_message: 'Replies to the authorized task conversation. Use it to answer new human messages delivered by the runner.',

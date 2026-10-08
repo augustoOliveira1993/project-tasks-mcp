@@ -36,6 +36,7 @@ function fitContext(context: TaskContextDto, truncated: Set<string>) {
     if (largest) {
       const chars = Array.from(largest.value);
       largest.parent[largest.key] = chars.slice(0, Math.max(79, Math.floor(chars.length * 0.75) - 1)).join('') + '…';
+      if (largest.key === 'message' && largest.path.startsWith('context.messages[')) largest.parent.truncated = true;
       truncated.add(largest.path);
       continue;
     }
@@ -170,7 +171,7 @@ export async function getTaskContext(projectId: string, taskId: string, includeA
   if (executionMore) truncated.add('executions');
   if ((feature?.acceptance?.length ?? 0) > 20) truncated.add('feature.acceptance');
   const boundedMessages = messages.slice(0, 10).map((message, index) => {
-    const boundedMessage = text(message.message, 1000, `messages[${index}].message`, truncated);
+    const boundedMessage = text(message.message, 20_000, `messages[${index}].message`, truncated);
     const clientName = typeof message.clientName === 'string' && message.clientName.trim() ? text(message.clientName.trim(), 100, `messages[${index}].clientName`, truncated) : eventClientNames.get(message._id!) ?? null;
     const authorType: TaskContextDto['messages'][number]['authorType'] = message.authorType === 'human' || message.authorType === 'agent'
       ? message.authorType
