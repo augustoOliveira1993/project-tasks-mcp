@@ -1,5 +1,5 @@
 import type { ClientSession, Model } from 'mongoose';
-import { Project, Feature, Task, TaskDependency, Execution, Event, TaskMessage, Conversation,
+import { Project, Feature, Task, TaskDependency, Execution, Event, TaskMessage, Conversation, ConversationType,
   ConversationMessage, ActionProposal, DeliveryEvent, TaskDiff, AutomationJob,
   MarkdownDocument, MarkdownRevision } from '../db.js';
 
@@ -8,7 +8,7 @@ const privateField = /^(?:.*(?:token|password|secret|credential|authorization|ap
 export const projectExportCollections: Array<[string, Model<any>]> = [
   ['features', Feature], ['tasks', Task], ['taskDependencies', TaskDependency],
   ['executions', Execution], ['events', Event], ['taskMessages', TaskMessage],
-  ['conversations', Conversation], ['conversationMessages', ConversationMessage],
+  ['conversationTypes', ConversationType], ['conversations', Conversation], ['conversationMessages', ConversationMessage],
   ['actionProposals', ActionProposal], ['deliveryEvents', DeliveryEvent], ['taskDiffs', TaskDiff],
   ['automationJobs', AutomationJob], ['markdownDocuments', MarkdownDocument], ['markdownRevisions', MarkdownRevision]
 ];

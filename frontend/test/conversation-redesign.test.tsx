@@ -9,6 +9,7 @@ import { createServer } from 'vite';
 const vite = await createServer({ configFile: resolve(process.cwd(), 'frontend/vite.config.ts'), server: { middlewareMode: true }, appType: 'custom' });
 const ui = await vite.ssrLoadModule('/src/lib/conversation-ui.ts');
 const { ConversationStepper } = await vite.ssrLoadModule('/src/components/conversations/ConversationStepper.tsx');
+const { validateConversationTypeDraft } = await vite.ssrLoadModule('/src/components/conversations/ConversationTypesManager.tsx');
 const { ProposalCard } = await vite.ssrLoadModule('/src/components/conversations/ProposalCard.tsx');
 const { ConversationAside } = await vite.ssrLoadModule('/src/components/conversations/ConversationAside.tsx');
 after(async () => { await vite.close(); });
@@ -46,6 +47,39 @@ test('stepper marca concluída, atual e futura com texto para leitores de tela',
   assert.equal((html.match(/aria-current="step"/g) ?? []).length, 1);
   assert.match(html, /Autorização<span class="sr-only"> \(fase atual\)/);
   assert.match(html, /Passo 3 de 4 · Autorização/);
+});
+
+test('stepper acompanha as etapas configuradas e preserva a etapa de autorização', () => {
+  const stages = [
+    { id: 'one', title: 'Contexto', description: '', kind: 'form', required: true, fields: [{ id: 'f', label: 'Problema', helpText: '', type: 'textarea', required: true, options: [] }] },
+    { id: 'two', title: 'Revisão', description: '', kind: 'condition', required: false, condition: { fieldId: 'f', operator: 'is_set' } },
+    { id: 'three', title: 'Autorização', description: '', kind: 'approval', required: true, approvalLabel: 'Autorizar' }
+  ];
+  const html = renderToStaticMarkup(createElement(ConversationStepper, { phase: 3, stages }));
+  assert.match(html, /Contexto/);
+  assert.match(html, /Revisão<span class="sr-only"> \(fase atual\)/);
+  assert.match(html, /Autorização<span class="sr-only"> \(pendente\)/);
+  assert.match(html, /Passo 2 de 3 · Revisão/);
+});
+
+test('validação local do editor aceita contratos suportados e explica configurações incompletas', () => {
+  const valid = { name: 'Incidente', description: 'Investigar e autorizar correções.', stages: [
+    { id: 's1', title: 'Contexto', description: '', kind: 'form', required: true, fields: [
+      { id: 'f1', label: 'Sintoma', helpText: 'O que aconteceu?', type: 'textarea', required: true, options: [] },
+      { id: 'f2', label: 'Severidade', helpText: '', type: 'select', required: true, options: ['Alta', 'Baixa'] }
+    ] },
+    { id: 's2', title: 'Triagem', description: '', kind: 'condition', required: false, condition: { fieldId: 'f2', operator: 'equals', value: 'Alta' } },
+    { id: 's3', title: 'Autorizar', description: '', kind: 'approval', required: true, approvalLabel: 'Autorizar execução' }
+  ] };
+  assert.deepEqual(validateConversationTypeDraft(valid), []);
+  const invalid = { ...valid, stages: [
+    { ...valid.stages[0], fields: [{ ...valid.stages[0].fields[0], label: '', type: 'select', options: [] }] },
+    { ...valid.stages[1], condition: { fieldId: 'missing', operator: 'contains' } }
+  ] };
+  const errors = validateConversationTypeDraft(invalid).join(' ');
+  assert.match(errors, /rótulo/i);
+  assert.match(errors, /opções/i);
+  assert.match(errors, /campo de formulário anterior/i);
 });
 
 const proposal = (overrides = {}) => ({ _id: 'p1', taskId: 't1', expectedTaskVersion: 3, title: 'Executar login', summary: 'Resumo', taskPatch: { instructions: 'Passo 1', acceptance: ['A', 'B'] }, status: 'pending', version: 2, stale: false, ...overrides });

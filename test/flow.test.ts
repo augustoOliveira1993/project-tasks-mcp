@@ -6,7 +6,7 @@ import mongoose from 'mongoose';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { connect, Project, Task, Event, Execution, Credential, TaskMessage, MarkdownDocument, MarkdownRevision, Conversation, ConversationMessage, ConversationRead, ActionProposal } from '../src/db.js';
+import { connect, Project, Task, Event, Execution, Credential, TaskMessage, MarkdownDocument, MarkdownRevision, Conversation, ConversationMessage, ConversationRead, ConversationType, ActionProposal } from '../src/db.js';
 import { DomainError, Service, authenticate, bootstrap, recoverHumanToken, trustedLocal, type Actor } from '../src/service.js';
 import { createApp, mcpError } from '../src/http.js';
 
@@ -283,6 +283,7 @@ test('MCP real HTTP handshake, tool listing, tool call and endpoint boundaries',
     assert.match(listed.tools.find(t => t.name === 'claim_task')!.description!, /responsible.*usuário autenticado atual/);
     assert.match(listed.tools.find(t => t.name === 'set_task_status')!.description!, /transições administrativas válidas/);
     assert.match(listed.tools.find(t => t.name === 'open_task_conversation')!.description!, /Use send_task_message.*does not wake another agent session automatically/i);
+    assert.match(listed.tools.find(t => t.name === 'get_conversation')!.description!, /authorType exatamente human.*autorização de execução/i);
     assert.ok(!listed.tools.some(t => /^(?:approve|review)_/.test(t.name)));
     const response = await client.callTool({ name: 'list_records', arguments: { kind: 'project', limit: 1 } });
     assert.ok(!response.isError);
@@ -734,6 +735,90 @@ test('conversation can be created for an active task in its project', async () =
   const archived = await source.create('Archived conversation task');
   await Task.updateOne({ _id: archived._id }, { $set: { archived: true } });
   await assert.rejects(service.call(human, 'create_conversation', { operationId: op(), projectId: source.p._id, taskId: archived._id }), /Task not found/);
+});
+
+test('conversation types validate, version and snapshot flows without changing existing conversations', async () => {
+  const { p } = await fixture();
+  const firstFieldId = op();
+  const typeInput = {
+    operationId: op(), projectId: p._id,
+    data: {
+      name: 'Correção', description: 'Fluxo de correção de defeitos',
+      stages: [
+        { id: op(), title: 'Contexto', description: 'Reúna os dados do problema.', kind: 'form', required: true,
+          fields: [{ id: firstFieldId, label: 'Sintoma', helpText: '', type: 'textarea', required: true, options: [] }] },
+        { id: op(), title: 'Triagem', description: 'Classifique o problema.', kind: 'condition', required: false,
+          condition: { fieldId: firstFieldId, operator: 'contains', value: 'erro' } },
+        { id: op(), title: 'Autorização', description: 'Aguarde autorização humana.', kind: 'approval', required: true, approvalLabel: 'Autorizar correção' }
+      ]
+    }
+  };
+  const created = await service.call(human, 'create_conversation_type', typeInput);
+  assert.equal(created.name, 'Correção');
+  assert.equal(created.version, 0);
+  assert.deepEqual(created.stages.map((stage: any) => stage.title), ['Contexto', 'Triagem', 'Autorização']);
+  assert.equal((await service.call(human, 'create_conversation_type', typeInput))._id, created._id, 'type creation retries are idempotent');
+  assert.equal((await service.query(human, 'list_conversation_types', { projectId: p._id })).items.length, 2, 'project includes the built-in default');
+  const otherProject = await fixture();
+  assert.equal((await service.query(human, 'list_conversation_types', { projectId: otherProject.p._id })).items.length, 1, 'types are scoped to their project');
+  await assert.rejects(service.query(human, 'get_conversation_type', { projectId: otherProject.p._id, typeId: created._id }), /not found/i);
+  await assert.rejects(service.call(human, 'create_conversation', { operationId: op(), projectId: otherProject.p._id, typeId: created._id }), /not found/i);
+  assert.equal((await service.query(human, 'get_conversation_type', { projectId: p._id, typeId: created._id }))._id, created._id);
+
+  const oldId = op();
+  await Conversation.collection.insertOne({ _id: oldId, projectId: p._id, title: 'Conversa antiga', status: 'open', version: 0, createdAt: new Date(), updatedAt: new Date() });
+  await ConversationMessage.create({ _id: op(), projectId: p._id, conversationId: oldId, author: 'owner', authorType: 'human', senderId: 'owner', content: 'Histórico existente' });
+  const oldDetail = await service.query(human, 'get_conversation', { projectId: p._id, conversationId: oldId, limit: 20 });
+  assert.equal(oldDetail.conversation.conversationType.name, 'Geral', 'pre-existing records without type metadata use the default flow');
+  assert.equal(oldDetail.messages[0].content, 'Histórico existente', 'pre-existing messages remain readable');
+
+  const legacy = await service.call(human, 'create_conversation', { operationId: op(), projectId: p._id });
+  assert.equal(legacy.conversationType.name, 'Geral');
+  assert.equal(legacy.conversationType.stages.length, 4);
+  const typed = await service.call(human, 'create_conversation', { operationId: op(), projectId: p._id, typeId: created._id });
+  assert.equal(typed.conversationType.name, 'Correção');
+  assert.equal(typed.conversationType.stages[0].fields[0].label, 'Sintoma');
+
+  const updated = await service.call(human, 'update_conversation_type', {
+    operationId: op(), projectId: p._id, typeId: created._id, version: created.version,
+    data: { ...typeInput.data, name: 'Correção urgente', description: typeInput.data.description }
+  });
+  assert.equal(updated.version, 1);
+  let detail = await service.query(human, 'get_conversation', { projectId: p._id, conversationId: typed._id, limit: 20 });
+  assert.equal(detail.conversation.conversationType.name, 'Correção', 'open conversation retains its saved type snapshot');
+  assert.equal(detail.conversation.conversationType.stages[0].fields[0].label, 'Sintoma');
+  await assert.rejects(service.call(human, 'update_conversation_type', {
+    operationId: op(), projectId: p._id, typeId: created._id, version: created.version, data: typeInput.data
+  }), /version conflict/i);
+  const duplicated = await service.call(human, 'duplicate_conversation_type', {
+    operationId: op(), projectId: p._id, sourceTypeId: created._id, sourceVersion: updated.version, name: 'Correção urgente v2'
+  });
+  assert.equal(duplicated.version, 0);
+  assert.equal(duplicated.stages[0].fields[0].label, 'Sintoma', 'duplication keeps the configured stages');
+  await assert.rejects(service.call(human, 'duplicate_conversation_type', {
+    operationId: op(), projectId: p._id, sourceTypeId: created._id, sourceVersion: created.version, name: 'Stale copy'
+  }), /version conflict/i);
+  const reassigned = await service.call(human, 'set_conversation_type', {
+    operationId: op(), projectId: p._id, conversationId: typed._id, typeId: created._id, version: detail.conversation.version
+  });
+  assert.equal(reassigned.conversationType.name, 'Correção urgente');
+
+  await assert.rejects(service.call(agent, 'create_conversation_type', { ...typeInput, operationId: op() }), /Human access required/i);
+  const invalid = { ...typeInput, operationId: op(), data: {
+    ...typeInput.data,
+    name: 'Condição inválida',
+    stages: [{ id: op(), title: 'Condição', description: '', kind: 'condition', required: false,
+      condition: { fieldId: op(), operator: 'is_set' } }]
+  } };
+  await assert.rejects(service.call(human, 'create_conversation_type', invalid), /earlier stage/i);
+
+  const archived = await service.call(human, 'archive_conversation_type', {
+    operationId: op(), projectId: p._id, typeId: created._id, version: updated.version
+  });
+  assert.equal(archived.archived, true);
+  detail = await service.query(human, 'get_conversation', { projectId: p._id, conversationId: typed._id, limit: 20 });
+  assert.equal(detail.conversation.conversationType.name, 'Correção urgente', 'archival does not remove an existing conversation snapshot');
+  assert.equal(await ConversationType.countDocuments({ projectId: p._id, archived: true }), 1);
 });
 
 test('conversation title updates are validated, versioned, idempotent, and preserve related data', async () => {

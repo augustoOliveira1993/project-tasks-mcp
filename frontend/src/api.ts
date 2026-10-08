@@ -43,6 +43,7 @@ export type Task = {
   acceptance?: string[];
   acceptanceProgress?: boolean[];
   acceptanceEvidence?: Array<string | null>;
+  markdownCount?: number;
   checked?: boolean;
   checkedAt?: string;
   checkedBy?: string;

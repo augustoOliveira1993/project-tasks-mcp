@@ -1,21 +1,24 @@
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
-import { createElement } from 'react';
+import { act, createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { Window } from 'happy-dom';
 import { resolve } from 'node:path';
 import { createServer } from 'vite';
 
 const vite = await createServer({ configFile: resolve(process.cwd(), 'frontend/vite.config.ts'), server: { middlewareMode: true }, appType: 'custom' });
 const { ConversationPanel, ConversationReadFailure, ConversationTaskSearch, ConversationTitleEditor } = await vite.ssrLoadModule('/src/components/conversations/ConversationPanel.tsx');
+const { ConversationTypesManager } = await vite.ssrLoadModule('/src/components/conversations/ConversationTypesManager.tsx');
 const conversationActions = await vite.ssrLoadModule('/src/components/conversations/conversation-actions.ts');
 after(async () => { await vite.close(); });
 
-function renderPanel(items: Array<Record<string, unknown>>, next: string | null = null, error?: Error, requestedConversationId?: string, messages: Array<Record<string, unknown>> = [], detailOverrides: Record<string, unknown> = {}) {
+function renderPanel(items: Array<Record<string, unknown>>, next: string | null = null, error?: Error, requestedConversationId?: string, messages: Array<Record<string, unknown>> = [], detailOverrides: Record<string, unknown> = {}, typeItems: Array<Record<string, unknown>> = []) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
   const queryKey = ['conversations', 'session-nonce', 'project-id'];
   client.setQueryData(queryKey, { items, next });
   client.setQueryData(['project-features', 'session-nonce', 'project-id'], [{ _id: 'feature-1', name: 'Colaboração por task' }]);
+  if (typeItems.length) client.setQueryData(['conversation-types', 'session-nonce', 'project-id'], { items: typeItems });
   if (requestedConversationId) client.setQueryData(['conversation', 'session-nonce', 'project-id', requestedConversationId], {
     conversation: { _id: requestedConversationId, projectId: 'project-id', taskId: null, title: 'Teste dos ícones', status: 'open', version: 0 },
     messages, next: null, proposals: [], task: null, jobs: [], ...detailOverrides
@@ -56,6 +59,229 @@ test('painel inicia conversa no escopo do projeto e oferece retomada paginada', 
   assert.match(html, /<span class="inline-flex [^"]*"[^>]*>Pendente</);
   assert.doesNotMatch(html, /Área · Backend|Feature · Colaboração por task/, 'a lista não repete área e feature da task');
   assert.doesNotMatch(html, /Autorizar execução/);
+  assert.match(html, /Tipos e etapas/);
+  assert.match(html, /Tipo da nova conversa/);
+});
+
+test('mudar qualquer filtro limpa a seleção e exige escolher uma conversa dos resultados', () => {
+  let state = { filter: 'all' as const, selectedId: 'conversation-1', chooseAfterFilter: false };
+  state = conversationActions.conversationInboxAfterFilter(state, 'unread');
+  assert.deepEqual(state, { filter: 'unread', selectedId: '', chooseAfterFilter: true });
+  state = conversationActions.conversationInboxAfterSelection(state, 'conversation-2');
+  assert.deepEqual(state, { filter: 'unread', selectedId: 'conversation-2', chooseAfterFilter: false });
+});
+
+test('tipos usam rotas autenticadas e operações versionadas do backend', async () => {
+  const originalFetch = globalThis.fetch;
+  const calls: Array<{ url: string; method: string; body: Record<string, unknown> }> = [];
+  globalThis.fetch = async (input, init) => {
+    calls.push({ url: String(input), method: init?.method ?? 'GET', body: init?.body ? JSON.parse(String(init.body)) : {} });
+    return new Response(JSON.stringify({ items: [] }), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  const stage = { id: 'stage-1', title: 'Contexto', description: '', kind: 'instruction' as const, required: false, instruction: 'Pergunte pelo contexto.' };
+  try {
+    await conversationActions.listConversationTypes('token', 'project id');
+    await conversationActions.createConversationType('token', 'project-id', { name: 'Incidente', description: '', stages: [stage] });
+    await conversationActions.updateConversationType('token', 'project-id', 'type-id', 4, { name: 'Incidente', description: '', stages: [stage] });
+    await conversationActions.duplicateConversationType('token', 'project-id', 'type-id', 5, 'Incidente cópia');
+    await conversationActions.archiveConversationType('token', 'project-id', 'type-id', 6);
+    await conversationActions.createProjectConversation('token', 'project-id', 'type-id');
+    assert.match(calls[0].url, /\/admin\/conversation-types\?projectId=project\+id$/);
+    assert.deepEqual(calls.map(call => call.method), ['GET', 'POST', 'PATCH', 'POST', 'POST', 'POST']);
+    assert.match(calls[2].url, /\/admin\/conversation-types\/type-id$/);
+    assert.equal(calls[2].body.version, 4);
+    assert.equal(calls[2].body.data instanceof Object, true);
+    assert.match(calls[3].url, /\/type-id\/duplicate$/);
+    assert.equal(calls[3].body.sourceVersion, 5);
+    assert.match(calls[4].url, /\/type-id\/archive$/);
+    assert.equal(calls[4].body.version, 6);
+    assert.match(calls[5].url, /\/admin\/conversations$/);
+    assert.equal(calls[5].body.typeId, 'type-id');
+    assert.ok(calls.slice(1).every(call => /^[0-9a-f-]{36}$/i.test(String(call.body.operationId))));
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('clique em filtro limpa o painel atual até a seleção de outra conversa compatível', async () => {
+  const dom = new Window({ url: 'http://localhost/' });
+  const saved = new Map<string, PropertyDescriptor | undefined>();
+  for (const key of ['window', 'document', 'navigator', 'HTMLElement', 'Node', 'Event', 'MouseEvent', 'MutationObserver']) {
+    saved.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
+    Object.defineProperty(globalThis, key, { configurable: true, writable: true, value: key === 'window' ? dom : (dom as unknown as Record<string, unknown>)[key] });
+  }
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  const { createRoot } = await import('react-dom/client');
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+  const first = { _id: 'conversation-1', projectId: 'project-id', taskId: 'review-task', title: 'Primeira conversa', status: 'open', version: 0 };
+  const second = { _id: 'conversation-2', projectId: 'project-id', taskId: null, title: 'Conversa não lida', status: 'open', version: 0, unread: { count: 1, cursor: 'message-2' } };
+  const third = { _id: 'conversation-3', projectId: 'project-id', taskId: 'done-task', title: 'Conversa concluída', status: 'open', version: 0 };
+  client.setQueryData(['conversations', 'session-nonce', 'project-id'], { items: [first, second, third], next: null });
+  client.setQueryData(['project-features', 'session-nonce', 'project-id'], []);
+  client.setQueryData(['conversation-types', 'session-nonce', 'project-id'], { items: [{ _id: '00000000-0000-4000-8000-000000000001', projectId: 'project-id', name: 'Geral', description: '', version: 0, archived: false, isDefault: true, stages: [] }] });
+  for (const conversation of [first, second, third]) client.setQueryData(['conversation', 'session-nonce', 'project-id', conversation._id], { conversation, messages: [], next: null, proposals: [], task: null, jobs: [] });
+  const selected: string[] = [];
+  const host = dom.document.createElement('div');
+  dom.document.body.append(host);
+  const root = createRoot(host as unknown as Element);
+  const tick = () => new Promise(resolve => setTimeout(resolve, 0));
+  const button = (text: string) => (Array.from(host.querySelectorAll('button')) as unknown as HTMLButtonElement[]).find(item => item.textContent?.trim().startsWith(text));
+  try {
+    await act(async () => { root.render(createElement(QueryClientProvider, { client }, createElement(ConversationPanel, {
+      token: 'session-token', nonce: 'session-nonce', projectId: 'project-id', tasks: [
+        { _id: 'review-task', name: 'Task revisão', status: 'em_revisao' }, { _id: 'done-task', name: 'Task concluída', status: 'concluida' }
+      ], onConversationSelected: (id: string) => selected.push(id), onOpenTask() {}, onOpenAdmin() {}
+    }))); for (let i = 0; i < 10 && !host.textContent?.includes('Primeira conversa'); i++) await tick(); });
+    const panel = () => host.querySelector('[aria-label="Conversa"]')?.textContent ?? '';
+    assert.match(panel(), /Primeira conversa/);
+    await act(async () => { button('Não lidas')?.click(); await tick(); });
+    assert.match(panel(), /Escolha uma conversa/);
+    assert.doesNotMatch(panel(), /Primeira conversa/);
+    assert.equal(selected.at(-1), '');
+    await act(async () => { button('Conversa não lida')?.click(); for (let i = 0; i < 5 && !panel().includes('Conversa não lida'); i++) await tick(); });
+    assert.match(panel(), /Conversa não lida/);
+    await act(async () => { button('Em revisão')?.click(); await tick(); });
+    assert.match(panel(), /Escolha uma conversa/);
+    assert.doesNotMatch(panel(), /Conversa não lida/);
+    await act(async () => { button('Primeira conversa')?.click(); for (let i = 0; i < 5 && !panel().includes('Primeira conversa'); i++) await tick(); });
+    await act(async () => { button('Concluídas')?.click(); await tick(); });
+    assert.match(panel(), /Escolha uma conversa/);
+    assert.doesNotMatch(panel(), /Primeira conversa/);
+    await act(async () => { button('Conversa concluída')?.click(); for (let i = 0; i < 5 && !panel().includes('Conversa concluída'); i++) await tick(); });
+    await act(async () => { button('Todas')?.click(); await tick(); });
+    assert.match(panel(), /Escolha uma conversa/);
+    assert.doesNotMatch(panel(), /Conversa concluída/);
+  } finally {
+    await act(async () => root.unmount());
+    client.clear();
+    dom.close();
+    for (const [key, descriptor] of saved) descriptor ? Object.defineProperty(globalThis, key, descriptor) : Reflect.deleteProperty(globalThis, key);
+  }
+});
+
+test('editor salva, duplica e arquiva fluxos; conflito preserva o rascunho', async () => {
+  const dom = new Window({ url: 'http://localhost/' });
+  const saved = new Map<string, PropertyDescriptor | undefined>();
+  for (const key of ['window', 'document', 'navigator', 'HTMLElement', 'Node', 'Event', 'MouseEvent', 'MutationObserver']) {
+    saved.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
+    Object.defineProperty(globalThis, key, { configurable: true, writable: true, value: key === 'window' ? dom : (dom as unknown as Record<string, unknown>)[key] });
+  }
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  const { createRoot } = await import('react-dom/client');
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+  const defaultType = { _id: '00000000-0000-4000-8000-000000000001', projectId: 'project-id', name: 'Geral', description: '', version: 0, archived: false, isDefault: true, stages: [] };
+  let custom = { _id: 'custom-1', projectId: 'project-id', name: 'Investigação', description: 'Analisar ocorrências.', version: 4, archived: false, isDefault: false, stages: [{ id: 'stage-1', title: 'Contexto', description: '', kind: 'instruction' as const, required: false, instruction: 'Reúna informações.' }] };
+  let duplicate: typeof custom | null = null;
+  let created: typeof custom | null = null;
+  let createAttempts = 0;
+  const calls: Array<{ url: string; method: string; body: Record<string, any> }> = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    const method = init?.method ?? 'GET';
+    const body = init?.body ? JSON.parse(String(init.body)) as Record<string, any> : {};
+    calls.push({ url, method, body });
+    if (method === 'GET') return new Response(JSON.stringify({ items: [defaultType, custom, ...(duplicate ? [duplicate] : []), ...(created ? [created] : [])] }), { status: 200, headers: { 'content-type': 'application/json' } });
+    if (url.endsWith('/custom-1') && method === 'PATCH') {
+      if (body.data.name === 'Sem permissão') return new Response(JSON.stringify({ reason: 'Acesso negado ao projeto' }), { status: 403, headers: { 'content-type': 'application/json' } });
+      custom = { ...custom, ...body.data, version: 5 };
+      return new Response(JSON.stringify(custom), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    if (url.endsWith('/custom-1/duplicate')) {
+      duplicate = { ...custom, _id: 'custom-copy', name: body.name, version: 0 };
+      return new Response(JSON.stringify(duplicate), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    if (url.endsWith('/custom-copy/archive')) {
+      duplicate = { ...duplicate!, archived: true, version: 1 };
+      return new Response(JSON.stringify(duplicate), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    if (url.endsWith('/admin/conversation-types') && method === 'POST') {
+      createAttempts += 1;
+      if (createAttempts === 1) return new Response(JSON.stringify({ reason: 'Conversation type name already exists' }), { status: 409, headers: { 'content-type': 'application/json' } });
+      created = { ...body.data, _id: 'created-type', projectId: 'project-id', version: 0, archived: false, isDefault: false };
+      return new Response(JSON.stringify(created), { status: 201, headers: { 'content-type': 'application/json' } });
+    }
+    return new Response(JSON.stringify({ reason: 'unexpected editor request' }), { status: 500, headers: { 'content-type': 'application/json' } });
+  };
+  client.setQueryData(['conversation-types', 'nonce', 'project-id'], { items: [defaultType, custom] });
+  const host = dom.document.createElement('div');
+  dom.document.body.append(host);
+  const root = createRoot(host as unknown as Element);
+  const tick = () => new Promise(resolve => setTimeout(resolve, 0));
+  const buttons = () => Array.from(host.querySelectorAll('button')) as unknown as HTMLButtonElement[];
+  const click = async (label: string) => act(async () => { const available = buttons(); (available.find(button => button.textContent?.trim() === label) ?? available.find(button => button.textContent?.trim().startsWith(label)))?.click(); await tick(); });
+  const clickAria = async (label: string) => act(async () => { (Array.from(host.querySelectorAll('button')) as unknown as HTMLButtonElement[]).find(button => button.getAttribute('aria-label') === label)?.click(); await tick(); });
+  const setValue = (input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement, value: string) => {
+    Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value')?.set?.call(input, value);
+    input.dispatchEvent(new dom.Event('input', { bubbles: true }) as unknown as Event);
+    input.dispatchEvent(new dom.Event('change', { bubbles: true }) as unknown as Event);
+  };
+  const controlValue = (selector: string, value: string) => {
+    const input = host.querySelector(selector) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null;
+    assert.ok(input, `control ${selector} exists`);
+    setValue(input, value);
+  };
+  const labelControl = (label: string) => {
+    const node = (Array.from(host.querySelectorAll('label')) as unknown as HTMLLabelElement[]).find(item => item.childNodes[0]?.textContent?.trim() === label);
+    assert.ok(node, `label ${label} exists`);
+    return node.querySelector('input,textarea')!;
+  };
+  try {
+    await act(async () => { root.render(createElement(QueryClientProvider, { client }, createElement(ConversationTypesManager, { token: 'token', nonce: 'nonce', projectId: 'project-id', onClose() {} }))); for (let i = 0; i < 10 && !host.textContent?.includes('Geral'); i++) await tick(); });
+    await click('Investigação');
+    await act(async () => { controlValue('input[maxlength="120"]', 'Investigação aprofundada'); });
+    assert.match(host.textContent ?? '', /Investigação aprofundada/, 'a prévia atualiza o nome antes de salvar');
+    await act(async () => { controlValue('textarea[maxlength="10000"]', 'Pergunte o impacto para quem usa o sistema.'); });
+    assert.match(host.textContent ?? '', /Pergunte o impacto para quem usa o sistema\./, 'a prévia atualiza a instrução antes de salvar');
+    await act(async () => { controlValue('select[aria-label="Adicionar etapa"]', 'form'); });
+    assert.match(host.textContent ?? '', /Etapa 2 · Formulário/);
+    await click('+ Campo');
+    assert.equal(buttons().filter(button => button.textContent?.trim() === 'Remover campo').length, 2);
+    const firstFieldLabel = labelControl('Rótulo');
+    await act(async () => { setValue(firstFieldLabel as HTMLInputElement, 'Prioridade'); });
+    assert.match(host.textContent ?? '', /Prioridade/, 'campo e prévia atualizam durante a edição');
+    await clickAria('Mover etapa 2 para cima');
+    assert.match(host.textContent ?? '', /Etapa 1 · Formulário/);
+    await act(async () => { buttons().find(button => button.textContent?.trim() === 'Remover campo')?.click(); await tick(); });
+    assert.equal(buttons().filter(button => button.textContent?.trim() === 'Remover campo').length, 1);
+    await clickAria('Remover etapa 2');
+    assert.doesNotMatch(host.textContent ?? '', /Etapa 2 · Instrução/);
+    await click('Salvar fluxo');
+    assert.ok(calls.some(call => call.method === 'PATCH' && call.body.version === 4));
+    assert.match(host.textContent ?? '', /Fluxo salvo\./);
+
+    await act(async () => { controlValue('input[maxlength="120"]', 'Sem permissão'); });
+    await click('Salvar fluxo');
+    assert.equal((host.querySelector('input[maxlength="120"]') as HTMLInputElement).value, 'Sem permissão');
+    assert.match(host.textContent ?? '', /Acesso negado ao projeto/);
+
+    await click('Duplicar fluxo');
+    labelControl('Nome da cópia');
+    await act(async () => { controlValue('form input[maxlength="120"]', 'Investigação cópia'); });
+    await click('Duplicar');
+    assert.ok(calls.some(call => call.url.endsWith('/custom-1/duplicate') && call.body.sourceVersion === 5));
+    await click('Arquivar');
+    await click('Confirmar arquivamento');
+    assert.equal(duplicate?.archived, true);
+
+    await click('+ Novo tipo');
+    const name = labelControl('Nome');
+    await act(async () => { controlValue('input[maxlength="120"]', 'Tipo em conflito'); });
+    await act(async () => { controlValue('textarea[maxlength="10000"]', 'Reúna contexto suficiente.'); });
+    await click('Criar tipo');
+    assert.equal(createAttempts, 1);
+    assert.equal((name as HTMLInputElement).value, 'Tipo em conflito');
+    assert.match(host.textContent ?? '', /Este nome já está em uso/);
+    await act(async () => { controlValue('input[maxlength="120"]', 'Tipo recém criado'); });
+    await click('Criar tipo');
+    assert.equal(createAttempts, 2);
+    assert.equal(created?.name, 'Tipo recém criado');
+    assert.match(host.textContent ?? '', /Fluxo salvo\./);
+  } finally {
+    globalThis.fetch = originalFetch;
+    await act(async () => root.unmount());
+    client.clear();
+    dom.close();
+    for (const [key, descriptor] of saved) descriptor ? Object.defineProperty(globalThis, key, descriptor) : Reflect.deleteProperty(globalThis, key);
+  }
 });
 
 test('painel apresenta erro de sessão retornado pela API', () => {
@@ -63,6 +289,19 @@ test('painel apresenta erro de sessão retornado pela API', () => {
 
   assert.match(html, /bg-\[#fff6f6\][^"]*"[^>]*>Sessão expirada</);
   assert.match(html, /Sessão expirada/);
+});
+
+test('tipo arquivado não aparece para novas conversas, mas o fluxo segue visível na conversa aberta', () => {
+  const archived = { _id: 'archived-type', projectId: 'project-id', name: 'Fluxo antigo', description: '', version: 2, archived: true, isDefault: false, stages: [{ id: 'stage', title: 'Acompanhar legado', description: '', kind: 'instruction', required: false, instruction: 'Preservar contexto.' }] };
+  const general = { _id: '00000000-0000-4000-8000-000000000001', projectId: 'project-id', name: 'Geral', description: '', version: 0, archived: false, isDefault: true, stages: [] };
+  const typeOptions = renderPanel([], null, undefined, undefined, [], {}, [general, archived]);
+  assert.match(typeOptions, /Geral · fluxo padrão/);
+  assert.doesNotMatch(typeOptions, /<option[^>]*>Fluxo antigo/);
+  const openConversation = renderPanel([{ _id: 'old-conversation', projectId: 'project-id', taskId: null, title: 'Conversa antiga', status: 'open', version: 1 }], null, undefined, 'old-conversation', [], {
+    conversation: { _id: 'old-conversation', projectId: 'project-id', taskId: null, title: 'Conversa antiga', status: 'open', version: 1, conversationTypeId: archived._id, conversationType: { _id: archived._id, name: archived.name, version: archived.version, isDefault: false, description: archived.description, stages: archived.stages } }
+  }, [general, archived]);
+  assert.match(openConversation, /Acompanhar legado/);
+  assert.match(openConversation, /Tipo · Fluxo antigo/);
 });
 
 test('lista mostra a contagem não lida e só agenda leitura para cada novo cursor observado', () => {

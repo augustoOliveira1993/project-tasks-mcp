@@ -1,4 +1,11 @@
-export type Conversation = { _id: string; projectId: string; taskId: string | null; title: string; status: string; version: number; updatedAt?: string; lastMessageAt?: string | null; unread?: { count: number; cursor: string | null } };
+export type ConversationField = { id: string; label: string; helpText: string; type: 'text' | 'textarea' | 'number' | 'checkbox' | 'select'; required: boolean; options: string[] };
+export type ConversationStage = {
+  id: string; title: string; description: string; kind: 'instruction' | 'form' | 'approval' | 'condition'; required: boolean;
+  instruction?: string; fields?: ConversationField[]; approvalLabel?: string;
+  condition?: { fieldId: string; operator: 'is_set' | 'is_not_set' | 'equals' | 'not_equals' | 'contains'; value?: string };
+};
+export type ConversationType = { _id: string; projectId: string; name: string; description: string; version: number; archived: boolean; isDefault: boolean; stages: ConversationStage[] };
+export type Conversation = { _id: string; projectId: string; taskId: string | null; title: string; status: string; version: number; conversationTypeId?: string; conversationType?: Pick<ConversationType, '_id' | 'name' | 'version' | 'isDefault'> & Partial<Pick<ConversationType, 'description' | 'stages'>>; updatedAt?: string; lastMessageAt?: string | null; unread?: { count: number; cursor: string | null } };
 export type Message = { _id: string; author: string; authorType: 'human' | 'agent'; clientName?: string | null; content: string; createdAt: string };
 export type Proposal = {
   _id: string; taskId: string; expectedTaskVersion: number; title: string; summary: string;

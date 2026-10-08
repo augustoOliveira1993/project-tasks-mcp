@@ -24,6 +24,11 @@ const canonical = (value: any): any => Array.isArray(value) ? value.map(canonica
 export async function validateProjectImport(input: unknown) {
   const bundle = envelope.parse(input);
   const data = redactExport(bundle.data) as Record<string, any>;
+  // Bundles created before conversation workflows were introduced do not carry this collection.
+  if (data.conversationTypes === undefined && bundle.counts.conversationTypes === undefined) {
+    data.conversationTypes = [];
+    bundle.counts.conversationTypes = 0;
+  }
   const project = row.parse(data.project) as any;
   check(project._id === bundle.source.projectId, 'O ID do projeto não corresponde à origem do pacote.');
   check(typeof project.name === 'string' && project.name.trim(), 'Projeto sem nome.');

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent, KeyboardEvent } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { allRecords, query } from '../../api';
+import { allRecords, listTaskAttachments, query } from '../../api';
 import type { Project, Task } from '../../api';
 import { Badge } from '../../components/ui/Badge';
 import { ErrorNotice } from '../../components/ui/ErrorNotice';
@@ -93,6 +93,22 @@ const areaChipTone = (area: string) => area === 'backend' ? 'bg-[#eaeeff] text-[
 const flagChip = 'inline-flex items-center gap-1 rounded-full px-[7px] py-0.5 text-[10.5px] leading-normal font-bold';
 const flagButton = `${flagChip} cursor-pointer hover:brightness-[.96]`;
 const priorityTone = (tone: string) => tone === 'red' ? 'bg-tone-red-bg text-tone-red' : tone === 'amber' ? 'bg-tone-amber-bg text-tone-amber' : chipSlate;
+
+function TaskContentBadges({ token, nonce, projectId, task }: { token: string; nonce: string; projectId: string; task: Task }) {
+  const attachments = useQuery({
+    queryKey: ['task-attachments', nonce, projectId, task._id],
+    queryFn: () => listTaskAttachments(token, projectId, task._id),
+    staleTime: 30_000,
+    retry: false
+  });
+  const planningCount = Math.max(0, task.markdownCount ?? 0);
+  const attachmentCount = attachments.data?.length ?? 0;
+  if (!planningCount && !attachmentCount) return null;
+  return <span className="inline-flex flex-none flex-wrap items-center gap-1.5" role="group" aria-label={`Conteúdo de ${task.name}`}>
+    {planningCount > 0 && <span className="inline-flex items-center rounded-full bg-[#f0eaff] px-2 py-0.5 text-[10px] font-bold text-[#6944a2]" aria-label={`${planningCount} ${planningCount === 1 ? 'documento de planejamento' : 'documentos de planejamento'}`} title={`${planningCount} ${planningCount === 1 ? 'documento de planejamento' : 'documentos de planejamento'}`}>Planejamento · {planningCount}</span>}
+    {attachmentCount > 0 && <span className="inline-flex items-center rounded-full bg-[#eaf4ff] px-2 py-0.5 text-[10px] font-bold text-[#315a9a]" aria-label={`${attachmentCount} ${attachmentCount === 1 ? 'arquivo' : 'arquivos'}`} title={`${attachmentCount} ${attachmentCount === 1 ? 'arquivo' : 'arquivos'}`}>Arquivos · {attachmentCount}</span>}
+  </span>;
+}
 
 const th = 'border-y border-slate-100 bg-slate-50 py-2 text-left text-[10px] font-bold tracking-wide whitespace-nowrap text-slate-400 uppercase';
 const td = 'border-b border-slate-100 align-top text-ui-sm text-slate-600 max-[760px]:min-w-0 max-[760px]:border-b-0';
@@ -414,7 +430,7 @@ export function TaskWorkspace({ token, nonce, projectId, repositories = [], proj
           return <tr key={task._id} className={selectedIds.includes(task._id) ? rowSelected : rowIdle} data-status={task.status}>
           <td className={tdFirst}><input className={checkbox} type="checkbox" aria-label={'Selecionar ' + task.name} disabled={!selectionAllowed(task) || saving} checked={selectedIds.includes(task._id)} onChange={event => toggleSelected(task._id, event.target.checked)} /></td>
           <td className={`${tdMiddle} min-w-[300px] max-[760px]:col-[2/4]`}>
-            <a className="block max-w-[560px] overflow-hidden text-left text-ui-md font-bold text-ellipsis whitespace-nowrap text-ink no-underline hover:text-tone-blue hover:underline focus-visible:rounded-[4px] focus-visible:outline-offset-[3px] max-[760px]:leading-[1.4] max-[760px]:whitespace-normal" data-row-focus href={taskHref(projectId, task._id)} title={task.name} onClick={event => { if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); onOpenTask(task); }}>{task.name}</a>
+            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1"><a className="block max-w-[560px] min-w-0 overflow-hidden text-left text-ui-md font-bold text-ellipsis whitespace-nowrap text-ink no-underline hover:text-tone-blue hover:underline focus-visible:rounded-[4px] focus-visible:outline-offset-[3px] max-[760px]:leading-[1.4] max-[760px]:whitespace-normal" data-row-focus href={taskHref(projectId, task._id)} title={task.name} onClick={event => { if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); onOpenTask(task); }}>{task.name}</a><TaskContentBadges token={token} nonce={nonce} projectId={projectId} task={task} /></div>
             <div className="mt-1.5 flex flex-wrap items-center gap-[5px]">
               <code className="inline-block rounded-[5px] bg-[#f3f4f8] px-1.5 py-px font-code text-[10px] leading-[normal] font-semibold text-muted-strong" title={task._id}>{shortId(task._id)}</code>
               {task.area ? <FilterLink param="area" value={task.area} projectId={projectId} className={`${chip} max-w-full ${chipLink} ${areaChipTone(task.area)}`} title={`Filtrar pela área ${areaLabel(task.area)}`}>{areaLabel(task.area)}</FilterLink> : <span className={`${chip} max-w-full ${chipSlate}`}>{areaLabel(task.area)}</span>}

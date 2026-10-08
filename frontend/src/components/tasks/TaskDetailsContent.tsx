@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { allRecords, ApiRequestError, listTaskAttachments, operationId, query, request } from '../../api';
 import type { Project, Task } from '../../api';
 import { markTaskReadIfUnread, type TaskUnreadState } from '../../features/tasks/task-read';
+import { loadTaskAttachmentReadState, saveTaskAttachmentReadState, type TaskAttachmentReadState } from '../../features/tasks/task-attachment-read';
 import { Badge } from '../ui/Badge';
 import { DropdownMenu } from '../ui/DropdownMenu';
 import { ErrorNotice } from '../ui/ErrorNotice';
@@ -38,6 +39,8 @@ export type TaskReviewDecision = 'approve' | 'return' | 'unblock';
 type TaskDiff = TaskDiffSummary;
 type TaskMarkdown = { _id: string; name: string; summary: string; revision: number };
 type TaskReadAttempt = { taskId: string; cursor: number; operationId: string };
+type TaskUnreadNovelty = TaskActivityEvent & { sequence: number; taskId: string | null };
+type AttachmentReadSnapshot = TaskAttachmentReadState & { scope: string };
 type TaskMessage = { _id: string; type: string; author: string; authorType?: string; clientName?: string | null; message: string; createdAt: string };
 type Tab = 'summary' | 'criteria' | 'planning' | 'diffs' | 'activity' | 'attachments' | 'conversation';
 
@@ -145,6 +148,7 @@ export function TaskDetailsContent({ variant, token, nonce, projectId, project, 
     queryKey: ['task-context', nonce, projectId, task._id],
     queryFn: () => query<Record<string, any>>(token, 'get_task_context', { projectId, taskId: task._id })
   });
+  const taskData = (context.data?.task ?? task) as Task & { readCursor?: number; statusHistory?: StatusHistoryEntry[] };
   const features = useQuery({
     queryKey: ['project-features', nonce, projectId],
     queryFn: () => allRecords<Feature>(token, { kind: 'feature', projectId, archived: false })
@@ -158,12 +162,32 @@ export function TaskDetailsContent({ variant, token, nonce, projectId, project, 
     queryFn: () => query<{ items: TaskActivityEvent[] }>(token, 'list_project_activity', { projectId, taskId: task._id, limit: 50 })
   });
   const unreadActivity = activityReport.data?.tasks.find(item => item.taskId === task._id)?.unread;
+  const unreadActivityEvents = useQuery({
+    queryKey: ['task-unread-activity-events', nonce, projectId, task._id, taskData.readCursor, unreadActivity?.cursor],
+    enabled: tab === 'activity' && typeof taskData.readCursor === 'number' && (unreadActivity?.count ?? 0) > 0 && unreadActivity?.cursor !== null,
+    retry: false,
+    queryFn: async () => {
+      const throughCursor = unreadActivity?.cursor ?? 0;
+      let after = taskData.readCursor ?? 0;
+      const unreadEvents: TaskActivityEvent[] = [];
+      for (let pageNumber = 0; pageNumber < 100 && after < throughCursor; pageNumber += 1) {
+        const page = await query<{ items: TaskUnreadNovelty[]; cursor: number; hasMore: boolean }>(token, 'get_project_novelties', { projectId, after, limit: 100 });
+        unreadEvents.push(...page.items.filter(event => event.taskId === task._id && event.sequence <= throughCursor));
+        if (!page.hasMore || page.cursor <= after || page.cursor >= throughCursor) break;
+        after = page.cursor;
+      }
+      return unreadEvents;
+    }
+  });
   const markRead = useMutation({
     mutationFn: (attempt: TaskReadAttempt) => markTaskReadIfUnread({
       token, projectId, taskId: task._id,
       unread: { count: 1, cursor: attempt.cursor },
       operationId: attempt.operationId
-    }, () => queryClient.invalidateQueries({ queryKey: ['project-sync-report', nonce, projectId] }))
+    }, async () => Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['project-sync-report', nonce, projectId] }),
+      queryClient.invalidateQueries({ queryKey: ['task-context', nonce, projectId, task._id] })
+    ]))
   });
   const markReadAutomatically = useCallback((unread: TaskUnreadState | undefined) => {
     if (!unread || unread.count <= 0 || unread.cursor === null) return;
@@ -178,8 +202,10 @@ export function TaskDetailsContent({ variant, token, nonce, projectId, project, 
     markRead.reset();
   }, [markRead.reset, task._id]);
   useEffect(() => {
+    if (tab !== 'activity' || !context.data || taskActivity.isPending || taskActivity.isError) return;
+    if ((unreadActivity?.count ?? 0) > 0 && typeof taskData.readCursor === 'number' && !unreadActivityEvents.isSuccess) return;
     markReadAutomatically(unreadActivity);
-  }, [markReadAutomatically, unreadActivity?.count, unreadActivity?.cursor]);
+  }, [tab, context.data, taskActivity.isPending, taskActivity.isError, unreadActivity?.count, unreadActivity?.cursor, taskData.readCursor, unreadActivityEvents.isSuccess, markReadAutomatically]);
   const diffs = useQuery({
     queryKey: ['task-diffs', nonce, projectId, task._id],
     queryFn: () => query<{ items: TaskDiff[] }>(token, 'list_task_diffs', { projectId, taskId: task._id, limit: 20 })
@@ -192,6 +218,37 @@ export function TaskDetailsContent({ variant, token, nonce, projectId, project, 
     queryKey: ['task-attachments', nonce, projectId, task._id],
     queryFn: () => listTaskAttachments(token, projectId, task._id)
   });
+  const attachmentReadScope = `${projectId}:${task._id}`;
+  const [attachmentReadState, setAttachmentReadState] = useState<AttachmentReadSnapshot>(() => ({ scope: attachmentReadScope, ...loadTaskAttachmentReadState(projectId, task._id) }));
+  const effectiveAttachmentReadState = useMemo(() => attachmentReadState.scope === attachmentReadScope
+    ? attachmentReadState
+    : { scope: attachmentReadScope, ...loadTaskAttachmentReadState(projectId, task._id) }, [attachmentReadState, attachmentReadScope, projectId, task._id]);
+  useEffect(() => {
+    if (!attachments.data) return;
+    const attachmentIds = attachments.data.map(item => item.id);
+    setAttachmentReadState(current => {
+      const currentState = current.scope === attachmentReadScope ? current : { scope: attachmentReadScope, ...loadTaskAttachmentReadState(projectId, task._id) };
+      const seenIds = currentState.initialized ? currentState.seenIds.filter(id => attachmentIds.includes(id)) : attachmentIds;
+      if (currentState.initialized && seenIds.length === currentState.seenIds.length) return currentState;
+      return { scope: attachmentReadScope, initialized: true, seenIds };
+    });
+  }, [attachments.data, attachmentReadScope, projectId, task._id]);
+  useEffect(() => {
+    if (effectiveAttachmentReadState.initialized) saveTaskAttachmentReadState(projectId, task._id, effectiveAttachmentReadState);
+  }, [attachmentReadScope, effectiveAttachmentReadState, projectId, task._id]);
+  const newAttachmentIds = useMemo(() => {
+    if (!attachments.data || !effectiveAttachmentReadState.initialized) return [];
+    const seenIds = new Set(effectiveAttachmentReadState.seenIds);
+    return attachments.data.filter(item => !seenIds.has(item.id)).map(item => item.id);
+  }, [attachments.data, effectiveAttachmentReadState]);
+  const markAttachmentViewed = useCallback((attachmentId: string) => {
+    setAttachmentReadState(current => {
+      const currentState = current.scope === attachmentReadScope ? current : { scope: attachmentReadScope, ...loadTaskAttachmentReadState(projectId, task._id) };
+      const seenIds = new Set(currentState.initialized ? currentState.seenIds : (attachments.data ?? []).map(item => item.id));
+      seenIds.add(attachmentId);
+      return { scope: attachmentReadScope, initialized: true, seenIds: [...seenIds] };
+    });
+  }, [attachmentReadScope, attachments.data, projectId, task._id]);
   const assignees = useAssignees(token, nonce, projectId, systemAdmin);
   const assign = useMutation({
     mutationFn: (responsible: string) => request<Task>(token, '/admin/records/edit', { body: { operationId: operationId(), projectId, kind: 'task', id: task._id, version: taskData.version, data: { responsible } } }),
@@ -220,7 +277,6 @@ export function TaskDetailsContent({ variant, token, nonce, projectId, project, 
     enabled: tab === 'conversation',
     queryFn: () => query<{ linkedConversations?: Array<{ conversationId: string; title: string; lastActivityAt?: string; messageCount: number }> }>(token, 'get_task_markdown_summary', { projectId, taskId: task._id })
   });
-  const taskData = (context.data?.task ?? task) as Task & { statusHistory?: StatusHistoryEntry[] };
   const statusHistory = taskData.statusHistory ?? [];
   const contextExecutions: Array<{ _id: string; status: string; startedAt: string; impediments?: string[]; result?: { summary?: string; evidence?: string[] } }> = context.data?.executions ?? [];
   const blockedExecution = contextExecutions.find(execution => execution._id === (taskData as { executionId?: string }).executionId)
@@ -318,8 +374,8 @@ export function TaskDetailsContent({ variant, token, nonce, projectId, project, 
     { id: 'criteria', label: 'Critérios', count: acceptance.length ? `${completedCriteria}/${acceptance.length}` : undefined },
     { id: 'planning', label: 'Planejamento', count: planningCount ? String(planningCount) : undefined },
     { id: 'diffs', label: 'Diffs', count: diffCount ? String(diffCount) : undefined },
-    { id: 'activity', label: 'Atividade', count: activityCount ? String(activityCount) : undefined },
-    { id: 'attachments', label: 'Arquivos', count: attachmentCount ? String(attachmentCount) : undefined },
+    { id: 'activity', label: 'Atividade', count: activityCount ? String(activityCount) : undefined, unread: (unreadActivity?.count ?? 0) > 0 },
+    { id: 'attachments', label: 'Arquivos', count: attachmentCount ? String(attachmentCount) : undefined, unread: newAttachmentIds.length > 0 },
     { id: 'conversation', label: 'Conversa', count: messages.length ? String(messages.length) : undefined }
   ];
   const copy = review ? reviewCopy[review] : null;
@@ -434,8 +490,8 @@ export function TaskDetailsContent({ variant, token, nonce, projectId, project, 
                       : markdowns.isPending ? <Skeleton rows={3} label="Carregando documentos…" /> : markdowns.isError ? <ErrorNotice error={markdowns.error} onRetry={() => void markdowns.refetch()} /> : markdowns.data?.items?.length ? <div className="grid gap-[3px]">{markdowns.data.items.map(item => <button type="button" className="flex w-full items-center justify-between gap-3 rounded-[8px] border border-[#edf0f4] bg-white p-2.5 text-left hover:border-[#d9def9] hover:bg-[#fafaff]" key={item._id} onClick={() => void openMarkdown(item)}><span className="grid min-w-0 gap-1"><strong className="overflow-hidden text-[10px] text-ellipsis whitespace-nowrap text-[#414c5e]">{item.name}</strong><small className="overflow-hidden text-[9px] text-ellipsis whitespace-nowrap text-[#909aaa]">{item.summary}</small></span><Badge>rev. {item.revision}</Badge></button>)}</div> : <p className={emptyInline}>Nenhum documento de planejamento vinculado.</p>}
                   </section>
                     : tab === 'diffs' ? <section className={drawerSection} aria-label="Diffs publicados"><TaskDiffsPanel token={token} nonce={nonce} projectId={projectId} taskId={task._id} items={diffs.data?.items ?? []} isPending={diffs.isPending} isError={diffs.isError} error={diffs.error} onRetry={() => void diffs.refetch()} /></section>
-                      : tab === 'activity' ? <TaskActivityPanel events={taskActivity.data?.items ?? []} isPending={taskActivity.isPending} isError={taskActivity.isError} error={taskActivity.error} onRetry={() => void taskActivity.refetch()} executions={contextExecutions} now={now} />
-                        : tab === 'attachments' ? <TaskAttachmentsPanel token={token} nonce={nonce} projectId={projectId} taskId={task._id} />
+                      : tab === 'activity' ? <TaskActivityPanel events={taskActivity.data?.items ?? []} unreadEvents={unreadActivity?.count ? unreadActivityEvents.data ?? [] : []} unreadEventsPending={unreadActivityEvents.isPending && (unreadActivity?.count ?? 0) > 0} unreadEventsError={unreadActivityEvents.isError} onRetryUnreadEvents={() => void unreadActivityEvents.refetch()} isPending={taskActivity.isPending} isError={taskActivity.isError} error={taskActivity.error} onRetry={() => void taskActivity.refetch()} executions={contextExecutions} now={now} />
+                        : tab === 'attachments' ? <TaskAttachmentsPanel token={token} nonce={nonce} projectId={projectId} taskId={task._id} newAttachmentIds={newAttachmentIds} onAttachmentViewed={markAttachmentViewed} />
                           : <section className={drawerSectionMarkdown} aria-label="Conversa da tarefa">
                           <div className="flex flex-wrap items-center justify-between gap-3"><h3>Colaboração da tarefa</h3><button type="button" className={buttonSecondarySmall} disabled={openConversation.isPending} onClick={() => openConversation.mutate()}>{openConversation.isPending ? 'Abrindo…' : 'Abrir conversa completa'}</button></div>
                           <div className="grid gap-1.5"><span className={chainLabel}>Conversas vinculadas</span>{linkedConversations.isPending ? <Skeleton rows={1} label="Carregando conversas…" /> : linkedConversations.isError ? <ErrorNotice error={linkedConversations.error} onRetry={() => void linkedConversations.refetch()} /> : linkedConversations.data?.linkedConversations?.length ? <ul className="grid gap-1.5">{linkedConversations.data.linkedConversations.map(item => <li className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-ui-sm border border-line bg-[#fbfcfe] px-2.5 py-2 text-ui-sm" key={item.conversationId}><ConversationLink conversationId={item.conversationId} projectId={projectId}>{item.title || 'Conversa sem título'}</ConversationLink><small className="text-ui-xs text-muted-strong">{plural(item.messageCount, 'mensagem', 'mensagens')}{item.lastActivityAt ? ' · ' + relativeTime(item.lastActivityAt, now) : ''}</small></li>)}</ul> : <p className={emptyInline}>Nenhuma conversa vinculada ainda.</p>}</div>

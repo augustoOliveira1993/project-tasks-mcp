@@ -1,7 +1,40 @@
 import { operationId, query, request } from '../../api';
+import type { ConversationStage, ConversationType } from './conversation-types';
 
-export function createProjectConversation<T>(token: string, projectId: string) {
-  return request<T>(token, '/admin/conversations', { body: { projectId, operationId: operationId() } });
+export type ConversationFilter = 'all' | 'unread' | 'review' | 'done';
+export type ConversationInboxState = { filter: ConversationFilter; selectedId: string; chooseAfterFilter: boolean };
+
+export function conversationInboxAfterFilter(state: ConversationInboxState, filter: ConversationFilter): ConversationInboxState {
+  return { ...state, filter, selectedId: '', chooseAfterFilter: true };
+}
+
+export function conversationInboxAfterSelection(state: ConversationInboxState, selectedId: string): ConversationInboxState {
+  return { ...state, selectedId, chooseAfterFilter: false };
+}
+
+export function createProjectConversation<T>(token: string, projectId: string, typeId?: string) {
+  return request<T>(token, '/admin/conversations', { body: { projectId, operationId: operationId(), ...(typeId ? { typeId } : {}) } });
+}
+
+export function listConversationTypes<T = ConversationType[]>(token: string, projectId: string) {
+  const params = new URLSearchParams({ projectId });
+  return request<{ items: T }>(token, '/admin/conversation-types?' + params.toString());
+}
+
+export function createConversationType<T = ConversationType>(token: string, projectId: string, data: { name: string; description: string; stages: ConversationStage[] }) {
+  return request<T>(token, '/admin/conversation-types', { body: { operationId: operationId(), projectId, data } });
+}
+
+export function updateConversationType<T = ConversationType>(token: string, projectId: string, typeId: string, version: number, data: { name: string; description: string; stages: ConversationStage[] }) {
+  return request<T>(token, `/admin/conversation-types/${encodeURIComponent(typeId)}`, { method: 'PATCH', body: { operationId: operationId(), projectId, version, data } });
+}
+
+export function duplicateConversationType<T = ConversationType>(token: string, projectId: string, typeId: string, sourceVersion: number, name: string) {
+  return request<T>(token, `/admin/conversation-types/${encodeURIComponent(typeId)}/duplicate`, { body: { operationId: operationId(), projectId, sourceVersion, name } });
+}
+
+export function archiveConversationType<T = ConversationType>(token: string, projectId: string, typeId: string, version: number) {
+  return request<T>(token, `/admin/conversation-types/${encodeURIComponent(typeId)}/archive`, { body: { operationId: operationId(), projectId, version } });
 }
 
 export function searchProjectTasks<T>(token: string, projectId: string, search: string) {

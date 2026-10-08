@@ -37,9 +37,20 @@ Event.schema.index({ at: -1, _id: -1 });
 export const TaskMessage = mongoose.model('TaskMessage', new Schema({ _id: String, projectId: { type: String, index: true }, taskId: { type: String, index: true }, relatedTaskId: String, executionId: String, operationId: String, author: String, authorType: String, clientName: String, credentialId: String, conversationId: String, replyTo: String, correlationId: String, type: String, message: String, references: [String], createdAt: { type: Date, default: Date.now } }, { versionKey: false }));
 TaskMessage.schema.index({ projectId: 1, taskId: 1, createdAt: 1, _id: 1 });
 TaskMessage.schema.index({ projectId: 1, relatedTaskId: 1, createdAt: 1, _id: 1 });
+const conversationTypeField = new Schema({ id: String, label: String, helpText: String, type: String, required: Boolean, options: [String] }, { _id: false, strict: true });
+const conversationTypeCondition = new Schema({ fieldId: String, operator: String, value: String }, { _id: false, strict: true });
+const conversationTypeStage = new Schema({ id: String, title: String, description: String, kind: String, required: Boolean,
+  instruction: String, fields: [conversationTypeField], approvalLabel: String, condition: conversationTypeCondition }, { _id: false, strict: true });
+export const ConversationType = mongoose.model('ConversationType', new Schema({
+  ...base, projectId: { type: String, index: true }, name: String, nameKey: String, description: String,
+  stages: { type: [conversationTypeStage], default: [] }
+}, options));
+ConversationType.schema.index({ projectId: 1, nameKey: 1 }, { unique: true, partialFilterExpression: { archived: false } });
+ConversationType.schema.index({ projectId: 1, archived: 1, createdAt: 1, _id: 1 });
 export const Conversation = mongoose.model('Conversation', new Schema({
   ...base, projectId: { type: String, index: true }, createdBy: String, taskId: String,
-  title: { type: String, default: 'Nova conversa' }, status: { type: String, default: 'open' }, lastMessageAt: Date
+  title: { type: String, default: 'Nova conversa' }, status: { type: String, default: 'open' }, lastMessageAt: Date,
+  conversationTypeId: String, conversationTypeSnapshot: Schema.Types.Mixed
 }, options));
 Conversation.schema.index({ projectId: 1, createdAt: 1, _id: 1 });
 Conversation.schema.index({ projectId: 1, taskId: 1, createdAt: 1, _id: 1 });

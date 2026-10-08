@@ -20,6 +20,7 @@ import { createJobBridge } from '../src/runner/bridge.js';
 const exec = promisify(execFile);
 const op = randomUUID;
 let repl: MongoMemoryReplSet; let service: Service; let agent: Actor; let human: Actor; let token: string; let temp: string;
+const capturedPrompts: string[] = [];
 before(async () => {
   temp = await mkdtemp(join(tmpdir(), 'ptm-runner-test-'));
   repl = await MongoMemoryReplSet.create({ replSet: { count: 1 } }); await connect(repl.getUri('runner'));
@@ -39,7 +40,8 @@ async function until(check: () => Promise<boolean>, timeout = 30000) {
 class SimulatedAdapter implements AgentAdapter {
   private options!: AdapterOptions;
   async start(options: AdapterOptions) { this.options = options; await options.onSession(op()); }
-  async send(_prompt: string) {
+  async send(prompt: string) {
+    capturedPrompts.push(prompt);
     const client = new Client({ name: 'simulated-agent', version: '1' });
     await client.connect(new StreamableHTTPClientTransport(new URL(this.options.mcp.url), { requestInit: { headers: { authorization: `Bearer ${this.options.mcp.token}` } } }));
     try {
@@ -63,6 +65,18 @@ for (const real of [false, true]) test(`${real ? 'real providers' : 'simulation'
   const project = await service.call(agent, 'create_project', { operationId: op(), data: { name: 'Runner integration', description: 'Test', instructions: 'Local fixture', repositories: [{ id: repositoryId, name: 'test', url: 'https://example.com/repo', instructions: 'Use fixture' }] } });
   const create = (name: string, dependencies: string[] = []) => service.call(agent, 'create_task', { operationId: op(), projectId: project._id, data: { name, instructions: 'Submit the fixture', acceptance: ['Submitted'], area: 'backend', repositoryId, priority: 1, dependencies } });
   const back = await create('back'); const front = await create('front', [back._id]);
+  if (!real) {
+    capturedPrompts.length = 0;
+    const fieldId = op();
+    const type = await service.call(human, 'create_conversation_type', { operationId: op(), projectId: project._id, data: { name: 'Runner flow', description: 'A configured flow for the runner.', stages: [
+      { id: op(), title: 'Clarify', description: 'Ask for the goal.', kind: 'instruction', required: true, instruction: 'Ask for the intended outcome.' },
+      { id: op(), title: 'Collect details', description: 'Collect required information.', kind: 'form', required: true, fields: [{ id: fieldId, label: 'System', helpText: 'Name the system.', type: 'text', required: true, options: [] }] },
+      { id: op(), title: 'Check system', description: 'Apply the condition.', kind: 'condition', required: false, condition: { fieldId, operator: 'is_set' } },
+      { id: op(), title: 'Approval', description: 'Wait for permission.', kind: 'approval', required: true, approvalLabel: 'Authorize the change' }
+    ] } });
+    const conversation = await service.call(human, 'create_conversation', { operationId: op(), projectId: project._id, taskId: back._id, typeId: type._id });
+    await service.call(human, 'send_conversation_message', { operationId: op(), projectId: project._id, conversationId: conversation._id, content: 'I explicitly ask to skip the configured flow for this request.' });
+  }
   if (real) {
     Object.assign(back, await service.call(agent, 'edit_record', { operationId: op(), projectId: project._id, kind: 'task', id: back._id, version: back.version, data: { instructions: `Use the MCP read_repository_file tool to read fixture.txt (contains test); do not run shell commands. Send a contrato message with text fixture-v1 to relatedTaskId ${front._id} using send_task_message. Then submit_task with summary mentioning fixture-v1, changedFiles [], checksRun ["read fixture.txt"], checksOmitted [], evidence ["fixture-v1"]. Do not modify files or run tests. This is a tiny integration probe.` } }));
     Object.assign(front, await service.call(agent, 'edit_record', { operationId: op(), projectId: project._id, kind: 'task', id: front._id, version: front.version, data: { instructions: 'Read messages and the approved dependency context. Verify the fixture-v1 contract and use the MCP read_repository_file tool for fixture.txt (contains test); do not run shell commands. Submit using submit_task with summary mentioning fixture-v1, changedFiles [], checksRun ["read fixture and contract"], checksOmitted [], evidence ["fixture-v1"]. Do not modify files or run tests. This is a tiny integration probe.' } }));
@@ -78,6 +92,14 @@ for (const real of [false, true]) test(`${real ? 'real providers' : 'simulation'
     await until(async () => (await Task.findById(back._id))?.status === 'concluida', real ? 120000 : 30000);
     await until(async () => (await Task.findById(front._id))?.status === 'concluida', real ? 120000 : 30000);
     assert.deepEqual(selected, ['codex', 'claude']);
+    if (!real) {
+      assert.ok(capturedPrompts[0]?.includes('Runner flow'));
+      assert.ok(capturedPrompts[0]?.includes('Ask for the intended outcome'));
+      assert.ok(capturedPrompts[0]?.includes('Authorize the change'));
+      assert.ok(capturedPrompts[0]?.includes('authorType is exactly "human"'));
+      assert.ok(capturedPrompts[0]?.includes('"authorType":"human"'));
+      assert.ok(capturedPrompts[0]?.includes('I explicitly ask to skip the configured flow'));
+    }
     const jobs = await AutomationJob.find({ projectId: project._id }).lean();
     assert.notEqual(jobs[0].cwd, jobs[1].cwd);
     await until(async () => (await AutomationJob.countDocuments({ projectId: project._id, turnInFlight: false, usage: { $ne: null } })) === 2);

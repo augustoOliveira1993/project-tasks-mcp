@@ -1,11 +1,12 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { ClientSession } from 'mongoose';
 import { z } from 'zod';
-import { AutomationJob, AutomationPolicy, Runner, Task, Feature, Project, Execution, TaskMessage, MarkdownDocument, Conversation, ConversationMessage } from '../db.js';
+import { AutomationJob, AutomationPolicy, Runner, Task, Feature, Project, Execution, TaskMessage, MarkdownDocument, Conversation, ConversationMessage, ConversationType } from '../db.js';
 import { DomainError, type Actor, type Service } from '../service.js';
 import { id, provider, tools } from '../schema.js';
 import { areasForProject } from '../area-catalog.js';
 import { taskMessageAuthorMetadata } from './task-message-author.js';
+import { DEFAULT_CONVERSATION_TYPE_ID, conversationTypeDto, defaultConversationType } from '../conversation-workflows.js';
 
 const active = ['reserved', 'running', 'waiting_human'];
 function ensure(condition: unknown, message: string, status = 409): asserts condition { if (!condition) throw new DomainError(message, status); }
@@ -173,14 +174,25 @@ export class Automation {
       await this.service.access(actor, a.projectId);
       const job = await this.owned(actor, a, undefined, true);
       ensure(job.mode === 'work' && job.status === 'running', 'Conversation messages require an active work job');
-      const task = await Task.findOne({ _id: job.taskId, projectId: a.projectId, archived: false }).select('_id status executionId').lean();
+      const task = await Task.findOne({ _id: job.taskId, projectId: a.projectId, archived: false }).lean();
       ensure(task?.status === 'em_execucao' && task.executionId === job.executionId, 'Task is no longer active');
       const policy = await AutomationPolicy.findById(a.projectId).select('enabled').lean();
-      ensure(policy?.enabled && job.authorizationValid && job.fingerprint === await this.fingerprint(task), 'Automation suspended or task scope changed');
+      ensure(policy?.enabled, 'Automation is suspended or disabled');
+      ensure(job.authorizationValid, 'Automation authorization was revoked');
+      ensure(job.fingerprint === await this.fingerprint(task), 'Automation task scope changed');
       const conversation = job.conversationId
         ? await Conversation.findOne({ _id: job.conversationId, projectId: a.projectId, taskId: job.taskId, status: 'open' }).lean()
         : await Conversation.findOne({ projectId: a.projectId, taskId: job.taskId, status: 'open' }).sort({ lastMessageAt: -1, createdAt: -1, _id: -1 }).lean();
-      if (!conversation) return { conversationId: null, items: [], cursor: job.conversationMessageCursor ?? null, hasMore: false };
+      if (!conversation) return { conversationId: null, conversationType: null, history: [], items: [], cursor: job.conversationMessageCursor ?? null, hasMore: false };
+      const conversationType = conversation.conversationTypeSnapshot
+        ?? (!conversation.conversationTypeId || conversation.conversationTypeId === DEFAULT_CONVERSATION_TYPE_ID
+          ? defaultConversationType(a.projectId)
+          : conversationTypeDto(await ConversationType.findOne({ _id: conversation.conversationTypeId, projectId: a.projectId }).lean() ?? defaultConversationType(a.projectId)));
+      const history = job.turns === 0
+        ? (await ConversationMessage.find({ projectId: a.projectId, conversationId: conversation._id })
+          .select('_id conversationId author authorType clientName content createdAt')
+          .sort({ createdAt: -1, _id: -1 }).limit(20).lean()).reverse()
+        : [];
       const filter: Record<string, any> = { projectId: a.projectId, conversationId: conversation._id, authorType: 'human' };
       if (job.conversationMessageCursor) {
         const cursor = await ConversationMessage.findOne({ _id: job.conversationMessageCursor, projectId: a.projectId, conversationId: conversation._id, authorType: 'human' }).select('createdAt').lean();
@@ -190,7 +202,7 @@ export class Automation {
       const rows = await ConversationMessage.find(filter).select('_id conversationId author authorType clientName content createdAt').sort({ createdAt: 1, _id: 1 }).limit(a.limit + 1).lean();
       const hasMore = rows.length > a.limit;
       if (hasMore) rows.pop();
-      return { conversationId: conversation._id, items: rows, cursor: rows.at(-1)?._id ?? job.conversationMessageCursor ?? null, hasMore };
+      return { conversationId: conversation._id, conversationType, history, items: rows, cursor: rows.at(-1)?._id ?? job.conversationMessageCursor ?? null, hasMore };
     }
     if (a.action === 'recover') {
       await this.runnerOwner(actor, a.runnerId);

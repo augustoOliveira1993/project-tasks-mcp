@@ -566,7 +566,7 @@ export class Service {
   }
   async event(s: ClientSession, actor: Actor, action: string, projectId: string | undefined, entityId: string, data: any) {
     const eventId = randomUUID(); const at = new Date();
-    const kind = ({ create_task: 'task.created', create_feature: 'feature.created', create_project: 'project.created', task_message: 'task.message.created', create_conversation: 'conversation.created', open_task_conversation: 'conversation.created', update_conversation_title: 'conversation.title.updated', link_conversation_task: 'conversation.task.linked', delete_conversation: 'conversation.deleted', conversation_message: 'conversation.message.created', create_action_proposal: 'conversation.action_proposal.created', approve_action_proposal: 'conversation.action_proposal.approved', mcp_tool_call: 'mcp.tool.called', save_markdown: 'body.updated', update_markdown: 'body.updated', record_task_diff: 'task.diff.published', submit_task: 'task.submitted', claim_task: 'task.claimed', record_progress: 'task.progressed', set_acceptance_criterion: 'task.acceptance.progressed', block_task: 'task.blocked', approve: 'task.approved', set_task_status: 'task.status.changed', manual_status_change: 'task.status.changed', set_task_checked: 'task.check.changed', transfer_task: 'task.transferred' } as Record<string, string>)[action] ?? `project.${action}`;
+    const kind = ({ create_task: 'task.created', create_feature: 'feature.created', create_project: 'project.created', task_message: 'task.message.created', create_conversation: 'conversation.created', open_task_conversation: 'conversation.created', update_conversation_title: 'conversation.title.updated', link_conversation_task: 'conversation.task.linked', delete_conversation: 'conversation.deleted', conversation_message: 'conversation.message.created', create_action_proposal: 'conversation.action_proposal.created', approve_action_proposal: 'conversation.action_proposal.approved', create_conversation_type: 'conversation.type.created', update_conversation_type: 'conversation.type.updated', duplicate_conversation_type: 'conversation.type.duplicated', archive_conversation_type: 'conversation.type.archived', set_conversation_type: 'conversation.type.assigned', mcp_tool_call: 'mcp.tool.called', save_markdown: 'body.updated', update_markdown: 'body.updated', record_task_diff: 'task.diff.published', submit_task: 'task.submitted', claim_task: 'task.claimed', record_progress: 'task.progressed', set_acceptance_criterion: 'task.acceptance.progressed', block_task: 'task.blocked', approve: 'task.approved', set_task_status: 'task.status.changed', manual_status_change: 'task.status.changed', set_task_checked: 'task.check.changed', transfer_task: 'task.transferred' } as Record<string, string>)[action] ?? `project.${action}`;
     const toolName = data?.toolName ?? ({ task_message: 'send_task_message', conversation_message: 'send_conversation_message' } as Record<string, string>)[action] ?? (Object.prototype.hasOwnProperty.call(tools, action) ? action : undefined);
     const detail = action === 'record_progress' && typeof data?.message === 'string' ? redactActivityDetail(data.message) : typeof data?.detail === 'string' ? redactActivityDetail(data.detail) : undefined;
     const conversationId = typeof data?.conversationId === 'string' ? data.conversationId : undefined;
@@ -796,7 +796,7 @@ export class Service {
     };
   }
   async call(actor: Actor, name: string, input: unknown): Promise<any> {
-    const conversationTools = new Set(['create_conversation', 'open_task_conversation', 'update_conversation_title', 'link_conversation_task', 'delete_conversation', 'send_conversation_message', 'send_collaboration_message', 'mark_conversation_read']);
+    const conversationTools = new Set(['create_conversation', 'open_task_conversation', 'update_conversation_title', 'link_conversation_task', 'delete_conversation', 'send_conversation_message', 'send_collaboration_message', 'mark_conversation_read', 'list_conversation_types', 'get_conversation_type', 'create_conversation_type', 'update_conversation_type', 'duplicate_conversation_type', 'archive_conversation_type', 'set_conversation_type']);
     requireThat(['agent', 'trusted_local'].includes(actor.scope) || (actor.scope === 'human' && (name === 'archive_record' || name === 'edit_record' || name === 'create_project' || name === 'create_task' || name === 'create_feature' || name === 'preview_task_transfer' || name === 'transfer_task' || name === 'mark_task_read' || conversationTools.has(name))), 'Agent scope required', 403);
     const schema = tools[name as keyof typeof tools];
     requireThat(schema, 'Unknown tool', 404);
@@ -833,6 +833,11 @@ export class Service {
     if (name === 'send_collaboration_message') return this.automation.message(actor, a);
     if (name === 'create_conversation') return this.conversations.create(actor, a);
     if (name === 'open_task_conversation') return this.conversations.openTask(actor, a);
+    if (name === 'create_conversation_type') return this.conversations.createType(actor, a);
+    if (name === 'update_conversation_type') return this.conversations.updateType(actor, a);
+    if (name === 'duplicate_conversation_type') return this.conversations.duplicateType(actor, a);
+    if (name === 'archive_conversation_type') return this.conversations.archiveType(actor, a);
+    if (name === 'set_conversation_type') return this.conversations.setType(actor, a);
     if (name === 'update_conversation_title') return this.conversations.updateTitle(actor, a);
     if (name === 'link_conversation_task') return this.conversations.linkTask(actor, a);
     if (name === 'delete_conversation') return this.conversations.delete(actor, a);
@@ -1111,6 +1116,8 @@ export class Service {
     }
     if (name === 'list_conversations') return this.conversations.list(actor, a);
     if (name === 'get_conversation') return this.conversations.get(actor, a);
+    if (name === 'list_conversation_types') return this.conversations.listTypes(actor, a);
+    if (name === 'get_conversation_type') return this.conversations.getType(actor, a);
     const page = async (model: Model<any>, filter: any) => {
       const startedAt = Date.now();
       try {

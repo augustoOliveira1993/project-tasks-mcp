@@ -8,6 +8,65 @@ const areas = z.array(areaName).min(1).max(100).refine(values => new Set(values.
 const markdown = z.string().max(100 * 1024).refine(value => Buffer.byteLength(value, 'utf8') <= 100 * 1024, 'Markdown exceeds 100 KiB');
 const markdownSummary = z.string().max(500);
 const conversationMessage = z.string().min(1).max(20000).refine(value => Buffer.byteLength(value, 'utf8') <= 20 * 1024, 'Conversation message exceeds 20 KiB');
+const conversationField = z.object({
+  id,
+  label: z.string().trim().min(1).max(120),
+  helpText: z.string().max(1000).default(''),
+  type: z.enum(['text', 'textarea', 'number', 'checkbox', 'select']),
+  required: z.boolean().default(false),
+  options: z.array(z.string().trim().min(1).max(120)).max(50).default([])
+}).strict().superRefine((field, context) => {
+  if (field.type === 'select' && field.options.length === 0) context.addIssue({ code: 'custom', path: ['options'], message: 'Select fields require at least one option' });
+  if (field.type !== 'select' && field.options.length > 0) context.addIssue({ code: 'custom', path: ['options'], message: 'Only select fields can define options' });
+  if (new Set(field.options.map(option => option.toLocaleLowerCase('pt-BR'))).size !== field.options.length) context.addIssue({ code: 'custom', path: ['options'], message: 'Field options must be unique' });
+});
+const conversationCondition = z.object({
+  fieldId: id,
+  operator: z.enum(['is_set', 'is_not_set', 'equals', 'not_equals', 'contains']),
+  value: z.string().max(1000).optional()
+}).strict().superRefine((condition, context) => {
+  if (['equals', 'not_equals', 'contains'].includes(condition.operator) && condition.value === undefined) context.addIssue({ code: 'custom', path: ['value'], message: 'This condition operator requires a value' });
+  if (['is_set', 'is_not_set'].includes(condition.operator) && condition.value !== undefined) context.addIssue({ code: 'custom', path: ['value'], message: 'This condition operator does not accept a value' });
+});
+const conversationStage = z.object({
+  id,
+  title: z.string().trim().min(1).max(120),
+  description: z.string().max(2000).default(''),
+  kind: z.enum(['instruction', 'form', 'approval', 'condition']),
+  required: z.boolean().default(false),
+  instruction: z.string().max(10000).optional(),
+  fields: z.array(conversationField).max(30).optional(),
+  approvalLabel: z.string().trim().min(1).max(120).optional(),
+  condition: conversationCondition.optional()
+}).strict().superRefine((stage, context) => {
+  if (stage.kind === 'instruction' && !stage.instruction?.trim()) context.addIssue({ code: 'custom', path: ['instruction'], message: 'Instruction stages require instructions' });
+  if (stage.kind !== 'instruction' && stage.instruction !== undefined) context.addIssue({ code: 'custom', path: ['instruction'], message: 'Only instruction stages can define instructions' });
+  if (stage.kind === 'form' && !stage.fields?.length) context.addIssue({ code: 'custom', path: ['fields'], message: 'Form stages require at least one field' });
+  if (stage.kind !== 'form' && stage.fields !== undefined) context.addIssue({ code: 'custom', path: ['fields'], message: 'Only form stages can define fields' });
+  if (stage.kind === 'approval' && !stage.approvalLabel?.trim()) context.addIssue({ code: 'custom', path: ['approvalLabel'], message: 'Approval stages require a label' });
+  if (stage.kind !== 'approval' && stage.approvalLabel !== undefined) context.addIssue({ code: 'custom', path: ['approvalLabel'], message: 'Only approval stages can define an approval label' });
+  if (stage.kind === 'condition' && !stage.condition) context.addIssue({ code: 'custom', path: ['condition'], message: 'Condition stages require a condition' });
+  if (stage.kind !== 'condition' && stage.condition !== undefined) context.addIssue({ code: 'custom', path: ['condition'], message: 'Only condition stages can define a condition' });
+  if (stage.kind === 'approval' && !stage.required) context.addIssue({ code: 'custom', path: ['required'], message: 'Approval stages must be required' });
+});
+const conversationTypeData = z.object({
+  name: z.string().trim().min(1).max(120),
+  description: z.string().max(2000).default(''),
+  stages: z.array(conversationStage).min(1).max(30)
+}).strict().superRefine((type, context) => {
+  const stageIds = new Set<string>();
+  const fieldIds = new Set<string>();
+  for (const [index, stage] of type.stages.entries()) {
+    if (stageIds.has(stage.id)) context.addIssue({ code: 'custom', path: ['stages', index, 'id'], message: 'Stage IDs must be unique' });
+    stageIds.add(stage.id);
+    if (stage.kind === 'form') for (const [fieldIndex, field] of (stage.fields ?? []).entries()) {
+      if (fieldIds.has(field.id)) context.addIssue({ code: 'custom', path: ['stages', index, 'fields', fieldIndex, 'id'], message: 'Field IDs must be unique across the flow' });
+      fieldIds.add(field.id);
+    }
+    if (stage.kind === 'condition' && stage.condition && !fieldIds.has(stage.condition.fieldId)) context.addIssue({ code: 'custom', path: ['stages', index, 'condition', 'fieldId'], message: 'Condition must reference a field from an earlier stage' });
+  }
+});
+const conversationTypeId = id.refine(value => value !== '00000000-0000-4000-8000-000000000001', 'Built-in conversation type cannot be changed');
 const taskAttachmentBase64Chars = Math.ceil(25 * 1024 * 1024 / 3) * 4;
 const attachmentId = z.string().regex(/^[a-f0-9]{24}$/i, 'Invalid attachment ID');
 export const states = ['pendente', 'em_execucao', 'bloqueada', 'em_revisao', 'concluida', 'cancelada'] as const;
@@ -49,13 +108,20 @@ export const tools = {
   create_project: z.object({ ...op, data: projectData }).strict(),
   create_feature: z.object({ ...op, projectId: id, data: featureData }).strict(),
   create_task: z.object({ ...op, projectId: id, data: taskData }).strict(),
-  create_conversation: z.object({ ...op, projectId: id, taskId: id.optional(), title: z.string().trim().min(1).max(255).optional() }).strict(),
-  open_task_conversation: z.object({ ...op, projectId: id, taskId: id }).strict(),
+  create_conversation: z.object({ ...op, projectId: id, taskId: id.optional(), title: z.string().trim().min(1).max(255).optional(), typeId: id.optional() }).strict(),
+  open_task_conversation: z.object({ ...op, projectId: id, taskId: id, typeId: id.optional() }).strict(),
   update_conversation_title: z.object({ ...op, projectId: id, conversationId: id, title: z.string().trim().min(1).max(255), version: z.number().int().nonnegative() }).strict(),
   link_conversation_task: z.object({ ...op, projectId: id, conversationId: id, taskId: id, version: z.number().int().nonnegative() }).strict(),
   delete_conversation: z.object({ ...op, projectId: id, conversationId: id, version: z.number().int().nonnegative() }).strict(),
   list_conversations: z.object({ projectId: id, after: cursor.optional(), limit: z.number().int().min(1).max(100).default(25) }).strict(),
   get_conversation: z.object({ projectId: id, conversationId: id, after: cursor.optional(), limit: z.number().int().min(1).max(100).default(50) }).strict(),
+  list_conversation_types: z.object({ projectId: id }).strict(),
+  get_conversation_type: z.object({ projectId: id, typeId: id }).strict(),
+  create_conversation_type: z.object({ ...op, projectId: id, data: conversationTypeData }).strict(),
+  update_conversation_type: z.object({ ...op, projectId: id, typeId: conversationTypeId, version: z.number().int().nonnegative(), data: conversationTypeData }).strict(),
+  duplicate_conversation_type: z.object({ ...op, projectId: id, sourceTypeId: conversationTypeId, sourceVersion: z.number().int().nonnegative(), name: z.string().trim().min(1).max(120) }).strict(),
+  archive_conversation_type: z.object({ ...op, projectId: id, typeId: conversationTypeId, version: z.number().int().nonnegative() }).strict(),
+  set_conversation_type: z.object({ ...op, projectId: id, conversationId: id, typeId: id, version: z.number().int().nonnegative() }).strict(),
   send_conversation_message: z.object({ ...op, projectId: id, conversationId: id, content: conversationMessage }).strict(),
   create_action_proposal: z.object({
     ...op, projectId: id, conversationId: id, taskId: id,
