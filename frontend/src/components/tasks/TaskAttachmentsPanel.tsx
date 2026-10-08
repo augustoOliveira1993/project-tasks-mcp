@@ -148,11 +148,12 @@ function cellText(cell: unknown) {
   return cell === null || cell === undefined ? '' : String(cell);
 }
 
-function AttachmentRow({ token, projectId, taskId, attachment, onRename, onDelete }: {
+function AttachmentRow({ token, projectId, taskId, attachment, onViewed, onRename, onDelete }: {
   token: string;
   projectId: string;
   taskId: string;
   attachment: TaskAttachment;
+  onViewed: (attachmentId: string) => void;
   onRename: (attachmentId: string, fileName: string) => Promise<void>;
   onDelete: (attachment: TaskAttachment) => Promise<void>;
 }) {
@@ -214,6 +215,7 @@ function AttachmentRow({ token, projectId, taskId, attachment, onRename, onDelet
         const contentType = kind === 'pdf' ? 'application/pdf' : imageContentType(attachment);
         setPreviewUrl(URL.createObjectURL(new Blob([original], { type: contentType })));
       }
+      onViewed(attachment.id);
     } catch (cause) { setError(errorMessage(cause)); }
     finally { setBusy(null); }
   }
@@ -222,7 +224,10 @@ function AttachmentRow({ token, projectId, taskId, attachment, onRename, onDelet
     setError('');
     setStatus('');
     setBusy('download');
-    try { saveFile(await downloadTaskAttachment(token, projectId, taskId, attachment.id), attachment.name); }
+    try {
+      saveFile(await downloadTaskAttachment(token, projectId, taskId, attachment.id), attachment.name);
+      onViewed(attachment.id);
+    }
     catch (cause) { setError(errorMessage(cause)); }
     finally { setBusy(null); }
   }
@@ -297,7 +302,7 @@ function AttachmentRow({ token, projectId, taskId, attachment, onRename, onDelet
   </li>;
 }
 
-export function TaskAttachmentsPanel({ token, nonce, projectId, taskId }: { token: string; nonce: string; projectId: string; taskId: string }) {
+export function TaskAttachmentsPanel({ token, nonce, projectId, taskId, onAttachmentViewed }: { token: string; nonce: string; projectId: string; taskId: string; onAttachmentViewed: (attachmentId: string) => void }) {
   const queryClient = useQueryClient();
   const queryKey = ['task-attachments', nonce, projectId, taskId];
   const attachments = useQuery({ queryKey, queryFn: () => listTaskAttachments(token, projectId, taskId) });
@@ -371,7 +376,7 @@ export function TaskAttachmentsPanel({ token, nonce, projectId, taskId }: { toke
     {uploadErrors.length > 0 && <ul className="m-0 grid gap-[5px] rounded-ui-sm border border-[#efd7d9] bg-[#fffafa] py-2.5 pr-3 pl-7 text-ui-xs text-tone-red wrap-anywhere" role="alert">{uploadErrors.map((message, index) => <li key={index}>{message}</li>)}</ul>}
     {attachments.isPending ? <p className={emptyInline} role="status">Carregando arquivos…</p>
       : attachments.isError ? <ErrorNotice error={attachments.error} onRetry={() => void attachments.refetch()} retrying={attachments.isFetching} title="Não foi possível carregar os arquivos" />
-        : attachments.data?.length ? <ul className="m-0 grid list-none gap-2 p-0">{attachments.data.map(attachment => <AttachmentRow key={attachment.id} token={token} projectId={projectId} taskId={taskId} attachment={attachment} onRename={rename} onDelete={remove} />)}</ul>
+        : attachments.data?.length ? <ul className="m-0 grid list-none gap-2 p-0">{attachments.data.map(attachment => <AttachmentRow key={attachment.id} token={token} projectId={projectId} taskId={taskId} attachment={attachment} onViewed={onAttachmentViewed} onRename={rename} onDelete={remove} />)}</ul>
           : <p className={emptyInline}>Nenhum arquivo anexado ainda.</p>}
   </section>;
 }
