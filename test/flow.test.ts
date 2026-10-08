@@ -75,6 +75,65 @@ test('atomic claim, idempotent concurrent retries and stale versions', async () 
   await assert.rejects(service.call(agent, 'heartbeat_task', active(p, a)), /version conflict/);
   assert.equal(progressed.version, a.version + 1);
 });
+test('execution diagnosis returns the persisted ID when the reported client ID is truncated', async () => {
+  const { p, create } = await fixture(); const task = await claim(p, await create('Recover client ID'));
+  const reportedExecutionId = task.executionId.slice(0, -1);
+  const diagnosis = await service.call(agent, 'diagnose_task_execution', { projectId: p._id, taskId: task._id, reportedExecutionId });
+  assert.equal(diagnosis.classification, 'client_id_mismatch');
+  assert.equal(diagnosis.executionId, task.executionId);
+  assert.equal(diagnosis.reportedIdMatches, false);
+  const operationId = op();
+  const args = { operationId, projectId: p._id, taskId: task._id, version: task.version, reason: 'Recover from a truncated client argument' };
+  await assert.rejects(service.call(agent, 'recover_task_execution', { ...args, operationId: op(), version: task.version - 1 }), /version conflict/);
+  const [recovered, retried] = await Promise.all([
+    service.call(agent, 'recover_task_execution', args),
+    service.call(agent, 'recover_task_execution', args)
+  ]);
+  assert.equal(recovered.action, 'resumed');
+  assert.equal(recovered.executionId, task.executionId);
+  assert.deepEqual(retried, recovered);
+  assert.equal(recovered.task.version, task.version);
+  assert.equal(await Execution.countDocuments({ taskId: task._id, status: 'em_execucao' }), 1);
+  assert.equal(await Event.countDocuments({ entityId: task._id, action: 'recover_task_execution' }), 1);
+});
+test('execution recovery rekeys a malformed persisted ID without losing the active run', async () => {
+  const { p, create } = await fixture(); let task = await claim(p, await create('Recover persisted ID'));
+  const previous = await Execution.findById(task.executionId).lean(); assert.ok(previous);
+  const malformedId = `broken-${task.executionId.slice(0, 18)}`;
+  await Execution.updateOne({ _id: task.executionId }, { $set: { status: 'failed', endedAt: new Date() } });
+  await Execution.create([{ ...previous, _id: malformedId, status: 'em_execucao', endedAt: undefined, progress: ['preserve this work'] }]);
+  await Task.updateOne({ _id: task._id }, { $set: { executionId: malformedId } });
+  task = (await Task.findById(task._id).lean())!;
+  const diagnosis = await service.call(agent, 'diagnose_task_execution', { projectId: p._id, taskId: task._id, reportedExecutionId: malformedId });
+  assert.equal(diagnosis.classification, 'invalid_persisted_id');
+  const recovered = await service.call(agent, 'recover_task_execution', { operationId: op(), projectId: p._id, taskId: task._id, version: task.version, reason: 'Repair malformed stored execution reference' });
+  assert.equal(recovered.action, 'rekeyed');
+  assert.match(recovered.executionId, /^[0-9a-f-]{36}$/i);
+  assert.equal(recovered.task.executionId, recovered.executionId);
+  assert.equal((await Execution.findById(recovered.executionId))?.progress[0], 'preserve this work');
+  assert.equal((await Execution.findById(malformedId))?.status, 'recovered');
+  assert.equal(await Execution.countDocuments({ taskId: task._id, status: 'em_execucao' }), 1);
+});
+test('execution recovery releases expired runs for a fresh claim and rejects other credentials', async () => {
+  const { p, create } = await fixture(); let task = await claim(p, await create('Recover expired run'));
+  await assert.rejects(service.call(rival, 'recover_task_execution', { operationId: op(), projectId: p._id, taskId: task._id, version: task.version, reason: 'Wrong credential' }), /another credential/);
+  await Task.updateOne({ _id: task._id }, { $set: { leaseUntil: new Date(0) } });
+  const recovered = await service.call(agent, 'recover_task_execution', { operationId: op(), projectId: p._id, taskId: task._id, version: task.version, reason: 'The original lease expired' });
+  assert.equal(recovered.action, 'released');
+  assert.equal(recovered.task.status, 'pendente');
+  assert.equal(recovered.executionId, null);
+  assert.equal((await Execution.findById(task.executionId))?.status, 'expired');
+  const claimed = await claim(p, recovered.task);
+  assert.notEqual(claimed.executionId, task.executionId);
+  assert.equal(claimed.status, 'em_execucao');
+});
+test('execution recovery refuses ambiguous active records without partial changes', async () => {
+  const { p, create } = await fixture(); const task = await claim(p, await create('Ambiguous recovery'));
+  await Execution.create([{ _id: op(), projectId: p._id, taskId: task._id, credentialId: agent.id, userId: agent.userId, agent: 'Codex', startedAt: new Date(), lastActivity: new Date(), status: 'em_execucao', progress: [], impediments: [] }]);
+  await assert.rejects(service.call(agent, 'recover_task_execution', { operationId: op(), projectId: p._id, taskId: task._id, version: task.version, reason: 'Should refuse duplicates' }), /Multiple active executions/);
+  assert.equal((await Task.findById(task._id))?.version, task.version);
+  assert.equal(await Execution.countDocuments({ taskId: task._id, status: 'em_execucao' }), 2);
+});
 test('cycles, cross-project dependencies and concurrent graph write skew rejected', async () => {
   const { p, create } = await fixture(); const a = await create('A'); const b = await create('B', [a._id]);
   await assert.rejects(service.call(agent, 'edit_record', { operationId: op(), projectId: p._id, kind: 'task', id: a._id, version: a.version, data: { dependencies: [b._id] } }), /cycle/);
@@ -279,7 +338,7 @@ test('MCP real HTTP handshake, tool listing, tool call and endpoint boundaries',
   const client = new Client({ name: 'flow-test', version: '1.0' });
   try {
     await client.connect(new StreamableHTTPClientTransport(new URL(`${url}/mcp`), { requestInit: { headers: { authorization: `Bearer ${agentToken}` } } }));
-    const listed = await client.listTools(); assert.ok(listed.tools.some(t => t.name === 'claim_task')); assert.ok(listed.tools.some(t => t.name === 'set_task_status')); assert.ok(listed.tools.some(t => t.name === 'update_conversation_title'));
+    const listed = await client.listTools(); assert.ok(listed.tools.some(t => t.name === 'claim_task')); assert.ok(listed.tools.some(t => t.name === 'set_task_status')); assert.ok(listed.tools.some(t => t.name === 'update_conversation_title')); assert.ok(listed.tools.some(t => t.name === 'diagnose_task_execution')); assert.ok(listed.tools.some(t => t.name === 'recover_task_execution'));
     assert.match(listed.tools.find(t => t.name === 'claim_task')!.description!, /responsible.*usuário autenticado atual/);
     assert.match(listed.tools.find(t => t.name === 'set_task_status')!.description!, /transições administrativas válidas/);
     assert.match(listed.tools.find(t => t.name === 'open_task_conversation')!.description!, /Use send_task_message.*does not wake another agent session automatically/i);
@@ -292,6 +351,18 @@ test('MCP real HTTP handshake, tool listing, tool call and endpoint boundaries',
     const titleResponse = await client.callTool({ name: 'update_conversation_title', arguments: { operationId: op(), projectId: p._id, conversationId: conversation._id, title: 'Renamed through MCP', version: conversation.version } });
     assert.ok(!titleResponse.isError);
     assert.equal(JSON.parse((titleResponse.content as any)[0].text).title, 'Renamed through MCP');
+    const recoveryTask = await create('HTTP execution recovery');
+    const recoveryClaim = await client.callTool({ name: 'claim_task', arguments: { operationId: op(), projectId: p._id, taskId: recoveryTask._id, version: recoveryTask.version, agent: 'HTTP test' } });
+    assert.ok(!recoveryClaim.isError, JSON.stringify(recoveryClaim));
+    const claimedExecution = JSON.parse((recoveryClaim.content as any)[0].text);
+    const diagnosis = await client.callTool({ name: 'diagnose_task_execution', arguments: { projectId: p._id, taskId: recoveryTask._id, reportedExecutionId: 'eb733abf-65f5-4890-8ecd-4decd24cc85' } });
+    assert.ok(!diagnosis.isError, JSON.stringify(diagnosis));
+    const diagnosisResult = JSON.parse((diagnosis.content as any)[0].text);
+    assert.equal(diagnosisResult.classification, 'client_id_mismatch');
+    assert.equal(diagnosisResult.executionId, claimedExecution.executionId);
+    const recovered = await client.callTool({ name: 'recover_task_execution', arguments: { operationId: op(), projectId: p._id, taskId: recoveryTask._id, version: claimedExecution.version, reason: 'Verify HTTP recovery preserves a valid execution.' } });
+    assert.ok(!recovered.isError, JSON.stringify(recovered));
+    assert.equal(JSON.parse((recovered.content as any)[0].text).executionId, claimedExecution.executionId);
     const statusTask = await create('MCP status transition');
     const statusResult = await client.callTool({ name: 'set_task_status', arguments: { operationId: op(), projectId: p._id, taskId: statusTask._id, version: statusTask.version, status: 'cancelada', reason: 'Not needed' } });
     assert.ok(!statusResult.isError);

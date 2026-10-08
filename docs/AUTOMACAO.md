@@ -59,6 +59,8 @@ Perguntas dirigidas podem criar consultas somente leitura para tasks ja liberada
 
 O executor usa um MCP local com token efemero restrito ao job. Identidade, task, versao e executionId sao fornecidos pelo processo supervisor. Chamadas de heartbeat e ferramentas passam por fila serial por execucao. Os provedores nao recebem o bearer do servidor.
 
+No MCP local do runner, `diagnose_task_execution` consulta o estado canonico da task sem exigir `executionId`; o agente pode opcionalmente enviar o valor que recebeu em `reportedExecutionId` para comparar. Se o diagnostico indicar execucao valida, continue com o ID canonico retornado e nao repita `claim_task`. Se indicar vinculo inconsistente, somente um job gravavel autorizado pode chamar `recover_task_execution`, informando um motivo curto; o runner injeta `projectId`, `taskId`, versao atual e `operationId`. Consultas somente leitura podem diagnosticar, mas nao recuperar. Recuperacao fora da task/job atual, de outra credencial ou com registros ambiguos e recusada.
+
 O runner continua independente da bridge manual. Ao submeter uma tarefa, pode informar commits, branch, arquivos e `diffIds`; a publicação de patch completo só ocorre pela bridge local, mediante opt-in e limite de 100 KiB.
 
 ## Recuperacao e rollback

@@ -20,7 +20,7 @@ import { importProject, ProjectImportError } from './services/project-import-ser
 import { eventOrigin } from './event-origin.js';
 import { areasForProject } from './area-catalog.js';
 import { normalizeGitRemote } from './git-remote.js';
-import { tools, adminSchema, approveActionProposalSchema, approveTasksSchema, changeTaskStatusSchema, setTaskAcceptanceCriterionSchema, setTaskCheckedSchema, projectData, featureData, taskData, states, userId as userIdSchema } from './schema.js';
+import { tools, adminSchema, approveActionProposalSchema, approveTasksSchema, changeTaskStatusSchema, setTaskAcceptanceCriterionSchema, setTaskCheckedSchema, projectData, featureData, taskData, states, id as idSchema, userId as userIdSchema } from './schema.js';
 
 export class DomainError extends Error { constructor(message: string, public status = 409) { super(message); } }
 export type Actor = { id: string; userId: string; scope: string; systemAdmin: boolean; projectToken?: string; sessionId?: string; jobId?: string; runnerId?: string; clientName?: string };
@@ -564,11 +564,11 @@ export class Service {
   }
   async event(s: ClientSession, actor: Actor, action: string, projectId: string | undefined, entityId: string, data: any) {
     const eventId = randomUUID(); const at = new Date();
-    const kind = ({ create_task: 'task.created', create_feature: 'feature.created', create_project: 'project.created', task_message: 'task.message.created', create_conversation: 'conversation.created', open_task_conversation: 'conversation.created', update_conversation_title: 'conversation.title.updated', link_conversation_task: 'conversation.task.linked', delete_conversation: 'conversation.deleted', conversation_message: 'conversation.message.created', create_action_proposal: 'conversation.action_proposal.created', approve_action_proposal: 'conversation.action_proposal.approved', create_conversation_type: 'conversation.type.created', update_conversation_type: 'conversation.type.updated', duplicate_conversation_type: 'conversation.type.duplicated', archive_conversation_type: 'conversation.type.archived', set_conversation_type: 'conversation.type.assigned', mcp_tool_call: 'mcp.tool.called', save_markdown: 'body.updated', update_markdown: 'body.updated', record_task_diff: 'task.diff.published', submit_task: 'task.submitted', claim_task: 'task.claimed', record_progress: 'task.progressed', set_acceptance_criterion: 'task.acceptance.progressed', block_task: 'task.blocked', approve: 'task.approved', set_task_status: 'task.status.changed', manual_status_change: 'task.status.changed', set_task_checked: 'task.check.changed', transfer_task: 'task.transferred' } as Record<string, string>)[action] ?? `project.${action}`;
+    const kind = ({ create_task: 'task.created', create_feature: 'feature.created', create_project: 'project.created', task_message: 'task.message.created', create_conversation: 'conversation.created', open_task_conversation: 'conversation.created', update_conversation_title: 'conversation.title.updated', link_conversation_task: 'conversation.task.linked', delete_conversation: 'conversation.deleted', conversation_message: 'conversation.message.created', create_action_proposal: 'conversation.action_proposal.created', approve_action_proposal: 'conversation.action_proposal.approved', create_conversation_type: 'conversation.type.created', update_conversation_type: 'conversation.type.updated', duplicate_conversation_type: 'conversation.type.duplicated', archive_conversation_type: 'conversation.type.archived', set_conversation_type: 'conversation.type.assigned', mcp_tool_call: 'mcp.tool.called', save_markdown: 'body.updated', update_markdown: 'body.updated', record_task_diff: 'task.diff.published', submit_task: 'task.submitted', claim_task: 'task.claimed', record_progress: 'task.progressed', set_acceptance_criterion: 'task.acceptance.progressed', block_task: 'task.blocked', recover_task_execution: 'task.execution.recovered', diagnose_task_execution: 'task.execution.diagnosed', approve: 'task.approved', set_task_status: 'task.status.changed', manual_status_change: 'task.status.changed', set_task_checked: 'task.check.changed', transfer_task: 'task.transferred' } as Record<string, string>)[action] ?? `project.${action}`;
     const toolName = data?.toolName ?? ({ task_message: 'send_task_message', conversation_message: 'send_conversation_message' } as Record<string, string>)[action] ?? (Object.prototype.hasOwnProperty.call(tools, action) ? action : undefined);
     const detail = action === 'record_progress' && typeof data?.message === 'string' ? redactActivityDetail(data.message) : typeof data?.detail === 'string' ? redactActivityDetail(data.detail) : undefined;
     const conversationId = typeof data?.conversationId === 'string' ? data.conversationId : undefined;
-    const summary = ({ 'task.created': 'Tarefa criada', 'feature.created': 'Feature criada', 'project.created': 'Projeto criado', 'task.message.created': 'Mensagem adicionada à tarefa', 'conversation.created': 'Conversa criada', 'conversation.title.updated': 'Título da conversa atualizado', 'conversation.message.created': data?.summary ?? 'Nova mensagem na conversa', 'conversation.action_proposal.created': 'Proposta de execução aguardando aprovação', 'conversation.action_proposal.approved': 'Proposta aprovada e execução autorizada', 'mcp.tool.called': `Chamada MCP: ${toolName ?? 'ferramenta'}`, 'body.updated': 'Documento Markdown atualizado', 'task.diff.published': 'Diff de código publicado', 'task.submitted': 'Tarefa enviada para revisão', 'task.claimed': 'Tarefa assumida', 'task.progressed': 'Progresso registrado', 'task.acceptance.progressed': 'Critério de aceite atualizado', 'task.blocked': 'Tarefa bloqueada', 'task.approved': 'Tarefa aprovada', 'task.status.changed': 'Status da tarefa alterado', 'task.check.changed': 'Conferência da tarefa alterada', 'task.transferred': 'Tarefa transferida' } as Record<string, string>)[kind] ?? action;
+    const summary = ({ 'task.created': 'Tarefa criada', 'feature.created': 'Feature criada', 'project.created': 'Projeto criado', 'task.message.created': 'Mensagem adicionada à tarefa', 'conversation.created': 'Conversa criada', 'conversation.title.updated': 'Título da conversa atualizado', 'conversation.message.created': data?.summary ?? 'Nova mensagem na conversa', 'conversation.action_proposal.created': 'Proposta de execução aguardando aprovação', 'conversation.action_proposal.approved': 'Proposta de execução autorizada', 'mcp.tool.called': `Chamada MCP: ${toolName ?? 'ferramenta'}`, 'body.updated': 'Documento Markdown atualizado', 'task.diff.published': 'Diff de código publicado', 'task.submitted': 'Tarefa enviada para revisão', 'task.claimed': 'Tarefa assumida', 'task.progressed': 'Progresso registrado', 'task.acceptance.progressed': 'Critério de aceite atualizado', 'task.blocked': 'Tarefa bloqueada', 'task.execution.recovered': 'Execução da tarefa reconciliada', 'task.execution.diagnosed': 'Estado da execução consultado', 'task.approved': 'Tarefa aprovada', 'task.status.changed': 'Status da tarefa alterado', 'task.check.changed': 'Conferência da tarefa alterada', 'task.transferred': 'Tarefa transferida' } as Record<string, string>)[kind] ?? action;
     const agent = data?.agent ?? actor.clientName;
     const origin = eventOrigin(actor);
     const actorData = { userId: actor.userId, credentialId: actor.id, ...(agent ? { agent } : {}) };
@@ -793,9 +793,79 @@ export class Service {
       internal: { task, messages, documents, diffs, jobs, executions, conversations, conversationMessages, conversationReads, actionProposals: proposals, events }
     };
   }
+  private async reconcileTaskExecution(actor: Actor, task: any, a: any, s: ClientSession, now: Date) {
+    requireThat(task.status === 'em_execucao', 'Task is not currently executing');
+    const project = await Project.findById(a.projectId).select('members').session(s);
+    requireThat(project, 'Project not found', 404);
+    const projectAdmin = actor.systemAdmin || actor.scope === 'human' && project.members?.get(memberKey(actor.userId)) === 'administrador';
+    const activeStatuses = ['reserved', 'running', 'waiting_human'];
+    const [jobs, executions] = await Promise.all([
+      AutomationJob.find({ projectId: a.projectId, taskId: task._id, status: { $in: activeStatuses }, reservationUntil: { $gt: now } }).session(s).lean(),
+      Execution.find({ projectId: a.projectId, taskId: task._id, status: 'em_execucao' }).session(s).lean()
+    ]);
+    requireThat(jobs.length <= 1, 'Multiple active automation jobs; manual review required');
+    requireThat(executions.length <= 1, 'Multiple active executions; manual review required');
+    const job = jobs[0];
+    const execution = executions[0];
+    const jobOwner = !!job && actor.jobId === job._id && actor.runnerId === job.runnerId && actor.id === job.credentialId;
+    const executionOwner = !!execution && (actor.id === execution.credentialId || actor.scope === 'trusted_local' && actor.userId === execution.userId);
+    const responsibleOwner = !execution && !job && actor.scope !== 'human' && task.responsible === actor.userId;
+    requireThat(projectAdmin || jobOwner || executionOwner || responsibleOwner, 'Execution belongs to another credential', 403);
+    if (job) requireThat(jobOwner || projectAdmin, 'Active automation must be recovered by its runner or a project administrator', 403);
+    if (execution?.managedJobId && job) requireThat(execution.managedJobId === job._id || projectAdmin, 'Active execution and runner job disagree');
+
+    const oldExecutionId = task.executionId ? String(task.executionId) : null;
+    const leaseActive = !!task.leaseUntil && task.leaseUntil > now;
+    const reason = redactActivityDetail(String(a.reason)).slice(0, 500);
+    const saveTask = async () => { task.version! += 1; await task.save({ session: s }); };
+    const releaseToPending = async () => {
+      await Execution.updateMany({ projectId: a.projectId, taskId: task._id, status: 'em_execucao' }, { $set: { status: 'expired', endedAt: now }, $push: { impediments: reason } }, { session: s });
+      await AutomationJob.updateMany({ projectId: a.projectId, taskId: task._id, status: { $in: activeStatuses } }, { $set: { status: 'failed', authorizationValid: false, error: reason }, $inc: { version: 1 } }, { session: s });
+      task.status = 'pendente'; task.executionId = undefined; task.leaseUntil = undefined; task.responsible = undefined;
+      await saveTask();
+      return { action: 'released', executionId: null, nextAction: 'Call claim_task using the returned task version.' };
+    };
+    if (job && !job.authorizationValid) return { ...(await releaseToPending()), oldExecutionId };
+
+    if (execution) {
+      const runnerMissing = !!execution.managedJobId && !job;
+      if ((!leaseActive || runnerMissing) && !job) return { ...(await releaseToPending()), oldExecutionId };
+      let canonicalId = String(execution._id);
+      let action: string = 'resumed';
+      if (!idSchema.safeParse(canonicalId).success) {
+        const replacementId = randomUUID();
+        const { _id: _oldId, __v: _version, ...executionData } = execution as any;
+        await Execution.create([{ ...executionData, _id: replacementId }], { session: s });
+        await Execution.updateOne({ _id: execution._id, projectId: a.projectId, taskId: task._id }, { $set: { status: 'recovered', endedAt: now }, $push: { impediments: 'Execution identifier reconciled by recover_task_execution' } }, { session: s });
+        canonicalId = replacementId; action = 'rekeyed';
+      }
+      let changed = action !== 'resumed';
+      if (task.executionId !== canonicalId) { task.executionId = canonicalId; changed = true; if (action === 'resumed') action = 'relinked'; }
+      if (!leaseActive) { task.leaseUntil = new Date(now.getTime() + this.leaseMs); changed = true; if (action === 'resumed') action = 'renewed'; }
+      if (changed) await saveTask();
+      if (job && job.executionId !== canonicalId) {
+        await AutomationJob.updateOne({ _id: job._id, runnerId: job.runnerId, credentialId: job.credentialId }, { $set: { executionId: canonicalId }, $inc: { version: 1 } }, { session: s });
+      }
+      return { action, oldExecutionId, executionId: canonicalId, nextAction: 'Use the returned executionId for the next execution tool; do not claim this active task again.' };
+    }
+
+    if (job || leaseActive) {
+      const executionId = randomUUID();
+      await Execution.create([{
+        _id: executionId, projectId: a.projectId, taskId: task._id, credentialId: actor.id, userId: actor.userId,
+        agent: job?.provider ?? actor.clientName ?? actor.scope, managedJobId: job?._id,
+        startedAt: now, lastActivity: now, status: 'em_execucao', progress: [], impediments: []
+      }], { session: s });
+      task.executionId = executionId; task.leaseUntil = new Date(now.getTime() + this.leaseMs);
+      await saveTask();
+      if (job) await AutomationJob.updateOne({ _id: job._id, runnerId: job.runnerId, credentialId: job.credentialId }, { $set: { executionId }, $inc: { version: 1 } }, { session: s });
+      return { action: 'reattached', oldExecutionId, executionId, nextAction: 'Continue the existing authorized execution using the returned executionId.' };
+    }
+    return { ...(await releaseToPending()), oldExecutionId };
+  }
   async call(actor: Actor, name: string, input: unknown): Promise<any> {
     const conversationTools = new Set(['create_conversation', 'open_task_conversation', 'update_conversation_title', 'link_conversation_task', 'delete_conversation', 'send_conversation_message', 'send_collaboration_message', 'mark_conversation_read', 'list_conversation_types', 'get_conversation_type', 'create_conversation_type', 'update_conversation_type', 'duplicate_conversation_type', 'archive_conversation_type', 'set_conversation_type']);
-    requireThat(['agent', 'trusted_local'].includes(actor.scope) || (actor.scope === 'human' && (name === 'archive_record' || name === 'edit_record' || name === 'create_project' || name === 'create_task' || name === 'create_feature' || name === 'preview_task_transfer' || name === 'transfer_task' || name === 'mark_task_read' || conversationTools.has(name))), 'Agent scope required', 403);
+    requireThat(['agent', 'trusted_local'].includes(actor.scope) || (actor.scope === 'human' && (name === 'archive_record' || name === 'edit_record' || name === 'create_project' || name === 'create_task' || name === 'create_feature' || name === 'preview_task_transfer' || name === 'transfer_task' || name === 'mark_task_read' || name === 'diagnose_task_execution' || name === 'recover_task_execution' || conversationTools.has(name))), 'Agent scope required', 403);
     const schema = tools[name as keyof typeof tools];
     requireThat(schema, 'Unknown tool', 404);
     const a: any = schema.parse(input);
@@ -1017,6 +1087,15 @@ export class Service {
         return changed;
       }
       const now = new Date();
+      if (name === 'recover_task_execution') {
+        const recovered = await this.reconcileTaskExecution(actor, t, a, s, now);
+        await this.event(s, actor, name, a.projectId, a.taskId, {
+          operationId: a.operationId, taskId: a.taskId, action: recovered.action,
+          oldExecutionId: recovered.oldExecutionId, executionId: recovered.executionId,
+          reason: redactActivityDetail(a.reason).slice(0, 500), task: plain(t)
+        });
+        return { ...recovered, task: plain(t) };
+      }
       if (name === 'set_acceptance_criterion') {
         requireThat(t.status === 'em_execucao' && t.executionId === a.executionId && t.leaseUntil! > now, 'Execution inactive or expired');
         const acceptance = t.acceptance ?? [];
@@ -1106,6 +1185,41 @@ export class Service {
       const readCursor = await this.taskReadCursor(a.projectId, actor.userId, a.taskId);
       const unread = await DeliveryEvent.exists({ projectId: a.projectId, taskIds: a.taskId, sequence: { $gt: readCursor }, author: { $ne: actor.userId } });
       return { ...context, task: { ...context.task, readCursor, unread: !!unread } };
+    }
+    if (name === 'diagnose_task_execution') {
+      const task: any = await Task.findOne({ _id: a.taskId, projectId: a.projectId, archived: false })
+        .select('_id version status executionId leaseUntil responsible').lean();
+      requireThat(task, 'Task not found', 404);
+      const [executions, jobs] = await Promise.all([
+        Execution.find({ projectId: a.projectId, taskId: a.taskId }).select('_id status').sort({ startedAt: -1, _id: -1 }).lean(),
+        AutomationJob.find({ projectId: a.projectId, taskId: a.taskId, status: { $in: ['reserved', 'running', 'waiting_human'] } }).select('_id status reservationUntil executionId').lean()
+      ]);
+      const activeExecutions = executions.filter(item => item.status === 'em_execucao');
+      const current = task.executionId ? executions.find(item => String(item._id) === String(task.executionId)) : undefined;
+      const hasValidTaskId = !!task.executionId && idSchema.safeParse(String(task.executionId)).success;
+      const leaseActive = !!task.leaseUntil && task.leaseUntil > new Date();
+      let classification = 'not_running';
+      if (task.status === 'em_execucao' && (activeExecutions.length > 1 || jobs.filter(item => item.reservationUntil > new Date()).length > 1)) classification = 'ambiguous';
+      else if (task.status === 'em_execucao' && task.executionId && !hasValidTaskId) classification = 'invalid_persisted_id';
+      else if (task.status === 'em_execucao' && current?.status === 'em_execucao' && hasValidTaskId) {
+        classification = a.reportedExecutionId !== undefined && a.reportedExecutionId !== String(task.executionId) ? 'client_id_mismatch' : 'active_valid';
+      } else if (task.status === 'em_execucao' && activeExecutions.length === 1) classification = 'execution_pointer_mismatch';
+      else if (task.status === 'em_execucao' && !current) classification = leaseActive ? 'missing_execution_record' : 'orphaned';
+      else if (task.status === 'em_execucao') classification = 'execution_not_active';
+      const nextAction = classification === 'client_id_mismatch' || classification === 'active_valid'
+        ? 'Use the canonical executionId returned here; do not claim the active task again.'
+        : classification === 'not_running' ? 'No active execution needs recovery.'
+          : classification === 'ambiguous' ? 'Stop and ask a project administrator to resolve the multiple active records.'
+            : 'Call recover_task_execution with the current task version and an audit reason.';
+      return {
+        taskId: task._id, version: task.version, status: task.status, classification,
+        executionId: hasValidTaskId && current?.status === 'em_execucao' ? String(task.executionId) : null,
+        executionStatus: current?.status ?? null, leaseActive,
+        reportedIdMatches: a.reportedExecutionId === undefined ? null : a.reportedExecutionId === String(task.executionId),
+        activeExecutionCount: activeExecutions.length,
+        activeRunnerCount: jobs.filter(item => item.reservationUntil > new Date()).length,
+        nextAction
+      };
     }
     if (name === 'get_project_dashboard') {
       const from = a.from ? new Date(a.from) : undefined;

@@ -133,7 +133,7 @@ export class Automation {
       const postSubmissionApproval = name === 'set_task_status' && a.status === 'concluida';
       const job = await this.owned(actor, { ...a, jobId: actor.jobId, runnerId: actor.runnerId }, s, postSubmissionApproval);
       const consultationReply = name === 'send_collaboration_message' && job.mode === 'consultation';
-      ensure((['claim_task', 'heartbeat_task', 'record_progress', 'set_acceptance_criterion', 'block_task', 'submit_task', 'send_task_message'].includes(name) || name === 'send_collaboration_message' && ['work', 'consultation'].includes(job.mode) || name === 'send_conversation_message' && job.mode === 'work' || postSubmissionApproval) && job.taskId === a.taskId, 'Operation outside authorized job', 403);
+      ensure((['claim_task', 'heartbeat_task', 'record_progress', 'set_acceptance_criterion', 'block_task', 'submit_task', 'recover_task_execution', 'send_task_message'].includes(name) || name === 'send_collaboration_message' && ['work', 'consultation'].includes(job.mode) || name === 'send_conversation_message' && job.mode === 'work' || postSubmissionApproval) && job.taskId === a.taskId, 'Operation outside authorized job', 403);
       ensure(job.mode === 'work' || consultationReply, 'Consultation is read-only', 403);
       const policy = await AutomationPolicy.findById(a.projectId).session(s);
       const task = await Task.findById(a.taskId).session(s);
@@ -144,7 +144,7 @@ export class Automation {
       const task = await Task.findById(a.taskId ?? a.targetId).session(s);
       if (task?.executionId && task.status === 'em_execucao') {
         const execution = await Execution.findById(task.executionId).session(s);
-        ensure(!execution?.managedJobId, 'Managed execution requires its runner', 403);
+        ensure(!execution?.managedJobId || name === 'recover_task_execution' && actor.scope === 'human', 'Managed execution requires its runner', 403);
       }
     }
   }

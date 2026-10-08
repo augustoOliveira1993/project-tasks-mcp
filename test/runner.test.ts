@@ -45,6 +45,33 @@ class SimulatedAdapter implements AgentAdapter {
     const client = new Client({ name: 'simulated-agent', version: '1' });
     await client.connect(new StreamableHTTPClientTransport(new URL(this.options.mcp.url), { requestInit: { headers: { authorization: `Bearer ${this.options.mcp.token}` } } }));
     try {
+      const contextResponse = await client.callTool({ name: 'get_task_context', arguments: {} });
+      assert.ok(!contextResponse.isError, JSON.stringify(contextResponse));
+      const context = JSON.parse((contextResponse.content as any)[0].text);
+      const diagnosis = await client.callTool({ name: 'diagnose_task_execution', arguments: { reportedExecutionId: 'truncated-client-id' } });
+      assert.ok(!diagnosis.isError, JSON.stringify(diagnosis));
+      const diagnosed = JSON.parse((diagnosis.content as any)[0].text);
+      assert.equal(diagnosed.taskId, context.task._id);
+      assert.equal(diagnosed.classification, 'client_id_mismatch');
+      assert.equal(diagnosed.executionId, context.task.executionId);
+      const malformedId = `broken-${context.task.executionId.slice(0, 18)}`;
+      const previousExecution = await Execution.findById(context.task.executionId).lean();
+      assert.ok(previousExecution);
+      await Execution.updateOne({ _id: context.task.executionId }, { $set: { status: 'failed', endedAt: new Date() } });
+      await Execution.create([{ ...previousExecution, _id: malformedId, status: 'em_execucao', endedAt: undefined, progress: [...(previousExecution.progress ?? []), 'runner recovery fixture'] }]);
+      await Task.updateOne({ _id: context.task._id }, { $set: { executionId: malformedId } });
+      const failedProgress = await client.callTool({ name: 'record_progress', arguments: { message: 'This call carries the malformed persisted execution ID injected by the runner.' } });
+      assert.ok(failedProgress.isError, JSON.stringify(failedProgress));
+      const inconsistent = await client.callTool({ name: 'diagnose_task_execution', arguments: {} });
+      assert.ok(!inconsistent.isError, JSON.stringify(inconsistent));
+      assert.equal(JSON.parse((inconsistent.content as any)[0].text).classification, 'invalid_persisted_id');
+      const recovery = await client.callTool({ name: 'recover_task_execution', arguments: { reason: 'Repair the malformed execution pointer in this authorized runner job.' } });
+      assert.ok(!recovery.isError, JSON.stringify(recovery));
+      const recovered = JSON.parse((recovery.content as any)[0].text);
+      assert.equal(recovered.action, 'rekeyed');
+      assert.notEqual(recovered.executionId, malformedId);
+      assert.equal((await Task.findById(context.task._id))?.executionId, recovered.executionId);
+      assert.equal(await Execution.countDocuments({ taskId: context.task._id, status: 'em_execucao' }), 1);
       const response = await client.callTool({ name: 'submit_task', arguments: { result: { summary: 'Simulated task completed', changedFiles: [], checksRun: ['simulation'], checksOmitted: ['real model'], evidence: ['bridge exercised'] } } });
       assert.ok(!response.isError, JSON.stringify(response));
       const approval = await client.callTool({ name: 'set_task_status', arguments: { status: 'concluida', reason: 'Reviewed the submitted diff and verified every acceptance criterion against the recorded evidence.' } });
@@ -134,6 +161,32 @@ test('runner prompt limits the initial context to the authorized area and reposi
   assert.doesNotMatch(prompt, /frontend-repo|Frontend task|Frontend detail/);
 });
 
+test('runner bridge exposes diagnosis broadly and recovery only to its writable job', async () => {
+  const forwarded: Array<{ name: string; args: any }> = [];
+  const readOnly = await createJobBridge(async () => ({}), true);
+  const readClient = new Client({ name: 'read-only-tools-probe', version: '1' });
+  const writable = await createJobBridge(async (name, args) => { forwarded.push({ name, args }); return {}; }, false);
+  const writeClient = new Client({ name: 'writable-tools-probe', version: '1' });
+  try {
+    await readClient.connect(new StreamableHTTPClientTransport(new URL(readOnly.url), { requestInit: { headers: { authorization: `Bearer ${readOnly.token}` } } }));
+    const readTools = (await readClient.listTools()).tools;
+    assert.ok(readTools.some(tool => tool.name === 'diagnose_task_execution'));
+    assert.ok(!readTools.some(tool => tool.name === 'recover_task_execution'));
+    await writeClient.connect(new StreamableHTTPClientTransport(new URL(writable.url), { requestInit: { headers: { authorization: `Bearer ${writable.token}` } } }));
+    const writeTools = (await writeClient.listTools()).tools;
+    assert.ok(writeTools.some(tool => tool.name === 'diagnose_task_execution'));
+    const recoveryTool = writeTools.find(tool => tool.name === 'recover_task_execution');
+    assert.ok(recoveryTool);
+    assert.deepEqual(Object.keys((recoveryTool.inputSchema as any).properties), ['reason']);
+    assert.deepEqual(Object.keys((writeTools.find(tool => tool.name === 'diagnose_task_execution')!.inputSchema as any).properties), ['reportedExecutionId']);
+    const attemptToEscapeScope = await writeClient.callTool({ name: 'recover_task_execution', arguments: { reason: 'try to target another task', projectId: op(), taskId: op(), version: 0, operationId: op() } });
+    assert.ok(attemptToEscapeScope.isError);
+    assert.deepEqual(forwarded, []);
+  } finally {
+    await readClient.close(); await writeClient.close(); await readOnly.close(); await writable.close();
+  }
+});
+
 test('read-only bridge rejects traversal, linked paths and write tools', async () => {
   const root = join(temp, 'read-root'); await mkdir(root); await writeFile(join(root, 'file.txt'), 'first\nsecond\n');
   const outside = join(temp, 'outside'); await mkdir(outside); await writeFile(join(outside, 'private.txt'), 'outside checkout');
@@ -142,7 +195,10 @@ test('read-only bridge rejects traversal, linked paths and write tools', async (
   const client = new Client({ name: 'read-only-probe', version: '1' });
   try {
     await client.connect(new StreamableHTTPClientTransport(new URL(bridge.url), { requestInit: { headers: { authorization: `Bearer ${bridge.token}` } } }));
-    assert.ok(!(await client.listTools()).tools.some(t => t.name === 'submit_task' || t.name === 'block_task'));
+    const toolNames = (await client.listTools()).tools.map(t => t.name);
+    assert.ok(toolNames.includes('diagnose_task_execution'));
+    assert.ok(!toolNames.includes('recover_task_execution'));
+    assert.ok(!toolNames.some(name => ['submit_task', 'block_task'].includes(name)));
     const read = await client.callTool({ name: 'read_repository_file', arguments: { path: 'file.txt', line: 2, limit: 1 } });
     assert.equal((read.content as any)[0].text, 'second');
     for (const path of ['../outside/private.txt', 'linked/private.txt']) assert.equal((await client.callTool({ name: 'read_repository_file', arguments: { path } })).isError, true);
