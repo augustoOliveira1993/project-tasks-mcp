@@ -59,7 +59,7 @@ test('painel inicia conversa no escopo do projeto e oferece retomada paginada', 
   assert.match(html, /<span class="inline-flex [^"]*"[^>]*>Pendente</);
   assert.doesNotMatch(html, /Área · Backend|Feature · Colaboração por task/, 'a lista não repete área e feature da task');
   assert.doesNotMatch(html, /Autorizar execução/);
-  assert.match(html, /Tipos e etapas/);
+  assert.doesNotMatch(html, /Tipos e etapas/);
   assert.match(html, /Tipo da nova conversa/);
 });
 

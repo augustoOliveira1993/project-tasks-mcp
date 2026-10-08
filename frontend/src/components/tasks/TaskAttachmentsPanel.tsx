@@ -148,13 +148,11 @@ function cellText(cell: unknown) {
   return cell === null || cell === undefined ? '' : String(cell);
 }
 
-function AttachmentRow({ token, projectId, taskId, attachment, isNew, onViewed, onRename, onDelete }: {
+function AttachmentRow({ token, projectId, taskId, attachment, onRename, onDelete }: {
   token: string;
   projectId: string;
   taskId: string;
   attachment: TaskAttachment;
-  isNew: boolean;
-  onViewed: (attachmentId: string) => void;
   onRename: (attachmentId: string, fileName: string) => Promise<void>;
   onDelete: (attachment: TaskAttachment) => Promise<void>;
 }) {
@@ -216,7 +214,6 @@ function AttachmentRow({ token, projectId, taskId, attachment, isNew, onViewed, 
         const contentType = kind === 'pdf' ? 'application/pdf' : imageContentType(attachment);
         setPreviewUrl(URL.createObjectURL(new Blob([original], { type: contentType })));
       }
-      onViewed(attachment.id);
     } catch (cause) { setError(errorMessage(cause)); }
     finally { setBusy(null); }
   }
@@ -225,10 +222,7 @@ function AttachmentRow({ token, projectId, taskId, attachment, isNew, onViewed, 
     setError('');
     setStatus('');
     setBusy('download');
-    try {
-      saveFile(await downloadTaskAttachment(token, projectId, taskId, attachment.id), attachment.name);
-      onViewed(attachment.id);
-    }
+    try { saveFile(await downloadTaskAttachment(token, projectId, taskId, attachment.id), attachment.name); }
     catch (cause) { setError(errorMessage(cause)); }
     finally { setBusy(null); }
   }
@@ -260,7 +254,7 @@ function AttachmentRow({ token, projectId, taskId, attachment, isNew, onViewed, 
   return <li className="grid min-w-0 grid-cols-[42px_minmax(0,1fr)_auto] items-start gap-3 rounded-ui-md border border-line bg-white p-3 max-[720px]:grid-cols-[36px_minmax(0,1fr)]" aria-busy={busy !== null}>
     <div className="grid h-[42px] w-[42px] place-items-center rounded-ui-sm bg-tone-blue-bg text-[9px] font-extrabold text-tone-blue max-[720px]:h-9 max-[720px]:w-9" aria-hidden="true">{fileBadge(attachment)}</div>
     <div className="grid min-w-0 gap-1">
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1"><strong className="text-ui-sm text-ink-2 wrap-anywhere" title={attachment.name}>{attachment.name}</strong>{isNew && <span className="inline-flex items-center gap-1 text-ui-xs font-bold text-[#a65c00]" aria-label="Arquivo novo não visualizado"><span className="size-2 rounded-full bg-[#d97706]" aria-hidden="true" />Novo</span>}</div>
+      <strong className="text-ui-sm text-ink-2 wrap-anywhere" title={attachment.name}>{attachment.name}</strong>
       <small className="text-ui-xs text-muted-strong wrap-anywhere">{formatFileSize(attachment.size)} · {attachment.contentType} · {formatDate(attachment.createdAt)}</small>
       {error && <span className="text-ui-xs text-tone-red wrap-anywhere" role="alert">{error}</span>}
       {status && <span className="text-ui-xs text-tone-green" role="status">{status}</span>}
@@ -303,7 +297,7 @@ function AttachmentRow({ token, projectId, taskId, attachment, isNew, onViewed, 
   </li>;
 }
 
-export function TaskAttachmentsPanel({ token, nonce, projectId, taskId, newAttachmentIds = [], onAttachmentViewed }: { token: string; nonce: string; projectId: string; taskId: string; newAttachmentIds?: string[]; onAttachmentViewed: (attachmentId: string) => void }) {
+export function TaskAttachmentsPanel({ token, nonce, projectId, taskId }: { token: string; nonce: string; projectId: string; taskId: string }) {
   const queryClient = useQueryClient();
   const queryKey = ['task-attachments', nonce, projectId, taskId];
   const attachments = useQuery({ queryKey, queryFn: () => listTaskAttachments(token, projectId, taskId) });
@@ -377,7 +371,7 @@ export function TaskAttachmentsPanel({ token, nonce, projectId, taskId, newAttac
     {uploadErrors.length > 0 && <ul className="m-0 grid gap-[5px] rounded-ui-sm border border-[#efd7d9] bg-[#fffafa] py-2.5 pr-3 pl-7 text-ui-xs text-tone-red wrap-anywhere" role="alert">{uploadErrors.map((message, index) => <li key={index}>{message}</li>)}</ul>}
     {attachments.isPending ? <p className={emptyInline} role="status">Carregando arquivos…</p>
       : attachments.isError ? <ErrorNotice error={attachments.error} onRetry={() => void attachments.refetch()} retrying={attachments.isFetching} title="Não foi possível carregar os arquivos" />
-        : attachments.data?.length ? <ul className="m-0 grid list-none gap-2 p-0">{attachments.data.map(attachment => <AttachmentRow key={attachment.id} token={token} projectId={projectId} taskId={taskId} attachment={attachment} isNew={newAttachmentIds.includes(attachment.id)} onViewed={onAttachmentViewed} onRename={rename} onDelete={remove} />)}</ul>
+        : attachments.data?.length ? <ul className="m-0 grid list-none gap-2 p-0">{attachments.data.map(attachment => <AttachmentRow key={attachment.id} token={token} projectId={projectId} taskId={taskId} attachment={attachment} onRename={rename} onDelete={remove} />)}</ul>
           : <p className={emptyInline}>Nenhum arquivo anexado ainda.</p>}
   </section>;
 }
