@@ -10,8 +10,10 @@ import { makeToken } from '../../lib/token';
 import { ProjectExportPanel } from './ProjectExportPanel';
 import { RepositoryGitBinding } from './RepositoryGitBinding';
 import { ProjectImportPanel } from './ProjectImportPanel';
+import { ProjectAreasManager } from '../projects/ProjectAreasManager';
 
 const adminPanelTabs = [
+  { id: 'areas', label: 'Áreas do projeto' },
   { id: 'tools', label: 'Ferramentas administrativas' },
   { id: 'credentials', label: 'Credenciais' },
   { id: 'export', label: 'Exportar/Importar Projeto' },
@@ -205,6 +207,9 @@ export function AdminPanel({ project, projects, onChanged, notify, token, canHar
     </div>
       {activePanel === 'credentials' && issued && <div className={issuedBox}><div className="grid gap-[3px] text-[10px] text-[#354e43]"><strong>Nova credencial · {issued.email}</strong><small className={`${issuedMono} text-[9px] text-[#718279]`}>ID {issued.id}{issued.projectName ? ` · ${issued.projectName}` : ` · ${issued.scope === 'agent' ? 'agente' : 'pessoa'}`}</small></div><label className="grid gap-1.5 text-[10px] font-semibold text-[#566275]">Token — copie agora, ele só estará disponível nesta sessão<textarea className={`w-full ${fieldBase} wrap-anywhere ${issuedMono} text-[10px]`} readOnly value={issued.token} rows={3} onFocus={event => event.currentTarget.select()} /></label><div className="flex items-center gap-2"><button type="button" className={buttonSecondary} onClick={() => void copyIssued()}>Copiar</button><button type="button" className={buttonGhost} onClick={() => setIssued(null)}>Limpar</button></div></div>}
 
+    <div id="admin-panel-areas" role="tabpanel" aria-labelledby="admin-tab-areas" hidden={activePanel !== 'areas'} tabIndex={0}>
+      <ProjectAreasManager token={token} project={project} onChanged={onChanged} notify={notify} />
+    </div>
     <div id="admin-panel-tools" role="tabpanel" aria-labelledby="admin-tab-tools" hidden={activePanel !== 'tools'} tabIndex={0}>
     <div><div className="grid grid-cols-2 gap-3 max-[760px]:grid-cols-[1fr]">
     <RepositoryGitBinding project={project} busy={busy} onSave={bindRepository} />
