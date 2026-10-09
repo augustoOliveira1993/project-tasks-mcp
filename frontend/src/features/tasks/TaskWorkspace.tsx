@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent, KeyboardEvent } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { allRecords, listTaskAttachments, query } from '../../api';
-import type { Project, Task } from '../../api';
+import { allRecords, listTaskAttachments, searchTaskWorkspace } from '../../api';
+import type { Project, Task, TaskWorkspaceResult } from '../../api';
 import { Badge } from '../../components/ui/Badge';
 import { ErrorNotice } from '../../components/ui/ErrorNotice';
 import { IconCheck, IconDiff, IconFeature, IconMail, IconQuestion, IconRefresh, IconSearch } from '../../components/ui/icons';
@@ -20,10 +20,12 @@ import { TaskActionsMenu } from './TaskActionsMenu';
 import { TaskKpiBar } from './TaskKpiBar';
 import { statusLabels, statusTone } from './status';
 import { primaryActionFor, type TaskRowAction } from './task-actions';
-import { filterTasks, getTaskFilterOptions, noAreaFilter, noResponsibleFilter, taskFilterOptionLabel } from './task-filters';
-import { getSelectedVisibleItems, paginateItems } from './task-pagination';
-import { readTaskQueryState, syncTaskQueryState, type TaskQueryState } from './task-query-params';
-import { sortLabels, sortTasks } from './task-sort';
+import { noAreaFilter, noResponsibleFilter } from './task-filters';
+import { getSelectedVisibleItems } from './task-pagination';
+import { readTaskQueryState, syncTaskQueryState, taskTypes, type TaskQueryState } from './task-query-params';
+import { sortLabels } from './task-sort';
+import { AdvancedTaskFilterPanel } from './AdvancedTaskFilterPanel';
+import { emptyFilterGroup, expressionHasRules, expressionIsReady, type FilterField, type FilterGroup } from './advanced-filter';
 import { builtInViews, loadMyEmail, loadSavedViews, matchesView, mineView, snapshotView, storeMyEmail, storeSavedViews, viewPatch, type TaskView } from './task-views';
 
 type TaskWorkspaceProps = {
@@ -51,15 +53,10 @@ type TaskWorkspaceProps = {
   onRequestHardDeleteTask: (task: Task) => void;
   onArchiveTask: (task: Task) => void;
   onApproveSelected: (taskIds: string[], reason: string) => Promise<boolean>;
-  onSetTasksChecked: (taskIds: string[], checked: boolean) => Promise<string[]>;
+  onSetTasksChecked: (tasks: Task[], checked: boolean) => Promise<string[]>;
 };
 
 type Feature = { _id: string; name: string };
-type SyncReport = {
-  summary: { taskCount: number; unreadTaskCount: number; openQuestionCount: number };
-  tasks: Array<{ taskId: string; unread: { count: number }; openQuestions: unknown[]; gitDiff: unknown | null }>;
-};
-
 const flagLabels: Record<string, string> = { unread: 'Com novidades não lidas', questions: 'Com perguntas abertas', diff: 'Com diff Git' };
 
 const primaryTone = 'border-transparent bg-accent text-white shadow-[0_3px_8px_#5364dd2a] hover:bg-accent-dark';
@@ -121,13 +118,16 @@ const rowSelected = `${rowBase} bg-[#f1f3ff]`;
 const checkbox = 'size-[13px] align-middle accent-[#5969dc]';
 const pageButton = 'inline-grid size-[27px] flex-none place-items-center rounded-[7px] border border-transparent bg-transparent text-[15px] text-[#8792a2] hover:border-[#e8eaf5] hover:bg-[#f6f7fc] hover:text-[#4c5bc9] disabled:border-transparent disabled:bg-transparent';
 
-export function TaskWorkspace({ token, nonce, projectId, repositories = [], projectAreas = ['backend', 'frontend', 'outro'], tasks, isPending, isError, error, saving, updatedAt, refreshing = false, onRefresh, onOpenTask, onOpenTaskConversation, onTransferTask, onChangeStatus, onToggleChecked, canHardDelete, systemAdmin = false, onRequestHardDeleteTask, onArchiveTask, onApproveSelected, onSetTasksChecked }: TaskWorkspaceProps) {
+export function TaskWorkspace({ token, nonce, projectId, repositories = [], projectAreas = ['backend', 'frontend', 'outro'], tasks: _allTasks, isPending: _allTasksPending, isError: _allTasksError, error: _allTasksErrorValue, saving, updatedAt: _updatedAt, refreshing: _refreshing = false, onRefresh, onOpenTask, onOpenTaskConversation, onTransferTask, onChangeStatus, onToggleChecked, canHardDelete, systemAdmin = false, onRequestHardDeleteTask, onArchiveTask, onApproveSelected, onSetTasksChecked }: TaskWorkspaceProps) {
   const [createTaskOpen, setCreateTaskOpen] = useState(false);
   const [createFeatureOpen, setCreateFeatureOpen] = useState(false);
   const [createdTaskNotice, setCreatedTaskNotice] = useState('');
   const [createdFeatureNotice, setCreatedFeatureNotice] = useState('');
   const [state, setState] = useState<TaskQueryState>(readTaskQueryState);
-  const [advancedOpen, setAdvancedOpen] = useState(() => Boolean(state.priority || state.responsible || state.featureId || state.createdAfter || state.createdBefore || state.updatedAfter || state.updatedBefore));
+  const [searchDraft, setSearchDraft] = useState(() => state.search);
+  const [advancedOpen, setAdvancedOpen] = useState(() => Boolean(state.priority || state.responsible || state.featureId || state.createdAfter || state.createdBefore || state.updatedAfter || state.updatedBefore || expressionHasRules(state.expression)));
+  const [filterDraft, setFilterDraft] = useState<FilterGroup>(() => state.expression);
+  const [cursorHistory, setCursorHistory] = useState<string[]>(['']);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [approvalReason, setApprovalReason] = useState('');
   const [savedViews, setSavedViews] = useState<TaskView[]>(() => loadSavedViews(projectId));
@@ -136,13 +136,30 @@ export function TaskWorkspace({ token, nonce, projectId, repositories = [], proj
   const [myEmail, setMyEmail] = useState(loadMyEmail);
   const [identityDraft, setIdentityDraft] = useState('');
   const [now, setNow] = useState(() => Date.now());
+  const wasSaving = useRef(false);
   const searchRef = useRef<HTMLInputElement>(null);
 
-  const syncReportQuery = useQuery({
-    queryKey: ['project-sync-report', nonce, projectId, state.featureId],
+  const afterCursor = cursorHistory[state.page - 1] || undefined;
+  const workspaceQuery = useQuery({
+    queryKey: ['task-workspace-search', nonce, projectId, state, afterCursor],
     enabled: Boolean(token && nonce && projectId),
-    queryFn: () => query<SyncReport>(token, 'get_project_sync_report', { projectId, ...(state.featureId ? { featureId: state.featureId } : {}) })
+    staleTime: 15_000,
+    queryFn: () => searchTaskWorkspace(token, {
+      projectId,
+      quick: {
+        ...(state.search.trim() ? { search: state.search.trim() } : {}), ...(state.status !== 'todos' ? { status: state.status } : {}),
+        ...(state.area !== 'todos' ? { area: state.area } : {}), ...(state.type !== 'todos' ? { type: state.type } : {}),
+        ...(state.priority ? { priority: Number(state.priority) } : {}), ...(state.responsible ? { responsible: state.responsible } : {}),
+        ...(state.featureId ? { featureId: state.featureId } : {}), ...(state.createdAfter ? { createdAfter: state.createdAfter } : {}),
+        ...(state.createdBefore ? { createdBefore: state.createdBefore } : {}), ...(state.updatedAfter ? { updatedAfter: state.updatedAfter } : {}),
+        ...(state.updatedBefore ? { updatedBefore: state.updatedBefore } : {}), ...(state.flag ? { flag: state.flag } : {})
+      },
+      ...(expressionHasRules(state.expression) ? { expression: state.expression } : {}),
+      sort: state.sort as 'priority' | 'updated' | 'created' | 'name' | 'status', limit: state.pageSize, ...(afterCursor ? { after: afterCursor } : {})
+    })
   });
+  const workspaceResult: TaskWorkspaceResult | undefined = workspaceQuery.data;
+  const tasks = workspaceResult?.items ?? [];
   const featuresQuery = useQuery({
     queryKey: ['project-features', nonce, projectId],
     enabled: Boolean(token && nonce && projectId),
@@ -156,35 +173,32 @@ export function TaskWorkspace({ token, nonce, projectId, repositories = [], proj
     return [...known.values()].sort((a, b) => a.email.localeCompare(b.email, 'pt-BR'));
   }, [assigneesQuery.data, tasks]);
   const featureNames = useMemo(() => new Map((featuresQuery.data ?? []).map(feature => [feature._id, feature.name])), [featuresQuery.data]);
-  const syncTasks = useMemo(() => new Map((syncReportQuery.data?.tasks ?? []).map(item => [item.taskId, item])), [syncReportQuery.data]);
-
-  const filtered = useMemo(() => {
-    const matching = filterTasks(tasks, state).filter(task => {
-      if (!state.flag) return true;
-      const sync = syncTasks.get(task._id);
-      if (state.flag === 'unread') return (sync?.unread.count ?? 0) > 0;
-      if (state.flag === 'questions') return (sync?.openQuestions.length ?? 0) > 0;
-      return Boolean(sync?.gitDiff);
-    });
-    return sortTasks(matching, state.sort);
-  }, [tasks, state, syncTasks]);
-  const filterOptions = useMemo(() => getTaskFilterOptions(tasks, state, projectAreas), [tasks, projectAreas, state]);
-  const pagination = paginateItems(filtered, state.page, state.pageSize);
-  const { page: currentPage, pageCount: pages, items: visibleTasks } = pagination;
-  const countStatus = (status: string) => tasks.filter(task => task.status === status).length;
+  const filterOptions = useMemo(() => ({
+    status: Object.keys(statusLabels).map(value => ({ value, count: 0 })),
+    area: projectAreas.map(value => ({ value, count: 0 })),
+    type: taskTypes.map(value => ({ value, count: 0 })),
+    priority: [0, 1, 2, 3, 4, 5].map(value => ({ value: String(value), count: 0 }))
+  }), [projectAreas]);
+  const visibleTasks = tasks;
+  const filteredCount = workspaceResult?.total ?? 0;
+  const currentPage = state.page;
+  const pages = Math.max(1, Math.ceil(filteredCount / state.pageSize));
+  const firstItem = filteredCount ? (currentPage - 1) * state.pageSize + 1 : 0;
+  const lastItem = Math.min(currentPage * state.pageSize, filteredCount);
+  const countStatus = (status: string) => status === 'em_execucao' ? workspaceResult?.summary.running ?? 0 : status === 'em_revisao' ? workspaceResult?.summary.review ?? 0 : status === 'concluida' ? workspaceResult?.summary.done ?? 0 : 0;
   const selectionAllowed = (task: Task) => task.status === 'em_revisao' || task.status === 'concluida';
   const selectableTasks = visibleTasks.filter(selectionAllowed);
   const selectedTasks = getSelectedVisibleItems(visibleTasks, selectedIds, selectionAllowed);
   const selectedForApproval = selectedTasks.filter(task => task.status === 'em_revisao');
   const selectedForChecking = selectedTasks.filter(task => task.status === 'concluida' && !task.checked);
   const selectedForUnchecking = selectedTasks.filter(task => task.status === 'concluida' && task.checked);
-  const syncState = syncReportQuery.isPending ? 'pending' : syncReportQuery.isError ? 'error' : 'ready';
-  const diffCount = syncReportQuery.data?.tasks.filter(item => item.gitDiff).length ?? 0;
-  const syncedAt = Math.min(updatedAt ?? Infinity, syncReportQuery.dataUpdatedAt || Infinity);
+  const syncState = workspaceQuery.isPending ? 'pending' : workspaceQuery.isError ? 'error' : 'ready';
+  const syncedAt = workspaceQuery.dataUpdatedAt || Infinity;
   const noFilters = matchesView(state, builtInViews[0]) && !state.search;
 
   function patch(partial: Partial<TaskQueryState>) {
     setState(current => ({ ...current, ...partial, page: 1 }));
+    setCursorHistory(['']);
     setSelectedIds([]);
   }
 
@@ -208,7 +222,7 @@ export function TaskWorkspace({ token, nonce, projectId, repositories = [], proj
 
   function refreshAll() {
     onRefresh();
-    void syncReportQuery.refetch();
+    void workspaceQuery.refetch();
     void featuresQuery.refetch();
   }
 
@@ -216,12 +230,25 @@ export function TaskWorkspace({ token, nonce, projectId, repositories = [], proj
     syncTaskQueryState({ ...state, page: currentPage });
   }, [state, currentPage]);
 
+  useEffect(() => { setSearchDraft(state.search); }, [state.search]);
   useEffect(() => {
-    if (projectId && !isPending && state.page !== currentPage) {
-      setState(current => ({ ...current, page: currentPage }));
+    if (searchDraft === state.search) return;
+    const timer = window.setTimeout(() => patch({ search: searchDraft }), 250);
+    return () => window.clearTimeout(timer);
+  }, [searchDraft, state.search]);
+
+  useEffect(() => {
+    if (wasSaving.current && !saving) void workspaceQuery.refetch();
+    wasSaving.current = saving;
+  }, [saving]);
+
+  useEffect(() => {
+    if (projectId && !workspaceQuery.isPending && state.page > pages) {
+      setState(current => ({ ...current, page: pages }));
+      setCursorHistory(current => current.slice(0, pages));
       setSelectedIds([]);
     }
-  }, [projectId, isPending, state.page, currentPage]);
+  }, [projectId, workspaceQuery.isPending, state.page, pages]);
 
   useEffect(() => { setSelectedIds([]); setSavedViews(loadSavedViews(projectId)); }, [projectId]);
 
@@ -241,7 +268,9 @@ export function TaskWorkspace({ token, nonce, projectId, repositories = [], proj
     const restoreFromUrl = () => {
       const next = readTaskQueryState();
       setState(next);
-      setAdvancedOpen(Boolean(next.priority || next.responsible || next.featureId || next.createdAfter || next.createdBefore || next.updatedAfter || next.updatedBefore));
+      setAdvancedOpen(Boolean(next.priority || next.responsible || next.featureId || next.createdAfter || next.createdBefore || next.updatedAfter || next.updatedBefore || expressionHasRules(next.expression)));
+      setFilterDraft(next.expression);
+      setCursorHistory(['']);
       setSelectedIds([]);
     };
     window.addEventListener('popstate', restoreFromUrl);
@@ -281,7 +310,7 @@ export function TaskWorkspace({ token, nonce, projectId, repositories = [], proj
 
   async function updateSelectedChecks(checked: boolean) {
     const targets = checked ? selectedForChecking : selectedForUnchecking;
-    const updatedIds = await onSetTasksChecked(targets.map(task => task._id), checked);
+    const updatedIds = await onSetTasksChecked(targets, checked);
     if (updatedIds.length) setSelectedIds(current => current.filter(id => !updatedIds.includes(id)));
   }
 
@@ -311,6 +340,14 @@ export function TaskWorkspace({ token, nonce, projectId, repositories = [], proj
     setSavedViews(next);
     storeSavedViews(projectId, next);
   }
+
+  function applyFilterDraft() { patch({ expression: filterDraft }); setAdvancedOpen(false); }
+  function clearAdvancedFilters() {
+    const clean = emptyFilterGroup();
+    setFilterDraft(clean);
+    patch({ expression: clean, priority: '', responsible: '', featureId: '', createdAfter: '', createdBefore: '', updatedAfter: '', updatedBefore: '' });
+  }
+  function cancelFilterDraft() { setFilterDraft(state.expression); setAdvancedOpen(false); }
 
   function chooseMine() {
     if (myEmail) applyView(mineView(myEmail));
@@ -343,7 +380,27 @@ export function TaskWorkspace({ token, nonce, projectId, repositories = [], proj
   if (state.createdBefore) chips.push({ key: 'createdBefore', label: `Criada até ${state.createdBefore}`, clear: () => patch({ createdBefore: '' }) });
   if (state.updatedAfter) chips.push({ key: 'updatedAfter', label: `Atualizada desde ${state.updatedAfter}`, clear: () => patch({ updatedAfter: '' }) });
   if (state.updatedBefore) chips.push({ key: 'updatedBefore', label: `Atualizada até ${state.updatedBefore}`, clear: () => patch({ updatedBefore: '' }) });
+  if (expressionHasRules(state.expression)) chips.push({ key: 'expression', label: 'Regras avançadas', clear: () => { const clean = emptyFilterGroup(); setFilterDraft(clean); patch({ expression: clean }); } });
   const clearAll = () => patch({ ...viewPatch(builtInViews[0]), createdAfter: '', createdBefore: '', updatedAfter: '', updatedBefore: '' });
+
+  const advancedOptions: Partial<Record<FilterField, Array<{ value: string; label: string }>>> = {
+    status: Object.entries(statusLabels).map(([value, label]) => ({ value, label })),
+    area: projectAreas.map(value => ({ value, label: areaLabel(value) })),
+    type: taskTypes.map(value => ({ value, label: typeLabel(value) })),
+    priority: [0, 1, 2, 3, 4, 5].map(value => ({ value: String(value), label: priorityInfo(value).text })),
+    responsible: responsibleOptions.map(item => ({ value: item.email, label: item.email })),
+    feature: (featuresQuery.data ?? []).map(feature => ({ value: feature._id, label: feature.name }))
+  };
+
+  const legacyQuickFilters = <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+    <label className={advancedLabel}>Prioridade<select className={advancedControl} aria-label="Filtrar por prioridade" value={state.priority} onChange={event => patch({ priority: event.target.value })}><option value="">Todas</option>{filterOptions.priority.map(({ value }) => <option value={value} key={value}>{priorityInfo(Number(value)).text}</option>)}</select></label>
+    <label className={advancedLabel}>Responsável<select className={advancedControl} aria-label="Filtrar por responsável" value={state.responsible} onChange={event => patch({ responsible: event.target.value })}><option value="">Todos</option><option value={noResponsibleFilter}>Sem responsável</option>{state.responsible && state.responsible !== noResponsibleFilter && !responsibleOptions.some(item => item.email === state.responsible) && <option value={state.responsible}>{state.responsible}</option>}{responsibleOptions.map(item => <option value={item.email} key={item.email}>{item.email}{item.kind === 'agente' ? ' (agente)' : ''}</option>)}</select></label>
+    <label className={advancedLabel}>Feature<select className={advancedControl} aria-label="Filtrar por feature" value={state.featureId} onChange={event => patch({ featureId: event.target.value })}><option value="">Todas</option>{state.featureId && !featureNames.has(state.featureId) && <option value={state.featureId}>{`Feature ${shortId(state.featureId)}`}</option>}{(featuresQuery.data ?? []).map(feature => <option value={feature._id} key={feature._id}>{feature.name}</option>)}</select></label>
+    <label className={advancedLabel}>Criada de<input className={advancedControl} type="date" value={state.createdAfter} onChange={event => patch({ createdAfter: event.target.value })} /></label>
+    <label className={advancedLabel}>Criada até<input className={advancedControl} type="date" value={state.createdBefore} onChange={event => patch({ createdBefore: event.target.value })} /></label>
+    <label className={advancedLabel}>Atualizada de<input className={advancedControl} type="date" value={state.updatedAfter} onChange={event => patch({ updatedAfter: event.target.value })} /></label>
+    <label className={advancedLabel}>Atualizada até<input className={advancedControl} type="date" value={state.updatedBefore} onChange={event => patch({ updatedBefore: event.target.value })} /></label>
+  </div>;
 
   const bulkActions = [
     ...(selectedForApproval.length ? [{ key: 'approve', label: `Aprovar (${selectedForApproval.length})`, className: buttonPrimarySmall, onClick: () => void approveSelected() }] : []),
@@ -353,10 +410,10 @@ export function TaskWorkspace({ token, nonce, projectId, repositories = [], proj
 
   return <>
     <TaskKpiBar
-      counts={{ total: tasks.length, running: countStatus('em_execucao'), review: countStatus('em_revisao'), done: countStatus('concluida'), checked: tasks.filter(task => task.checked).length }}
-      sync={syncReportQuery.data ? { questions: syncReportQuery.data.summary.openQuestionCount, unread: syncReportQuery.data.summary.unreadTaskCount, diff: diffCount } : undefined}
+      counts={{ total: workspaceResult?.summary.total ?? 0, running: countStatus('em_execucao'), review: countStatus('em_revisao'), done: countStatus('concluida'), checked: workspaceResult?.summary.checked ?? 0 }}
+      sync={workspaceResult?.summary.sync}
       syncState={syncState}
-      onSyncRetry={() => void syncReportQuery.refetch()}
+      onSyncRetry={() => void workspaceQuery.refetch()}
       statusFilter={state.status}
       flagFilter={state.flag}
       onStatus={status => patch({ status })}
@@ -367,10 +424,10 @@ export function TaskWorkspace({ token, nonce, projectId, repositories = [], proj
 
     <section className={panelClass} aria-label="Fila de trabalho">
       <div className="flex flex-wrap items-center justify-between gap-3 px-5 pt-5 pb-4 max-[760px]:px-3.5 max-[760px]:pt-[15px] max-[760px]:pb-3">
-        <div><h2 className="mb-1 font-display text-[14px] leading-[normal] font-bold tracking-[-.02em] text-[#273245]">Fila de trabalho</h2><p className="text-ui-xs text-muted-strong" aria-live="polite">{filtered.length} de {tasks.length} tarefa(s){chips.length ? ' · filtradas' : ''}</p></div>
+        <div><h2 className="mb-1 font-display text-[14px] leading-[normal] font-bold tracking-[-.02em] text-[#273245]">Fila de trabalho</h2><p className="text-ui-xs text-muted-strong" aria-live="polite">{filteredCount} tarefa(s){chips.length ? ' · filtradas' : ''}</p></div>
         <div className="flex flex-wrap items-center justify-end gap-2 max-[760px]:justify-start">
           <span className="text-ui-xs whitespace-nowrap text-muted-strong" title={Number.isFinite(syncedAt) ? new Date(syncedAt).toLocaleString('pt-BR') : undefined}>{Number.isFinite(syncedAt) ? `Atualizado ${relativeTime(new Date(syncedAt).toISOString(), now)}` : 'Aguardando primeira carga'}</span>
-          <button type="button" className={`${buttonSecondarySmall} ${toolbarFlex}`} onClick={refreshAll} disabled={refreshing || isPending} aria-label="Atualizar lista, resumo e indicadores"><IconRefresh size={13} className={refreshing || syncReportQuery.isFetching ? 'animate-[spin_.8s_linear_infinite]' : undefined} /> Atualizar</button>
+          <button type="button" className={`${buttonSecondarySmall} ${toolbarFlex}`} onClick={refreshAll} disabled={workspaceQuery.isFetching} aria-label="Atualizar lista, resumo e indicadores"><IconRefresh size={13} className={workspaceQuery.isFetching ? 'animate-[spin_.8s_linear_infinite]' : undefined} /> Atualizar</button>
           <button type="button" className={`${buttonSecondarySmall} ${toolbarFlex}`} onClick={() => { setCreatedFeatureNotice(''); setCreateFeatureOpen(true); }}>+ Nova feature</button>
           <button type="button" className={`${buttonPrimarySmall} ${toolbarFlex}`} onClick={() => { setCreatedTaskNotice(''); setCreateTaskOpen(true); }}>+ Nova task</button>
         </div>
@@ -395,35 +452,25 @@ export function TaskWorkspace({ token, nonce, projectId, repositories = [], proj
       {viewFormOpen && <form className={inlineForm} onSubmit={saveCurrentView}><label className={inlineLabel}>Nome da visão<input className={inlineInput} name="viewName" required autoFocus maxLength={40} placeholder="Ex.: Backend em revisão" /></label><button className={buttonPrimarySmall}>Salvar</button><button type="button" className={buttonGhostSmall} onClick={() => setViewFormOpen(false)}>Cancelar</button><small className={inlineNote}>Guarda busca, status, área, tipo, prioridade, responsável, feature e ordenação.</small></form>}
 
       <div className="flex flex-wrap items-center gap-2 px-5 pb-3.5 max-[760px]:grid max-[760px]:grid-cols-[1fr_1fr] max-[760px]:px-3.5 max-[760px]:pb-3">
-        <label className="flex h-[34px] min-w-[260px] flex-1 items-center gap-2 rounded-[7px] border border-[#e3e7ef] px-2.5 text-[#9ba5b4] focus-within:border-[#929ef2] focus-within:shadow-[0_0_0_3px_#596ce31a] max-[760px]:col-[1/-1] max-[760px]:min-w-0"><span className="grid place-items-center text-[17px]" aria-hidden="true"><IconSearch size={15} /></span><input ref={searchRef} className="w-full min-w-0 border-0 text-ui-sm text-[#394558] shadow-none outline-0" value={state.search} onChange={event => patch({ search: event.target.value })} onKeyDown={event => { if (event.key === 'Escape') { if (state.search) patch({ search: '' }); else event.currentTarget.blur(); } }} placeholder="Buscar por tarefa, ID ou responsável" aria-label="Buscar tarefas" aria-keyshortcuts="/" /><kbd className={kbd} aria-hidden="true">/</kbd></label>
-        <select className={filterSelect} aria-label="Filtrar por status" value={state.status} onChange={event => patch({ status: event.target.value })}><option value="todos">Todos os status</option>{filterOptions.status.map(({ value, count }) => <option key={value} value={value}>{taskFilterOptionLabel(value, count)}</option>)}</select>
-        <select className={filterSelect} aria-label="Filtrar por área" value={state.area} onChange={event => patch({ area: event.target.value })}><option value="todos">Todas as áreas</option>{state.area === noAreaFilter && <option value={noAreaFilter}>Sem área</option>}{filterOptions.area.map(({ value, count }) => <option key={value} value={value}>{taskFilterOptionLabel(value, count)}</option>)}</select>
-        <select className={filterSelect} aria-label="Filtrar por tipo" value={state.type} onChange={event => patch({ type: event.target.value })}><option value="todos">Todos os tipos</option>{filterOptions.type.map(({ value, count }) => <option value={value} key={value}>{typeLabel(value)} ({count})</option>)}</select>
+        <label className="flex h-[34px] min-w-[260px] flex-1 items-center gap-2 rounded-[7px] border border-[#e3e7ef] px-2.5 text-[#9ba5b4] focus-within:border-[#929ef2] focus-within:shadow-[0_0_0_3px_#596ce31a] max-[760px]:col-[1/-1] max-[760px]:min-w-0"><span className="grid place-items-center text-[17px]" aria-hidden="true"><IconSearch size={15} /></span><input ref={searchRef} className="w-full min-w-0 border-0 text-ui-sm text-[#394558] shadow-none outline-0" value={searchDraft} onChange={event => setSearchDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Escape') { if (searchDraft) { setSearchDraft(''); patch({ search: '' }); } else event.currentTarget.blur(); } }} placeholder="Buscar por tarefa, ID ou responsável" aria-label="Buscar tarefas" aria-keyshortcuts="/" /><kbd className={kbd} aria-hidden="true">/</kbd></label>
+        <select className={filterSelect} aria-label="Filtrar por status" value={state.status} onChange={event => patch({ status: event.target.value })}><option value="todos">Todos os status</option>{filterOptions.status.map(({ value }) => <option key={value} value={value}>{statusLabels[value] ?? value}</option>)}</select>
+        <select className={filterSelect} aria-label="Filtrar por área" value={state.area} onChange={event => patch({ area: event.target.value })}><option value="todos">Todas as áreas</option>{state.area === noAreaFilter && <option value={noAreaFilter}>Sem área</option>}{filterOptions.area.map(({ value }) => <option key={value} value={value}>{areaLabel(value)}</option>)}</select>
+        <select className={filterSelect} aria-label="Filtrar por tipo" value={state.type} onChange={event => patch({ type: event.target.value })}><option value="todos">Todos os tipos</option>{filterOptions.type.map(({ value }) => <option value={value} key={value}>{typeLabel(value)}</option>)}</select>
         <select className={filterSelect} aria-label="Ordenar tarefas" value={state.sort} onChange={event => patch({ sort: event.target.value })}>{Object.entries(sortLabels).map(([value, label]) => <option value={value} key={value}>Ordem: {label}</option>)}</select>
-        <button type="button" className={buttonGhost} onClick={() => setAdvancedOpen(value => !value)} aria-expanded={advancedOpen}>{advancedOpen ? '−' : '+'} Mais filtros</button>
+        <button type="button" className={buttonGhost} onClick={() => { setFilterDraft(state.expression); setAdvancedOpen(true); }} aria-expanded={advancedOpen}>＋ Mais filtros</button>
       </div>
-      {advancedOpen && <div className="grid grid-cols-2 gap-3 border-t border-slate-100 bg-slate-50 p-4 md:grid-cols-4">
-        <label className={advancedLabel}>Prioridade<select className={advancedControl} aria-label="Filtrar por prioridade" value={state.priority} onChange={event => patch({ priority: event.target.value })}><option value="">Todas</option>{filterOptions.priority.map(({ value, count }) => <option value={value} key={value}>{priorityInfo(Number(value)).text} ({count})</option>)}</select></label>
-        <label className={advancedLabel}>Responsável<select className={advancedControl} aria-label="Filtrar por responsável" value={state.responsible} onChange={event => patch({ responsible: event.target.value })}><option value="">Todos</option><option value={noResponsibleFilter}>Sem responsável</option>{state.responsible && state.responsible !== noResponsibleFilter && !responsibleOptions.some(item => item.email === state.responsible) && <option value={state.responsible}>{state.responsible}</option>}{responsibleOptions.map(item => <option value={item.email} key={item.email}>{item.email}{item.kind === 'agente' ? ' (agente)' : ''}</option>)}</select></label>
-        <label className={advancedLabel}>Feature<select className={advancedControl} aria-label="Filtrar por feature" value={state.featureId} onChange={event => patch({ featureId: event.target.value })}><option value="">Todas</option>{state.featureId && !featureNames.has(state.featureId) && <option value={state.featureId}>{`Feature ${shortId(state.featureId)}`}</option>}{(featuresQuery.data ?? []).map(feature => <option value={feature._id} key={feature._id}>{feature.name}</option>)}</select></label>
-        <label className={advancedLabel}>Criada de<input className={advancedControl} type="date" value={state.createdAfter} onChange={event => patch({ createdAfter: event.target.value })} /></label>
-        <label className={advancedLabel}>Criada até<input className={advancedControl} type="date" value={state.createdBefore} onChange={event => patch({ createdBefore: event.target.value })} /></label>
-        <label className={advancedLabel}>Atualizada de<input className={advancedControl} type="date" value={state.updatedAfter} onChange={event => patch({ updatedAfter: event.target.value })} /></label>
-        <label className={advancedLabel}>Atualizada até<input className={advancedControl} type="date" value={state.updatedBefore} onChange={event => patch({ updatedBefore: event.target.value })} /></label>
-        <button type="button" className={`${textButton} self-end`} onClick={() => patch({ priority: '', responsible: '', featureId: '', createdAfter: '', createdBefore: '', updatedAfter: '', updatedBefore: '' })}>Limpar avançados</button>
-      </div>}
       {chips.length > 0 && <div className="flex flex-wrap items-center gap-1.5 px-5 pb-3 max-[760px]:px-3.5" role="group" aria-label="Filtros ativos">
         {chips.map(chip => <button type="button" className="group/chip inline-flex min-h-[26px] items-center gap-1.5 rounded-full border border-[#cfd6fa] bg-tone-blue-bg pr-1.5 pl-2.5 text-ui-xs font-semibold text-tone-blue hover:bg-[#e2e6ff]" key={chip.key} onClick={chip.clear} aria-label={`Remover filtro ${chip.label}`} title="Remover filtro">{chip.label}<span className="grid size-4 place-items-center rounded-[50%] text-[13px] leading-none group-hover/chip:bg-[#c8d0fb]" aria-hidden="true">×</span></button>)}
         <button type="button" className={textButton} onClick={clearAll}>Limpar tudo</button>
       </div>}
       {selectedTasks.length > 0 && <div className="mx-5 mb-3 flex flex-wrap items-center gap-2.5 rounded-[8px] border border-[#dfe4ff] bg-[#f7f8ff] px-3 py-2.5 text-ui-xs text-[#4b58b8] max-[760px]:mx-3"><span>{selectedTasks.length} tarefa(s) selecionada(s)</span>{selectedForApproval.length > 0 && <input className="min-w-[150px] flex-1 rounded-ui-sm border border-[#e1e5f4] px-[9px] py-[7px] text-[10px] text-[#364154]" value={approvalReason} onChange={event => setApprovalReason(event.target.value)} placeholder="Motivo da aprovação (opcional)" aria-label="Motivo para aprovar tarefas selecionadas" />}<div className="ml-auto flex flex-wrap items-center gap-[7px] max-[760px]:ml-0 max-[760px]:w-full">{bulkActions.map(action => <button type="button" key={action.key} className={action.className} disabled={saving} onClick={action.onClick}>{action.label}</button>)}</div><button type="button" className={textButton} disabled={saving} onClick={() => setSelectedIds([])}>Limpar seleção</button></div>}
 
-      {isPending ? <TableSkeleton /> : isError ? <div className="px-6 pt-3 pb-4"><ErrorNotice title="Não foi possível carregar as tarefas" error={error} onRetry={refreshAll} /></div> : visibleTasks.length ? <div className="overflow-x-auto max-[760px]:overflow-visible"><table className="w-full border-collapse text-left min-[760px]:max-[1100px]:min-w-[820px] max-[760px]:block">
+      {workspaceQuery.isPending ? <TableSkeleton /> : workspaceQuery.isError ? <div className="px-6 pt-3 pb-4"><ErrorNotice title="Não foi possível carregar as tarefas" error={workspaceQuery.error} onRetry={refreshAll} /></div> : visibleTasks.length ? <div className="overflow-x-auto max-[760px]:overflow-visible"><table className="w-full border-collapse text-left min-[760px]:max-[1100px]:min-w-[820px] max-[760px]:block">
         <thead className="max-[760px]:hidden"><tr><th className={`${th} w-9 px-3`}><input className={checkbox} type="checkbox" aria-label="Selecionar tarefas elegíveis nesta página" disabled={saving || selectableTasks.length === 0} checked={selectableTasks.length > 0 && selectableTasks.every(task => selectedIds.includes(task._id))} onChange={event => setSelectedIds(event.target.checked ? Array.from(new Set([...selectedIds, ...selectableTasks.map(task => task._id)])) : selectedIds.filter(id => !selectableTasks.some(task => task._id === id)))} /></th><th className={`${th} px-3`}>Tarefa</th><th className={`${th} px-3`}>Status</th><th className={`${th} px-3`}>Prioridade</th><th className={`${th} px-3`}>Responsável</th><th className={`${th} px-3`}>Atualizada</th><th className={`${th} w-[1%] pr-5 pl-3`}><span className="sr-only">Ações</span></th></tr></thead>
         <tbody className="max-[760px]:grid max-[760px]:gap-2 max-[760px]:px-[9px]" onKeyDown={moveRowFocus}>{visibleTasks.map(task => {
-          const taskSync = syncTasks.get(task._id);
-          const openQuestions = taskSync?.openQuestions ?? [];
-          const unread = taskSync?.unread.count ?? 0;
+          const taskSync = task.workspace;
+          const openQuestions = taskSync?.openQuestionCount ?? 0;
+          const unread = taskSync?.unreadCount ?? 0;
           const featureName = task.featureId ? featureNames.get(task.featureId) : undefined;
           const priority = priorityInfo(task.priority);
           const primary = primaryActionFor(task);
@@ -438,8 +485,8 @@ export function TaskWorkspace({ token, nonce, projectId, repositories = [], proj
               {task.type && <FilterLink param="type" value={task.type} projectId={projectId} className={`${chip} max-w-full ${chipLink} bg-[#f4effc] text-[#603d99]`} title={`Filtrar pelo tipo ${typeLabel(task.type)}`}>{typeLabel(task.type)}</FilterLink>}
               {featureName && task.featureId && <FeatureLink featureId={task.featureId} name={featureName} projectId={projectId} className={`${chip} max-w-[240px] ${chipLink} border border-line-strong bg-white text-ink-2`} title={`Ver todas as tarefas da feature “${featureName}”`}><IconFeature size={11} /><span className="overflow-hidden text-ellipsis">{featureName}</span></FeatureLink>}
               {unread > 0 && <button type="button" className={`${flagButton} bg-tone-amber-bg text-tone-amber`} title={`${plural(unread, 'atividade não lida', 'atividades não lidas')}. Abrir detalhes`} aria-label={`Abrir detalhes de ${task.name}, ${plural(unread, 'atividade não lida', 'atividades não lidas')}`} onClick={() => onOpenTask(task)}><IconMail size={12} />{unread}</button>}
-              {openQuestions.length > 0 && <button type="button" className={`${flagButton} bg-tone-blue-bg text-tone-blue`} title={`${plural(openQuestions.length, 'pergunta aberta', 'perguntas abertas')}. Abrir conversa`} aria-label={`Abrir conversa de ${task.name}, ${plural(openQuestions.length, 'pergunta aberta', 'perguntas abertas')}`} onClick={() => onOpenTaskConversation(task)}><IconQuestion size={12} />{openQuestions.length}</button>}
-              {Boolean(taskSync?.gitDiff) && <span className={`${flagChip} bg-tone-green-bg text-tone-green`} title="Há diff Git publicado nesta tarefa" role="img" aria-label="Diff Git publicado"><IconDiff size={12} />diff</span>}
+              {openQuestions > 0 && <button type="button" className={`${flagButton} bg-tone-blue-bg text-tone-blue`} title={`${plural(openQuestions, 'pergunta aberta', 'perguntas abertas')}. Abrir conversa`} aria-label={`Abrir conversa de ${task.name}, ${plural(openQuestions, 'pergunta aberta', 'perguntas abertas')}`} onClick={() => onOpenTaskConversation(task)}><IconQuestion size={12} />{openQuestions}</button>}
+              {Boolean(taskSync?.hasGitDiff) && <span className={`${flagChip} bg-tone-green-bg text-tone-green`} title="Há diff Git publicado nesta tarefa" role="img" aria-label="Diff Git publicado"><IconDiff size={12} />diff</span>}
             </div>
             {task.checked && <small className="mt-1.5 inline-flex items-center gap-1 text-ui-xs font-semibold text-tone-green"><IconCheck size={11} /> Conferida por {task.checkedBy || 'membro'}</small>}
           </td>
@@ -452,14 +499,13 @@ export function TaskWorkspace({ token, nonce, projectId, repositories = [], proj
         })}</tbody>
       </table></div> : <div className={emptyState}>
         {chips.length ? <><h3 className={emptyTitle}>Nenhuma tarefa com esses filtros</h3><p className={emptyText}>Remova algum filtro ou volte para a visão “Todas”.</p><button type="button" className={buttonSecondarySmall} onClick={clearAll}>Limpar filtros</button></>
-          : tasks.length ? <><h3 className={emptyTitle}>Nenhuma tarefa nesta página</h3><p className={emptyText}>Volte para a primeira página da lista.</p></>
+          : workspaceResult?.total ? <><h3 className={emptyTitle}>Nenhuma tarefa nesta página</h3><p className={emptyText}>Volte para a primeira página da lista.</p></>
             : <><h3 className={emptyTitle}>Este projeto ainda não tem tarefas</h3><p className={emptyText}>Crie uma feature e depois as tasks de back e front que a compõem.</p><button type="button" className={buttonPrimarySmall} onClick={() => { setCreatedTaskNotice(''); setCreateTaskOpen(true); }}>+ Nova task</button></>}
       </div>}
-      {state.flag && syncState === 'pending' && <p className="px-6 pt-3 pb-4 text-muted-strong">Aguardando os indicadores de colaboração para aplicar o filtro “{flagLabels[state.flag]}”…</p>}
-
-      <footer className="flex flex-wrap items-center justify-between gap-[14px] px-5 py-3 text-ui-xs text-muted-strong max-[760px]:px-[13px] max-[760px]:py-[11px]"><span>Mostrando {pagination.firstItem}–{pagination.lastItem} de {filtered.length}</span><span className="inline-flex items-center gap-1 text-ui-xs text-muted-strong max-[760px]:hidden" aria-hidden="true"><kbd className={kbd}>/</kbd> buscar · <kbd className={kbd}>↑</kbd><kbd className={kbd}>↓</kbd> navegar · <kbd className={kbd}>Enter</kbd> abrir · <kbd className={kbd}>Esc</kbd> fechar</span><div className="flex items-center gap-2.5 text-ui-xs max-[760px]:ml-auto"><label className="flex items-center gap-1.5">Por página <select className={pageSelect} value={state.pageSize} onChange={event => { setState(current => ({ ...current, pageSize: Number(event.target.value), page: 1 })); setSelectedIds([]); }}><option>10</option><option>25</option><option>50</option><option>100</option></select></label><button type="button" className={pageButton} disabled={currentPage <= 1} onClick={() => { setState(current => ({ ...current, page: currentPage - 1 })); setSelectedIds([]); }} aria-label="Página anterior">‹</button><span>Página {currentPage} de {pages}</span><button type="button" className={pageButton} disabled={currentPage >= pages} onClick={() => { setState(current => ({ ...current, page: currentPage + 1 })); setSelectedIds([]); }} aria-label="Próxima página">›</button></div></footer>
+      <footer className="flex flex-wrap items-center justify-between gap-[14px] px-5 py-3 text-ui-xs text-muted-strong max-[760px]:px-[13px] max-[760px]:py-[11px]"><span>Mostrando {firstItem}–{lastItem} de {filteredCount}</span><span className="inline-flex items-center gap-1 text-ui-xs text-muted-strong max-[760px]:hidden" aria-hidden="true"><kbd className={kbd}>/</kbd> buscar · <kbd className={kbd}>↑</kbd><kbd className={kbd}>↓</kbd> navegar · <kbd className={kbd}>Enter</kbd> abrir · <kbd className={kbd}>Esc</kbd> fechar</span><div className="flex items-center gap-2.5 text-ui-xs max-[760px]:ml-auto"><label className="flex items-center gap-1.5">Por página <select className={pageSelect} value={state.pageSize} onChange={event => { setState(current => ({ ...current, pageSize: Number(event.target.value), page: 1 })); setCursorHistory(['']); setSelectedIds([]); }}><option>10</option><option>25</option><option>50</option><option>100</option></select></label><button type="button" className={pageButton} disabled={currentPage <= 1} onClick={() => { setState(current => ({ ...current, page: currentPage - 1 })); setSelectedIds([]); }} aria-label="Página anterior">‹</button><span>Página {currentPage} de {pages}</span><button type="button" className={pageButton} disabled={currentPage >= pages || !workspaceResult?.next} onClick={() => { if (workspaceResult?.next) setCursorHistory(current => { const next = current.slice(0, currentPage); next[currentPage] = workspaceResult.next!; return next; }); setState(current => ({ ...current, page: currentPage + 1 })); setSelectedIds([]); }} aria-label="Próxima página">›</button></div></footer>
     </section>
-    {createTaskOpen && <CreateTaskDialog key={projectId} token={token} nonce={nonce} projectId={projectId} repositories={repositories ?? []} areas={projectAreas} tasks={tasks} defaultFeatureId={state.featureId} systemAdmin={systemAdmin} close={() => setCreateTaskOpen(false)} onCreated={task => { setCreateTaskOpen(false); setCreatedTaskNotice(`Task “${task.name}” criada.`); }} />}
+    <AdvancedTaskFilterPanel open={advancedOpen} draft={filterDraft} valid={expressionIsReady(filterDraft)} setDraft={setFilterDraft} options={advancedOptions} quickControls={legacyQuickFilters} close={cancelFilterDraft} apply={applyFilterDraft} clear={clearAdvancedFilters} />
+    {createTaskOpen && <CreateTaskDialog key={projectId} token={token} nonce={nonce} projectId={projectId} repositories={repositories ?? []} areas={projectAreas} defaultFeatureId={state.featureId} systemAdmin={systemAdmin} close={() => setCreateTaskOpen(false)} onCreated={task => { void workspaceQuery.refetch(); setCreateTaskOpen(false); setCreatedTaskNotice(`Task “${task.name}” criada.`); }} />}
     {createFeatureOpen && <CreateFeatureDialog key={projectId} token={token} nonce={nonce} projectId={projectId} close={() => setCreateFeatureOpen(false)} onCreated={feature => { setCreateFeatureOpen(false); setCreatedFeatureNotice(`Feature “${feature.name}” criada.`); }} />}
   </>;
 }

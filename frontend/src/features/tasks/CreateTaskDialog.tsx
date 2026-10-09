@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { allRecords } from '../../api';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { allRecords, searchTaskWorkspace } from '../../api';
 import type { Project, Task } from '../../api';
 import { errorMessage } from '../../lib/format';
 import { AssigneePicker } from '../../components/ui/AssigneePicker';
@@ -19,14 +19,13 @@ const field = 'grid gap-1.5 text-[10px] font-semibold text-[#566275]';
 const control = 'w-full resize-y rounded-[7px] border border-[#e1e5ed] bg-white px-2.5 py-[9px] text-[11px] text-[#344054] outline-none';
 const hint = 'text-[9px] leading-normal font-normal text-[#8a94a4]';
 
-export function CreateTaskDialog({ token, nonce, projectId, repositories, areas, tasks, defaultFeatureId, systemAdmin = false, close, onCreated }: {
+export function CreateTaskDialog({ token, nonce, projectId, repositories, areas, defaultFeatureId, systemAdmin = false, close, onCreated }: {
   systemAdmin?: boolean;
   token: string;
   nonce: string;
   projectId: string;
   repositories: Repository[];
   areas: string[];
-  tasks: Task[];
   defaultFeatureId: string;
   close: () => void;
   onCreated: (task: Task) => void;
@@ -35,6 +34,7 @@ export function CreateTaskDialog({ token, nonce, projectId, repositories, areas,
   const assignees = useAssignees(token, nonce, projectId, systemAdmin);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [dependencies, setDependencies] = useState<string[]>([]);
+  const [dependencySearch, setDependencySearch] = useState('');
   const defaultArea = areas.includes('frontend') ? 'frontend' : areas[0] ?? '';
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -46,6 +46,18 @@ export function CreateTaskDialog({ token, nonce, projectId, repositories, areas,
     enabled: Boolean(token && nonce && projectId),
     queryFn: () => allRecords<Feature>(token, { kind: 'feature', projectId, archived: false })
   });
+  const dependencySuggestions = useInfiniteQuery({
+    queryKey: ['task-dependency-suggestions', nonce, projectId, dependencySearch.trim()],
+    enabled: Boolean(token && nonce && projectId),
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ pageParam }) => searchTaskWorkspace(token, {
+      projectId, quick: dependencySearch.trim() ? { search: dependencySearch.trim() } : {},
+      sort: 'updated', limit: 25, ...(pageParam ? { after: pageParam } : {})
+    }),
+    getNextPageParam: page => page.next ?? undefined,
+    staleTime: 15_000
+  });
+  const dependencyTasks = dependencySuggestions.data?.pages.flatMap(page => page.items) ?? [];
   const create = useMutation({
     mutationFn: (draft: Parameters<typeof submitNewTask>[2]) => submitNewTask(token, projectId, draft),
     onSuccess: async task => {
@@ -95,7 +107,11 @@ export function CreateTaskDialog({ token, nonce, projectId, repositories, areas,
       <div className="grid gap-[7px] text-[10px] text-[#566275]" role="group" aria-labelledby="task-dependencies-label">
         <strong id="task-dependencies-label" className="font-semibold">Dependências (opcional)</strong>
         <small className={hint}>Marque somente as tasks que precisam terminar antes desta.</small>
-        {tasks.length ? <div className="grid max-h-[150px] gap-1 overflow-y-auto rounded-[7px] border border-[#e1e5ed] p-[7px]">{tasks.map(task => <label className="flex cursor-pointer items-center gap-2 px-0.5 py-1 text-[10px] font-normal text-[#566275]" key={task._id}><input className="size-[14px] flex-none rounded-[7px] border border-[#e1e5ed] bg-white p-0 text-[#344054] accent-accent outline-none" type="checkbox" name="dependencies" value={task._id} checked={dependencies.includes(task._id)} onChange={event => setDependencies(current => event.target.checked ? [...current, task._id] : current.filter(id => id !== task._id))} /><span>{task.name} · {task.status}</span></label>)}</div> : <p className="text-muted-strong">Não há tasks disponíveis para adicionar como dependência.</p>}
+        <input className={control} value={dependencySearch} onChange={event => setDependencySearch(event.target.value)} placeholder="Buscar tarefas por nome, ID ou responsável" aria-label="Buscar tarefas para dependência" />
+        {dependencySuggestions.isError && <p className="text-tone-red">Não foi possível carregar sugestões de dependência.</p>}
+        {dependencySuggestions.isPending && <p className="text-muted-strong">Carregando sugestões…</p>}
+        {dependencyTasks.length ? <div className="grid max-h-[150px] gap-1 overflow-y-auto rounded-[7px] border border-[#e1e5ed] p-[7px]">{dependencyTasks.map(task => <label className="flex cursor-pointer items-center gap-2 px-0.5 py-1 text-[10px] font-normal text-[#566275]" key={task._id}><input className="size-[14px] flex-none rounded-[7px] border border-[#e1e5ed] bg-white p-0 text-[#344054] accent-accent outline-none" type="checkbox" name="dependencies" value={task._id} checked={dependencies.includes(task._id)} onChange={event => setDependencies(current => event.target.checked ? [...current, task._id] : current.filter(id => id !== task._id))} /><span>{task.name} · {task.status}</span></label>)}</div> : !dependencySuggestions.isPending && <p className="text-muted-strong">Não há tasks correspondentes para adicionar como dependência.</p>}
+        {dependencySuggestions.hasNextPage && <button type="button" className="justify-self-start text-[10px] font-semibold text-[#5968df]" disabled={dependencySuggestions.isFetchingNextPage} onClick={() => void dependencySuggestions.fetchNextPage()}>{dependencySuggestions.isFetchingNextPage ? 'Carregando…' : 'Carregar mais sugestões'}</button>}
       </div>
       <div className="mt-1 flex items-center justify-end gap-2"><button type="button" className={buttonSecondary} onClick={close} disabled={create.isPending}>Cancelar</button><button className={buttonPrimary} disabled={create.isPending || features.isPending || repositories.length === 0 || features.isError}>{create.isPending ? 'Criando…' : 'Criar tarefa'}</button></div>
     </form>

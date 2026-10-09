@@ -21,6 +21,8 @@ import { eventOrigin } from './event-origin.js';
 import { areasForProject } from './area-catalog.js';
 import { normalizeGitRemote } from './git-remote.js';
 import { tools, adminSchema, approveActionProposalSchema, approveTasksSchema, changeTaskStatusSchema, setTaskAcceptanceCriterionSchema, setTaskCheckedSchema, projectData, featureData, taskData, states, id as idSchema, userId as userIdSchema } from './schema.js';
+import { taskWorkspaceSearch } from './schema.js';
+import { compileTaskFilter, quickFlagFilter, taskFilterSorts, taskFilterUsesCollaboration, type TaskFilterNode } from './task-workspace-search.js';
 
 export class DomainError extends Error { constructor(message: string, public status = 409) { super(message); } }
 export type Actor = { id: string; userId: string; scope: string; systemAdmin: boolean; projectToken?: string; sessionId?: string; jobId?: string; runnerId?: string; clientName?: string };
@@ -119,6 +121,7 @@ export class Service {
   readonly events = new EventHub();
   readonly automation = new Automation(this);
   readonly conversations = new ConversationService(this);
+  private readonly taskWorkspaceSummaryCache = new Map<string, { expiresAt: number; summary: any; sync: any }>();
   constructor(public leaseMs = 30 * 60 * 1000) { requireThat(Number.isFinite(leaseMs) && leaseMs > 0, 'Invalid lease'); }
   private responsibleFor(actor: Actor) { const responsible = actor.userId.trim(); requireThat(responsible, 'Authenticated agent has no user identity', 401); return responsible; }
   onTaskEvent(listener: (event: any) => void) { return this.events.on(listener); }
@@ -1170,6 +1173,206 @@ export class Service {
     const args = schema.parse(input);
     requireThat(!('operationId' in args), 'Read-only query required', 400);
     return this.read(actor, name, args);
+  }
+  async searchTaskWorkspace(actor: Actor, input: unknown) {
+    requireThat(actor.scope === 'human', 'Human credential required', 403);
+    const a: any = taskWorkspaceSearch.parse(input);
+    const project = await this.access(actor, a.projectId);
+    const quick = a.quick ?? {};
+    const validStatuses = ['pendente', 'em_execucao', 'bloqueada', 'em_revisao', 'concluida', 'cancelada'];
+    const validTypes = ['feature', 'fix', 'chore', 'docs', 'refactor', 'test', 'perf', 'build', 'ci', 'revert'];
+    if (quick.status && quick.status !== 'todos') requireThat(validStatuses.includes(quick.status), 'Invalid task status filter', 400);
+    if (quick.type && quick.type !== 'todos') requireThat(validTypes.includes(quick.type), 'Invalid task type filter', 400);
+    if (quick.area && quick.area !== 'todos' && quick.area !== 'sem-area') requireThat(areasForProject(project).includes(quick.area), 'Invalid task area filter', 400);
+    if (quick.featureId) requireThat(await Feature.exists({ _id: quick.featureId, projectId: a.projectId, archived: false }), 'Feature not found', 404);
+    const validateCatalogValues = async (node?: TaskFilterNode): Promise<void> => {
+      if (!node) return;
+      if (node.kind === 'group') { for (const child of node.children) await validateCatalogValues(child); return; }
+      const values = Array.isArray(node.value) ? node.value : node.value === undefined ? [] : [node.value];
+      if (node.field === 'status') requireThat(values.every(value => validStatuses.includes(String(value))), 'Invalid status filter value', 400);
+      if (node.field === 'type') requireThat(values.every(value => validTypes.includes(String(value))), 'Invalid task type filter value', 400);
+      if (node.field === 'area') requireThat(values.every(value => areasForProject(project).includes(String(value))), 'Invalid task area filter value', 400);
+      if (node.field === 'feature') requireThat(values.every(value => idSchema.safeParse(String(value)).success), 'Invalid feature filter value', 400);
+      if (node.field === 'feature' && values.length) {
+        const featureValues = values.filter((value): value is string => typeof value === 'string');
+        requireThat(await Feature.countDocuments({ _id: { $in: [...new Set(featureValues)] }, projectId: a.projectId, archived: false }) === new Set(featureValues).size, 'Feature not found', 404);
+      }
+      if (node.field === 'priority') requireThat(values.every(value => Number.isInteger(value) && Number(value) >= 0 && Number(value) <= 5), 'Invalid priority filter value', 400);
+    };
+    await validateCatalogValues(a.expression);
+    if (quick.createdAfter && quick.createdBefore) requireThat(quick.createdAfter <= quick.createdBefore, 'Invalid creation date range', 400);
+    if (quick.updatedAfter && quick.updatedBefore) requireThat(quick.updatedAfter <= quick.updatedBefore, 'Invalid update date range', 400);
+
+    const baseMatch: any = { projectId: a.projectId, archived: false };
+    const prefix = (value: string) => new RegExp(`^${value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i');
+    const search = String(quick.search ?? '').trim();
+    if (search) {
+      const words = search.match(/[\p{L}\p{N}_@.+-]+/gu) ?? [];
+      if (/^[a-f\d-]{8,}$/i.test(search)) baseMatch._id = prefix(search);
+      else if (words.length) baseMatch.$text = { $search: words.join(' ') };
+    }
+    const quickParts: any[] = [];
+    if (quick.status && quick.status !== 'todos') quickParts.push({ status: quick.status });
+    if (quick.type && quick.type !== 'todos') quickParts.push({ type: quick.type });
+    if (quick.area && quick.area !== 'todos') quickParts.push(quick.area === 'sem-area' ? { $or: [{ area: { $exists: false } }, { area: null }, { area: '' }] } : { area: quick.area });
+    if (quick.priority !== undefined) quickParts.push({ priority: quick.priority });
+    if (quick.responsible) quickParts.push(quick.responsible === 'sem-responsavel' ? { $or: [{ responsible: { $exists: false } }, { responsible: null }, { responsible: '' }] } : { responsible: quick.responsible });
+    if (quick.featureId) quickParts.push({ featureId: quick.featureId });
+    const quickDate = (field: 'createdAt' | 'updatedAt', after?: string, before?: string) => {
+      const range: any = {};
+      if (after) range.$gte = new Date(`${after}T00:00:00.000Z`);
+      if (before) range.$lte = new Date(`${before}T23:59:59.999Z`);
+      if (Object.keys(range).length) quickParts.push({ [field]: range });
+    };
+    quickDate('createdAt', quick.createdAfter, quick.createdBefore);
+    quickDate('updatedAt', quick.updatedAfter, quick.updatedBefore);
+
+    const needsWorkspace = Boolean(quick.flag) || taskFilterUsesCollaboration(a.expression);
+    const pipeline: any[] = [{ $match: baseMatch }];
+    if (quickParts.length) pipeline.push({ $match: { $and: quickParts } });
+    const readBaseline = needsWorkspace ? await this.taskReadBaseline(a.projectId, actor.userId, undefined, true) : 0;
+    if (needsWorkspace) pipeline.push(...this.taskWorkspaceFlagStages(actor, a.projectId, readBaseline));
+    const advancedFilter = a.expression ? compileTaskFilter(a.expression) : undefined;
+    const flagFilter = quickFlagFilter(quick.flag);
+    if (advancedFilter && flagFilter) pipeline.push({ $match: { $and: [advancedFilter, flagFilter] } });
+    else if (advancedFilter || flagFilter) pipeline.push({ $match: advancedFilter ?? flagFilter });
+    if (a.sort === 'status') pipeline.push({ $addFields: { __workspaceStatusRank: { $switch: { branches: validStatuses.map((status, index) => ({ case: { $eq: ['$status', status] }, then: [3, 1, 2, 0, 4, 5][index] })), default: 99 } } } });
+
+    const cursorHash = hash(JSON.stringify({ projectId: a.projectId, userId: actor.userId, quick, expression: a.expression ?? null, sort: a.sort, limit: a.limit }));
+    const sort = taskFilterSorts[a.sort];
+    const sortKeys = Object.entries(sort) as Array<[string, 1 | -1]>;
+    let cursorValues: unknown[] | undefined;
+    if (a.after) {
+      try {
+        const decoded = JSON.parse(Buffer.from(a.after, 'base64url').toString('utf8'));
+        requireThat(decoded.hash === cursorHash && Array.isArray(decoded.values) && decoded.values.length === sortKeys.length, 'Invalid task search cursor', 400);
+        cursorValues = decoded.values;
+      } catch (error) { if (error instanceof DomainError) throw error; throw new DomainError('Invalid task search cursor', 400); }
+    }
+    const cursorValue = (field: string, value: unknown) => ['createdAt', 'updatedAt'].includes(field) && typeof value === 'string' ? new Date(value) : value;
+    const afterMatch = (values: unknown[]) => ({ $or: sortKeys.map(([field, direction], index) => ({ $and: [
+      ...sortKeys.slice(0, index).map(([previous], previousIndex) => ({ [previous]: cursorValue(previous, values[previousIndex]) })),
+      { [field]: { [direction === 1 ? '$gt' : '$lt']: cursorValue(field, values[index]) } }
+    ] })) });
+    const queryCursor = (row: any) => sortKeys.map(([field]) => field === '__workspaceStatusRank' ? row.__workspaceStatusRank : row[field]);
+    const beforeFacet = [...pipeline, { $facet: {
+      counted: [{ $count: 'total' }],
+      rows: [...(cursorValues ? [{ $match: afterMatch(cursorValues) }] : []), { $sort: sort }, { $limit: a.limit + 1 }]
+    } }];
+    const taskAggregation = Task.aggregate(beforeFacet).allowDiskUse(true);
+    if (!search && a.sort === 'name') taskAggregation.collation({ locale: 'pt', strength: 1 });
+    let results: any[] = await taskAggregation.exec();
+    const result = results[0] ?? { counted: [], rows: [] };
+    const total = result.counted[0]?.total ?? 0;
+    const hasMore = result.rows.length > a.limit;
+    if (hasMore) result.rows.pop();
+    const rawRows = result.rows;
+    const lastRow = rawRows.at(-1);
+    const next = hasMore && lastRow ? Buffer.from(JSON.stringify({ hash: cursorHash, values: queryCursor(lastRow) })).toString('base64url') : null;
+    const workspace = await this.taskWorkspaceIndicators(actor, a.projectId, rawRows.map((row: any) => row._id));
+    const items = rawRows.map((row: any) => {
+      const task = { ...row };
+      for (const key of Object.keys(task)) if (key.startsWith('__')) delete task[key];
+      return { ...task, workspace: workspace.get(row._id) ?? { unreadCount: 0, openQuestionCount: 0, hasGitDiff: false, latestDiff: null } };
+    });
+    const { summary, sync } = await this.taskWorkspaceSummary(actor, a.projectId);
+    return { items, total, next, summary: { ...summary, sync } };
+  }
+  private async taskWorkspaceSummary(actor: Actor, projectId: string) {
+    const key = `${projectId}:${actor.userId}`;
+    const cached = this.taskWorkspaceSummaryCache.get(key);
+    if (cached && cached.expiresAt > Date.now()) return cached;
+    const baseline = await this.taskReadBaseline(projectId, actor.userId, undefined, true);
+    const [summaryRows, syncRows]: [any[], any[]] = await Promise.all([
+      Task.aggregate([
+        { $match: { projectId, archived: false } },
+        { $group: { _id: null, total: { $sum: 1 }, running: { $sum: { $cond: [{ $eq: ['$status', 'em_execucao'] }, 1, 0] } }, review: { $sum: { $cond: [{ $eq: ['$status', 'em_revisao'] }, 1, 0] } }, done: { $sum: { $cond: [{ $eq: ['$status', 'concluida'] }, 1, 0] } }, checked: { $sum: { $cond: ['$checked', 1, 0] } } } }
+      ] as any[]).exec(),
+      Task.aggregate([
+        { $match: { projectId, archived: false } },
+        ...this.taskWorkspaceFlagStages(actor, projectId, baseline),
+        { $group: { _id: null, unread: { $sum: { $cond: ['$__workspace.unread', 1, 0] } }, questions: { $sum: '$__workspace.openQuestionCount' }, diff: { $sum: { $cond: ['$__workspace.hasGitDiff', 1, 0] } } } }
+      ] as any[]).exec()
+    ]);
+    const summary = summaryRows[0] ? { total: summaryRows[0].total, running: summaryRows[0].running, review: summaryRows[0].review, done: summaryRows[0].done, checked: summaryRows[0].checked } : { total: 0, running: 0, review: 0, done: 0, checked: 0 };
+    const sync = syncRows[0] ? { unread: syncRows[0].unread, questions: syncRows[0].questions, diff: syncRows[0].diff } : { unread: 0, questions: 0, diff: 0 };
+    const value = { expiresAt: Date.now() + 3000, summary, sync };
+    this.taskWorkspaceSummaryCache.set(key, value);
+    if (this.taskWorkspaceSummaryCache.size > 500) {
+      for (const [entryKey, entry] of this.taskWorkspaceSummaryCache) if (entry.expiresAt <= Date.now()) this.taskWorkspaceSummaryCache.delete(entryKey);
+      while (this.taskWorkspaceSummaryCache.size > 500) this.taskWorkspaceSummaryCache.delete(this.taskWorkspaceSummaryCache.keys().next().value!);
+    }
+    return value;
+  }
+  private taskWorkspaceFlagStages(actor: Actor, projectId: string, baseline: number) {
+    return [
+      { $lookup: { from: TaskRead.collection.name, let: { taskId: '$_id' }, pipeline: [
+        { $match: { $expr: { $and: [{ $eq: ['$projectId', projectId] }, { $eq: ['$userId', actor.userId] }, { $eq: ['$taskId', '$$taskId'] }] } } }, { $project: { _id: 0, lastSequence: 1 } }, { $limit: 1 }
+      ], as: '__taskRead' } },
+      { $addFields: { __workspaceReadSequence: { $max: [baseline, { $ifNull: [{ $first: '$__taskRead.lastSequence' }, 0] }] } } },
+      { $lookup: { from: DeliveryEvent.collection.name, let: { taskId: '$_id', readSequence: '$__workspaceReadSequence' }, pipeline: [
+        { $match: { $expr: { $and: [{ $eq: ['$projectId', projectId] }, { $in: ['$$taskId', '$taskIds'] }, { $gt: ['$sequence', '$$readSequence'] }, { $ne: ['$author', actor.userId] }] } } }, { $count: 'count' }
+      ], as: '__unreadEvents' } },
+      { $lookup: { from: TaskDiff.collection.name, let: { taskId: '$_id' }, pipeline: [
+        { $match: { $expr: { $and: [{ $eq: ['$projectId', projectId] }, { $eq: ['$taskId', '$$taskId'] }] } } }, { $sort: { createdAt: -1, _id: -1 } }, { $limit: 1 }, { $project: { _id: 1 } }
+      ], as: '__diffs' } },
+      { $lookup: { from: TaskMessage.collection.name, let: { taskId: '$_id' }, pipeline: [
+        { $match: { $expr: { $and: [{ $eq: ['$projectId', projectId] }, { $eq: ['$taskId', '$$taskId'] }, { $eq: ['$type', 'pergunta'] }] } } },
+        { $lookup: { from: TaskMessage.collection.name, let: { questionId: '$_id', conversation: '$conversationId', questionAt: '$createdAt' }, pipeline: [
+          { $match: { $expr: { $and: [{ $eq: ['$projectId', projectId] }, { $eq: ['$type', 'resposta'] }, { $or: [
+            { $eq: ['$replyTo', '$$questionId'] },
+            { $and: [{ $eq: [{ $ifNull: ['$replyTo', null] }, null] }, { $ne: ['$$conversation', null] }, { $eq: ['$conversationId', '$$conversation'] }, { $gte: ['$createdAt', '$$questionAt'] }] }
+          ] }] } } }, { $limit: 1 }
+        ], as: '__answers' } },
+        { $match: { $expr: { $eq: [{ $size: '$__answers' }, 0] } } }, { $count: 'count' }
+      ], as: '__openQuestions' } },
+      { $addFields: { __workspace: {
+        unread: { $gt: [{ $ifNull: [{ $first: '$__unreadEvents.count' }, 0] }, 0] },
+        openQuestionCount: { $ifNull: [{ $first: '$__openQuestions.count' }, 0] },
+        openQuestions: { $gt: [{ $ifNull: [{ $first: '$__openQuestions.count' }, 0] }, 0] },
+        hasGitDiff: { $gt: [{ $size: '$__diffs' }, 0] }
+      } } }
+    ];
+  }
+  private async taskWorkspaceIndicators(actor: Actor, projectId: string, taskIds: string[]) {
+    const result = new Map<string, any>();
+    if (!taskIds.length) return result;
+    const [diffRows, questions] = await Promise.all([
+      TaskDiff.aggregate([{ $match: { projectId, taskId: { $in: taskIds } } }, { $sort: { createdAt: -1, _id: -1 } }, { $group: { _id: '$taskId', diff: { $first: { _id: '$_id', baseCommit: '$baseCommit', commit: '$commit', branch: '$branch', files: '$files', truncated: '$truncated', author: '$author', agent: '$agent', createdAt: '$createdAt' } } } }]),
+      TaskMessage.find({ projectId, taskId: { $in: taskIds }, type: 'pergunta' }).select('_id taskId createdAt conversationId').sort({ createdAt: 1, _id: 1 }).lean()
+    ]);
+    const questionIds = questions.map((question: any) => question._id);
+    const answers = questionIds.length ? await TaskMessage.find({ projectId, type: 'resposta', $or: [{ replyTo: { $in: questionIds } }, { conversationId: { $in: questions.map((question: any) => question.conversationId).filter(Boolean) } }] }).select('_id replyTo conversationId createdAt').sort({ createdAt: 1, _id: 1 }).lean() : [];
+    const explicitlyAnswered = new Set(answers.map((answer: any) => answer.replyTo).filter(Boolean));
+    const consumedLegacyAnswers = new Set<string>();
+    const openQuestions = new Map<string, number>();
+    for (const question of questions as any[]) {
+      let answered = explicitlyAnswered.has(question._id);
+      if (!answered && question.conversationId) {
+        const legacyAnswer = (answers as any[]).find(answer => !answer.replyTo && answer.conversationId === question.conversationId && !consumedLegacyAnswers.has(answer._id) && answer.createdAt >= question.createdAt);
+        if (legacyAnswer) { consumedLegacyAnswers.add(legacyAnswer._id); answered = true; }
+      }
+      if (!answered) openQuestions.set(question.taskId, (openQuestions.get(question.taskId) ?? 0) + 1);
+    }
+    const baseline = await this.taskReadBaseline(projectId, actor.userId, undefined, true);
+    const unreadRows = await DeliveryEvent.aggregate([
+      { $match: { projectId, taskIds: { $in: taskIds }, sequence: { $gt: baseline }, author: { $ne: actor.userId } } }, { $unwind: '$taskIds' },
+      { $match: { taskIds: { $in: taskIds } } },
+      { $lookup: { from: TaskRead.collection.name, let: { taskId: '$taskIds' }, pipeline: [
+        { $match: { $expr: { $and: [{ $eq: ['$projectId', projectId] }, { $eq: ['$userId', actor.userId] }, { $eq: ['$taskId', '$$taskId'] }] } } }, { $project: { _id: 0, lastSequence: 1 } }, { $limit: 1 }
+      ], as: 'read' } },
+      { $match: { $expr: { $gt: ['$sequence', { $max: [baseline, { $ifNull: [{ $first: '$read.lastSequence' }, 0] }] }] } } },
+      { $group: { _id: '$taskIds', count: { $sum: 1 } } }
+    ]);
+    const unreadByTask = new Map(unreadRows.map((row: any) => [row._id, row.count]));
+    const diffByTask = new Map(diffRows.map((row: any) => [row._id, row.diff]));
+    for (const taskId of taskIds) result.set(taskId, {
+      unreadCount: unreadByTask.get(taskId) ?? 0,
+      openQuestionCount: openQuestions.get(taskId) ?? 0,
+      hasGitDiff: diffByTask.has(taskId),
+      latestDiff: diffByTask.get(taskId) ?? null
+    });
+    return result;
   }
   private async read(actor: Actor, name: string, a: any) {
     if (a.projectId) await this.access(actor, a.projectId);

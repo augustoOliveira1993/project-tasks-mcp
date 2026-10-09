@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { LEGACY_AREAS } from './area-catalog.js';
+import { taskWorkspaceSearchSchema } from './task-workspace-search.js';
 export const id = z.string().uuid();
 export const userId = z.string().min(1).max(320).refine(value => /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(value) || /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value), 'Invalid user ID or email').refine(value => !['prototype', 'constructor'].includes(value));
 const text = z.string().min(1).max(20000);
@@ -70,6 +71,7 @@ const conversationTypeId = id.refine(value => value !== '00000000-0000-4000-8000
 const taskAttachmentBase64Chars = Math.ceil(25 * 1024 * 1024 / 3) * 4;
 const attachmentId = z.string().regex(/^[a-f0-9]{24}$/i, 'Invalid attachment ID');
 export const states = ['pendente', 'em_execucao', 'bloqueada', 'em_revisao', 'concluida', 'cancelada'] as const;
+export const taskWorkspaceSearch = taskWorkspaceSearchSchema;
 export const kind = z.enum(['project', 'feature', 'task']);
 export const taskType = z.enum(['feature', 'fix', 'chore', 'docs', 'refactor', 'test', 'perf', 'build', 'ci', 'revert']);
 const gitBinding = z.object({ canonicalRemoteUrl: z.string().min(1).max(2048), rootCommit: z.string().regex(/^[0-9a-f]{40}$/i), boundAt: z.string().datetime().optional(), boundBy: text.optional() }).strict();

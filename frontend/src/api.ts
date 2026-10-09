@@ -50,6 +50,21 @@ export type Task = {
   createdAt?: string;
   updatedAt?: string;
   leaseUntil?: string;
+  workspace?: { unreadCount: number; openQuestionCount: number; hasGitDiff: boolean; latestDiff: Record<string, unknown> | null };
+};
+export type TaskWorkspaceSearch = {
+  projectId: string;
+  quick?: Record<string, unknown>;
+  expression?: import('./features/tasks/advanced-filter').FilterNode;
+  sort?: 'priority' | 'updated' | 'created' | 'name' | 'status';
+  limit?: number;
+  after?: string;
+};
+export type TaskWorkspaceResult = {
+  items: Task[];
+  total: number;
+  next: string | null;
+  summary: { total: number; running: number; review: number; done: number; checked: number; sync: { questions: number; unread: number; diff: number } };
 };
 export type TaskAttachment = { id: string; name: string; contentType: string; size: number; createdAt: string };
 export const MAX_TASK_ATTACHMENT_BYTES = 25 * 1024 * 1024;
@@ -155,6 +170,10 @@ export async function deleteTaskAttachment(token: string, projectId: string, tas
 
 export function query<T>(token: string, tool: string, args: Record<string, unknown>): Promise<T> {
   return request<T>(token, '/admin/query', { body: { tool, arguments: args } });
+}
+
+export function searchTaskWorkspace(token: string, input: TaskWorkspaceSearch): Promise<TaskWorkspaceResult> {
+  return request<TaskWorkspaceResult>(token, '/admin/tasks/search', { body: input });
 }
 
 export async function allRecords<T>(token: string, args: Record<string, unknown>): Promise<T[]> {

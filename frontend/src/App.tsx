@@ -269,10 +269,15 @@ function App() {
   const project = currentSummary?.project;
   const tasksQuery = useQuery({
     queryKey: ['project-tasks', nonce, activeProjectId],
-    enabled: Boolean(token && nonce && activeProjectId),
+    enabled: Boolean(token && nonce && activeProjectId && activeRoute !== 'tasks'),
     queryFn: () => allRecords<Task>(token, { kind: 'task', projectId: activeProjectId, archived: false })
   });
   const tasks = tasksQuery.data ?? [];
+  const requestedTaskQuery = useQuery({
+    queryKey: ['task-context', nonce, activeProjectId, requestedTaskId],
+    enabled: Boolean(token && nonce && activeProjectId && activeRoute === 'tasks' && requestedTaskId),
+    queryFn: () => query<Task>(token, 'get_record', { projectId: activeProjectId, kind: 'task', id: requestedTaskId })
+  });
   const conversationsBadgeQuery = useQuery({
     queryKey: ['conversations', nonce, activeProjectId],
     enabled: Boolean(token && nonce && activeProjectId),
@@ -283,20 +288,20 @@ function App() {
   const screenTitle = activeRoute === 'projects' ? 'Projetos' : activeTab === 'dashboard' ? 'Dashboard do projeto' : activeTab === 'activity' ? 'Atividade' : activeTab === 'chat' ? 'Conversas' : activeTab === 'admin' ? 'Administração' : activeTab === 'help' ? 'Ajuda' : catalogScreen ? 'Cadastros' : activeRoute === 'task' ? 'Tarefa' : 'Tarefas';
   useEffect(() => { document.title = (token ? screenTitle + (project ? ' · ' + project.name : '') + ' · ' : '') + 'Project Tasks'; }, [token, screenTitle, project?.name]);
   useEffect(() => {
-    if (activeRoute !== 'tasks' || !requestedTaskId || tasksQuery.isPending) return;
-    const task = tasks.find(item => item._id === requestedTaskId);
+    if (activeRoute !== 'tasks' || !requestedTaskId) return;
+    const task = tasks.find(item => item._id === requestedTaskId) ?? requestedTaskQuery.data;
     if (task) {
       setSelectedTaskAction('details');
       setSelectedTask(current => current?._id === task._id ? current : task);
     }
-    else {
+    else if (!requestedTaskQuery.isPending && !requestedTaskQuery.isError) {
       setRequestedTaskId('');
       const params = new URLSearchParams(window.location.search);
       params.delete('taskId');
       window.history.replaceState(window.history.state, '', routeUrl('tasks', params.toString(), activeProjectId));
       notify('A tarefa deste link não está disponível na listagem do projeto.', 'error');
     }
-  }, [activeRoute, requestedTaskId, tasks, tasksQuery.isPending]);
+  }, [activeRoute, requestedTaskId, tasks, requestedTaskQuery.data, requestedTaskQuery.isPending, requestedTaskQuery.isError, activeProjectId]);
   useEffect(() => { setActivityTaskSearch(''); }, [activeProjectId, globalActivityRoute]);
   const projectActivityQuery = useInfiniteQuery({
     queryKey: ['project-activity', nonce, activeProjectId, activityTaskSearch.trim()],
@@ -412,10 +417,8 @@ function App() {
     } catch (error) { notify(errorMessage(error), 'error'); return false; }
     finally { setSaving(false); }
   }
-  async function setTasksChecked(taskIds: string[], checked: boolean): Promise<string[]> {
-    if (!taskIds.length) return [];
-    const taskById = new Map(tasks.map(task => [task._id, task]));
-    const selectedTasks = taskIds.map(id => taskById.get(id)).filter((task): task is Task => Boolean(task));
+  async function setTasksChecked(selectedTasks: Task[], checked: boolean): Promise<string[]> {
+    if (!selectedTasks.length) return [];
     const updatedIds: string[] = [];
     let firstFailure: unknown;
     setSaving(true);
@@ -430,11 +433,12 @@ function App() {
       }
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['project-tasks', nonce, activeProjectId] }),
-        ...taskIds.map(taskId => queryClient.invalidateQueries({ queryKey: ['task-context', nonce, activeProjectId, taskId] }))
+        queryClient.invalidateQueries({ queryKey: ['task-workspace-search', nonce, activeProjectId] }),
+        ...selectedTasks.map(task => queryClient.invalidateQueries({ queryKey: ['task-context', nonce, activeProjectId, task._id] }))
       ]);
-      const failedCount = taskIds.length - updatedIds.length;
+      const failedCount = selectedTasks.length - updatedIds.length;
       if (!failedCount) notify(checked ? `${updatedIds.length} tarefa(s) conferida(s).` : `Conferência removida de ${updatedIds.length} tarefa(s).`, 'success');
-      else notify(`${updatedIds.length} de ${taskIds.length} tarefa(s) atualizadas; ${failedCount} falharam.${firstFailure ? ' ' + errorMessage(firstFailure) : ''}`, 'error');
+      else notify(`${updatedIds.length} de ${selectedTasks.length} tarefa(s) atualizadas; ${failedCount} falharam.${firstFailure ? ' ' + errorMessage(firstFailure) : ''}`, 'error');
       return updatedIds;
     } catch (error) {
       notify(errorMessage(error), 'error');
@@ -599,7 +603,7 @@ function App() {
         {catalogScreen && <CatalogsPage section={catalogSectionForRoute(activeRoute)} token={token} nonce={nonce} projects={projects.map(item => item.project)} project={project} tasks={tasks} notify={notify} onNavigateToConversations={() => navigateToRoute('conversations', activeProjectId, false)} onProjectCreated={async created => { await projectsQuery.refetch(); navigateToRoute(routeForCatalogSection('projects'), created._id, false); }} onSelectProject={projectId => navigateToRoute(activeRoute, projectId, false)} systemAdmin={capabilitiesQuery.data?.systemAdmin === true} onChanged={() => { void projectsQuery.refetch(); void tasksQuery.refetch(); }} />}
         {activeRoute !== 'projects' && !catalogScreen && (project || globalActivityRoute) && <>
           {activeRoute !== 'task' && activeRoute !== 'dashboard' && <div className="page-heading"><div><p className="eyebrow">{activeTab === 'tasks' ? 'ACOMPANHAMENTO' : activeTab === 'chat' ? 'COLABORAÇÃO' : activeTab === 'activity' ? 'ATIVIDADE' : activeTab === 'admin' ? 'CONFIGURAÇÃO' : 'DOCUMENTAÇÃO'}</p><h1>{activeTab === 'tasks' ? 'Tarefas do projeto' : activeTab === 'chat' ? 'Conversas com IA' : activeTab === 'activity' ? 'Atividade' : activeTab === 'admin' ? 'Administração' : 'Ajuda do Project Tasks'}</h1><p className="muted-text">{activeTab === 'tasks' ? 'Acompanhe execução, revisão e conclusão do trabalho.' : activeTab === 'chat' ? 'Esclareça pedidos com a IA e autorize a execução quando a proposta estiver pronta.' : activeTab === 'activity' ? globalActivityRoute ? 'Acompanhe eventos recentes de todos os projetos.' : 'Acompanhe eventos, mudanças e colaboração neste projeto.' : activeTab === 'admin' ? 'Credenciais e configurações restritas do workspace.' : 'Referência rápida para os servidores e ferramentas MCP.'}</p></div>{activeTab === 'tasks' && <div className="button-row"><button className="button secondary" onClick={() => setSummaryOpen(true)}>Resumo do projeto</button></div>}{activeTab === 'chat' && <div id="conversation-heading-actions" className="button-row" />}</div>}
-          {activeTab === 'tasks' && activeRoute !== 'task' && <TaskWorkspace key={activeProjectId} token={token} nonce={nonce} projectId={activeProjectId} repositories={project?.repositories ?? []} projectAreas={project?.areas ?? ['backend', 'frontend', 'outro']} tasks={tasks} isPending={tasksQuery.isPending} isError={tasksQuery.isError} error={tasksQuery.error} saving={saving} updatedAt={tasksQuery.dataUpdatedAt || undefined} refreshing={tasksQuery.isFetching} canHardDelete={canHardDelete} systemAdmin={capabilitiesQuery.data?.systemAdmin === true} onRefresh={() => { void projectsQuery.refetch(); void tasksQuery.refetch(); }} onOpenTask={openTaskDetails} onOpenTaskConversation={openTaskConversationFromTable} onTransferTask={setTransferTask} onChangeStatus={setStatusTask} onToggleChecked={toggleChecked} onRequestHardDeleteTask={requestTaskHardDelete} onArchiveTask={archiveTask} onApproveSelected={approveSelected} onSetTasksChecked={setTasksChecked} />}
+          {activeTab === 'tasks' && activeRoute !== 'task' && <TaskWorkspace key={activeProjectId} token={token} nonce={nonce} projectId={activeProjectId} repositories={project?.repositories ?? []} projectAreas={project?.areas ?? ['backend', 'frontend', 'outro']} tasks={tasks} isPending={tasksQuery.isPending} isError={tasksQuery.isError} error={tasksQuery.error} saving={saving} updatedAt={tasksQuery.dataUpdatedAt || undefined} refreshing={tasksQuery.isFetching} canHardDelete={canHardDelete} systemAdmin={capabilitiesQuery.data?.systemAdmin === true} onRefresh={() => { void projectsQuery.refetch(); if (activeRoute === 'tasks') void queryClient.invalidateQueries({ queryKey: ['task-workspace-search', nonce, activeProjectId] }); else void tasksQuery.refetch(); }} onOpenTask={openTaskDetails} onOpenTaskConversation={openTaskConversationFromTable} onTransferTask={setTransferTask} onChangeStatus={setStatusTask} onToggleChecked={toggleChecked} onRequestHardDeleteTask={requestTaskHardDelete} onArchiveTask={archiveTask} onApproveSelected={approveSelected} onSetTasksChecked={setTasksChecked} />}
           {activeRoute === 'dashboard' && <ProjectDashboardPage token={token} nonce={nonce} projectId={activeProjectId} />}
           {activeRoute === 'task' && pageTaskId && <TaskPage key={activeProjectId + ':' + pageTaskId} taskId={pageTaskId} token={token} nonce={nonce} projectId={activeProjectId} project={project!} tasks={tasks} checking={adminMutation.isPending || saving} notify={notify} onToggleChecked={toggleChecked} onOpenConversation={openConversation} onRequestTransfer={setTransferTask} systemAdmin={capabilitiesQuery.data?.systemAdmin === true} onReview={reviewTask} onChangeStatus={setStatusTask} close={() => navigateToRoute('tasks', activeProjectId, false)} />}
           {activeTab === 'chat' && <ConversationPanel token={token} nonce={nonce} projectId={activeProjectId} tasks={tasks} requestedConversationId={conversationToOpen || undefined} onConversationSelected={rememberConversation} onOpenTask={openTaskFromConversation} onOpenAdmin={() => setActiveTab('admin')} />}

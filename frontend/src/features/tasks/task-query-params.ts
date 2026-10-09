@@ -1,12 +1,14 @@
 import { statusLabels } from './status';
+import { decodeFilterExpression, encodeFilterExpression, emptyFilterGroup, type FilterGroup } from './advanced-filter';
 
-export const taskTypes = ['feature', 'fix', 'chore', 'docs', 'refactor', 'test', 'perf', 'build', 'ci'] as const;
+export const taskTypes = ['feature', 'fix', 'chore', 'docs', 'refactor', 'test', 'perf', 'build', 'ci', 'revert'] as const;
 
 const pageSizes = [10, 25, 50, 100] as const;
 export const taskFlags = ['unread', 'questions', 'diff'] as const;
 export const taskSorts = ['priority', 'updated', 'created', 'name', 'status'] as const;
 
 export type TaskQueryState = {
+  expression: FilterGroup;
   search: string;
   status: string;
   area: string;
@@ -46,6 +48,7 @@ export function readTaskQueryState(search = window.location.search): TaskQuerySt
   const normalizedPriority = /^\d+$/.test(priority) && Number.isSafeInteger(parsedPriority) ? String(parsedPriority) : '';
 
   return {
+    expression: decodeFilterExpression(params.get('filter')),
     search: params.get('search') ?? '',
     status: Object.hasOwn(statusLabels, status) ? status : 'todos',
     area: area.trim().length > 0 && area.trim().length <= 80 && !/[\r\n]/.test(area) ? area.trim() : 'todos',
@@ -59,7 +62,7 @@ export function readTaskQueryState(search = window.location.search): TaskQuerySt
     updatedBefore: dateValue(params.get('updatedBefore')),
     flag: taskFlags.some(value => value === params.get('flag')) ? params.get('flag')! : '',
     sort: taskSorts.some(value => value === params.get('sort')) ? params.get('sort')! : 'priority',
-    page: positiveInteger(params.get('page'), 1),
+    page: 1,
     pageSize: pageSizes.some(value => value === requestedPageSize) ? requestedPageSize : 25
   };
 }
@@ -80,7 +83,6 @@ export function syncTaskQueryState(state: TaskQueryState): void {
     ['updatedBefore', state.updatedBefore],
     ['flag', state.flag],
     ['sort', state.sort === 'priority' ? '' : state.sort],
-    ['page', state.page === 1 ? '' : String(state.page)],
     ['pageSize', state.pageSize === 25 ? '' : String(state.pageSize)]
   ];
 
@@ -88,9 +90,16 @@ export function syncTaskQueryState(state: TaskQueryState): void {
     if (value) params.set(key, value);
     else params.delete(key);
   }
+  params.delete('page');
+
+  const expression = encodeFilterExpression(state.expression);
+  if (expression) params.set('filter', expression);
+  else params.delete('filter');
 
   const query = params.toString();
   const nextUrl = window.location.pathname + (query ? '?' + query : '') + window.location.hash;
   const currentUrl = window.location.pathname + window.location.search + window.location.hash;
   if (nextUrl !== currentUrl) window.history.replaceState(window.history.state, '', nextUrl);
 }
+
+export { emptyFilterGroup };

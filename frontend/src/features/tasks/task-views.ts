@@ -1,10 +1,11 @@
 import type { TaskQueryState } from './task-query-params';
+import { emptyFilterGroup, type FilterGroup } from './advanced-filter';
 
-export type TaskViewState = Partial<Pick<TaskQueryState, 'search' | 'status' | 'area' | 'type' | 'priority' | 'responsible' | 'featureId' | 'flag' | 'sort'>>;
+export type TaskViewState = Partial<Pick<TaskQueryState, 'search' | 'status' | 'area' | 'type' | 'priority' | 'responsible' | 'featureId' | 'flag' | 'sort'>> & { expression?: FilterGroup };
 export type TaskView = { id: string; label: string; description: string; state: TaskViewState; custom?: boolean };
 
 const viewKeys = ['search', 'status', 'area', 'type', 'priority', 'responsible', 'featureId', 'flag', 'sort'] as const;
-const emptyViewState: Required<TaskViewState> = { search: '', status: 'todos', area: 'todos', type: 'todos', priority: '', responsible: '', featureId: '', flag: '', sort: 'priority' };
+const emptyViewState: Required<TaskViewState> = { search: '', status: 'todos', area: 'todos', type: 'todos', priority: '', responsible: '', featureId: '', flag: '', sort: 'priority', expression: emptyFilterGroup() };
 
 export const builtInViews: TaskView[] = [
   { id: 'all', label: 'Todas', description: 'Sem filtros', state: {} },
@@ -27,11 +28,12 @@ export function viewPatch(view: TaskView): Required<TaskViewState> {
 export function matchesView(state: TaskQueryState, view: TaskView): boolean {
   const expected = viewPatch(view);
   const advancedActive = Boolean(state.createdAfter || state.createdBefore || state.updatedAfter || state.updatedBefore);
-  return !advancedActive && viewKeys.every(key => key === 'sort' && view.state.sort === undefined ? true : state[key] === expected[key]);
+  return !advancedActive && JSON.stringify(state.expression) === JSON.stringify(expected.expression) && viewKeys.every(key => key === 'sort' && view.state.sort === undefined ? true : state[key] === expected[key]);
 }
 
 export function snapshotView(name: string, state: TaskQueryState): TaskView {
   const picked = Object.fromEntries(viewKeys.map(key => [key, state[key]])) as TaskViewState;
+  picked.expression = state.expression;
   return { id: `custom-${Date.now().toString(36)}`, label: name.trim(), description: 'Visão salva neste navegador', state: picked, custom: true };
 }
 

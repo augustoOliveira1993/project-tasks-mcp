@@ -18,6 +18,13 @@ export const Task = mongoose.model('Task', new Schema({ ...base, projectId: { ty
 Task.schema.index({ projectId: 1, status: 1, _id: 1 });
 Task.schema.index({ projectId: 1, archived: 1, createdAt: 1, _id: 1 });
 Task.schema.index({ projectId: 1, archived: 1, status: 1, createdAt: 1, _id: 1 });
+Task.schema.index({ projectId: 1, archived: 1, updatedAt: -1, _id: 1 });
+Task.schema.index({ projectId: 1, archived: 1, priority: 1, updatedAt: -1, _id: 1 });
+Task.schema.index({ projectId: 1, archived: 1, checked: 1, status: 1 });
+Task.schema.index({ projectId: 1, archived: 1, name: 1, _id: 1 });
+Task.schema.index({ projectId: 1, archived: 1, responsible: 1, _id: 1 });
+Task.schema.index({ projectId: 1, archived: 1, name: 1, _id: 1 }, { name: 'task_project_name_pt', collation: { locale: 'pt', strength: 1 } });
+Task.schema.index({ projectId: 1, archived: 1, name: 'text', responsible: 'text' });
 Task.schema.index({ projectId: 1, featureId: 1, archived: 1, createdAt: 1, _id: 1 });
 Task.schema.index({ projectId: 1, dependencies: 1, status: 1 });
 Feature.schema.index({ projectId: 1, archived: 1, createdAt: 1, _id: 1 });
@@ -37,6 +44,9 @@ Event.schema.index({ at: -1, _id: -1 });
 export const TaskMessage = mongoose.model('TaskMessage', new Schema({ _id: String, projectId: { type: String, index: true }, taskId: { type: String, index: true }, relatedTaskId: String, executionId: String, operationId: String, author: String, authorType: String, clientName: String, credentialId: String, conversationId: String, replyTo: String, correlationId: String, type: String, message: String, references: [String], createdAt: { type: Date, default: Date.now } }, { versionKey: false }));
 TaskMessage.schema.index({ projectId: 1, taskId: 1, createdAt: 1, _id: 1 });
 TaskMessage.schema.index({ projectId: 1, relatedTaskId: 1, createdAt: 1, _id: 1 });
+TaskMessage.schema.index({ projectId: 1, taskId: 1, type: 1, createdAt: 1, _id: 1 });
+TaskMessage.schema.index({ projectId: 1, replyTo: 1, type: 1, createdAt: 1 });
+TaskMessage.schema.index({ projectId: 1, conversationId: 1, type: 1, createdAt: 1 });
 const conversationTypeField = new Schema({ id: String, label: String, helpText: String, type: String, required: Boolean, options: [String] }, { _id: false, strict: true });
 const conversationTypeCondition = new Schema({ fieldId: String, operator: String, value: String }, { _id: false, strict: true });
 const conversationTypeStage = new Schema({ id: String, title: String, description: String, kind: String, required: Boolean,

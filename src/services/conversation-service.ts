@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import type { ClientSession } from 'mongoose';
 import { ActionProposal, AutomationJob, Conversation, ConversationMessage, ConversationRead, ConversationType, Task } from '../models.js';
 import { pageLatestByCreatedAt } from '../pagination.js';
-import { DEFAULT_CONVERSATION_TYPE_ID, conversationTypeDto, defaultConversationType } from '../conversation-workflows.js';
+import { DEFAULT_CONVERSATION_TYPE_ID, conversationTypeDto, defaultConversationType, taskTypeConversationKeys } from '../conversation-workflows.js';
+import { seedConversationTypes } from './conversation-type-seed-service.js';
 import { DomainError, type Actor, type Service } from '../service.js';
 
 function ensure(condition: unknown, message: string, status = 409): asserts condition {
@@ -196,30 +197,40 @@ export class ConversationService {
 
   async create(actor: Actor, a: any) {
     return this.service.mutate(actor, 'create_conversation', a, async (session: ClientSession) => {
-      const workflow = await this.workflowFor(a.projectId, a.typeId, session);
+      let task: any;
       if (a.taskId) {
-        const task = await Task.findOne({ _id: a.taskId, projectId: a.projectId, archived: false }).select('_id').session(session).lean();
+        task = await Task.findOne({ _id: a.taskId, projectId: a.projectId, archived: false }).select('_id type area repositoryId').session(session).lean();
         ensure(task, 'Task not found', 404);
       }
+      const seeded = task ? await seedConversationTypes(a.projectId, session) : undefined;
+      const mappedKey = taskTypeConversationKeys[task?.type ?? 'feature'];
+      const mappedTypeId = mappedKey ? seeded?.workflows.get(mappedKey)?._id : undefined;
+      const workflow = await this.workflowFor(a.projectId, a.typeId ?? mappedTypeId, session);
       const conversation = new Conversation({
         _id: randomUUID(), projectId: a.projectId, taskId: a.taskId, createdBy: actor.userId,
         title: a.title ?? 'Nova conversa', conversationTypeId: workflow._id, conversationTypeSnapshot: workflow
       });
       await conversation.save({ session });
-      await this.service.event(session, actor, 'create_conversation', a.projectId, conversation._id!, { conversationId: conversation._id, taskId: conversation.taskId ?? null, typeId: workflow._id });
+      await this.service.event(session, actor, 'create_conversation', a.projectId, conversation._id!, {
+        conversationId: conversation._id, taskId: conversation.taskId ?? null, typeId: workflow._id,
+        seededConversationTypes: seeded?.created.length ?? 0
+      });
       return conversationDto(conversation, undefined, workflow, true);
     }, false, false);
   }
 
   async openTask(actor: Actor, a: any) {
     return this.service.mutate(actor, 'open_task_conversation', a, async (session: ClientSession) => {
-      const task = await Task.findOne({ _id: a.taskId, projectId: a.projectId, archived: false }).select('_id name').session(session).lean();
+      const task = await Task.findOne({ _id: a.taskId, projectId: a.projectId, archived: false }).select('_id name type area repositoryId').session(session).lean();
       ensure(task, 'Task not found', 404);
       const existing = await Conversation.findOne({ projectId: a.projectId, taskId: a.taskId, status: 'open' })
         .sort({ lastMessageAt: -1, createdAt: -1, _id: -1 }).session(session).lean();
       if (existing) return { conversation: conversationDto(existing), created: false };
 
-      const workflow = await this.workflowFor(a.projectId, a.typeId, session);
+      const seeded = await seedConversationTypes(a.projectId, session);
+      const mappedKey = taskTypeConversationKeys[task.type ?? 'feature'];
+      const mappedTypeId = mappedKey ? seeded.workflows.get(mappedKey)?._id : undefined;
+      const workflow = await this.workflowFor(a.projectId, a.typeId ?? mappedTypeId, session);
 
       const conversation = new Conversation({
         _id: randomUUID(), projectId: a.projectId, taskId: a.taskId,
@@ -228,7 +239,8 @@ export class ConversationService {
       });
       await conversation.save({ session });
       await this.service.event(session, actor, 'open_task_conversation', a.projectId, conversation._id!, {
-        conversationId: conversation._id, taskId: a.taskId, typeId: workflow._id
+        conversationId: conversation._id, taskId: a.taskId, typeId: workflow._id,
+        seededConversationTypes: seeded.created.length
       });
       return { conversation: conversationDto(conversation, undefined, workflow, true), created: true };
     }, false, false);
