@@ -76,7 +76,7 @@ export class ApiRequestError extends Error {
   }
 }
 
-const apiPrefix = import.meta.env.DEV ? '/api' : '';
+const apiPrefix = import.meta.env?.DEV ? '/api' : '';
 
 export async function request<T>(token: string, path: string, options: { method?: string; body?: unknown; gzip?: boolean } = {}): Promise<T> {
   let body: BodyInit | undefined = options.body === undefined ? undefined : JSON.stringify(options.body);

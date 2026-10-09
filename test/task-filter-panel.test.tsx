@@ -9,6 +9,7 @@ test('advanced filter panel adds, edits, removes rules and prevents applying inc
   Object.assign(globalThis, { window: browser, document: browser.document, IS_REACT_ACT_ENVIRONMENT: true });
   Object.defineProperty(globalThis, 'navigator', { configurable: true, value: browser.navigator });
   const React = await import('react');
+  (globalThis as any).React = React;
   const { createRoot } = await import('react-dom/client');
   const { AdvancedTaskFilterPanel } = await import('../frontend/src/features/tasks/AdvancedTaskFilterPanel.js');
   const container = browser.document.createElement('div');

@@ -29,7 +29,7 @@ export const tasksFiltersHref = (projectId: string, filters: Record<string, stri
 
 export const filterHref = (projectId: string, param: string, value: string) => routeUrl('tasks', `${param}=${encodeURIComponent(value)}`, projectId);
 
-type LinkBase = { className?: string; title?: string; children: ReactNode; projectId?: string | null };
+type LinkBase = { className?: string; title?: string; children: ReactNode; projectId?: string | null; 'aria-label'?: string };
 
 const entityLink = 'font-semibold text-tone-blue underline decoration-[#b9c1f5] underline-offset-2 wrap-anywhere hover:text-[#2a39ad] hover:decoration-current';
 const entityChip = 'inline-flex max-w-full cursor-pointer items-center gap-1 rounded-ui-sm bg-tone-slate-bg px-2 py-0.5 text-[10.5px] leading-normal font-semibold whitespace-nowrap text-tone-slate no-underline hover:border-focus hover:bg-tone-blue-bg hover:text-tone-blue';
@@ -71,10 +71,10 @@ export function FeatureLink({ featureId, name, projectId, className = entityLink
 }
 
 /** Chip que filtra a fila de tarefas por um campo (área, tipo...). */
-export function FilterLink({ param, value, projectId, className = entityChip, title, children }: LinkBase & { param: string; value: string }) {
+export function FilterLink({ param, value, projectId, className = entityChip, title, children, 'aria-label': ariaLabel }: LinkBase & { param: string; value: string }) {
   const navigation = useContext(EntityNavigationContext);
   const target = projectId || navigation?.projectId || '';
-  return <a className={className} href={filterHref(target, param, value)} title={title ?? 'Filtrar tarefas por este valor'} onClick={event => { if (navigation && plainClick(event)) { event.preventDefault(); event.stopPropagation(); navigation.filterBy(param, value); } }}>{children}</a>;
+  return <a className={className} href={filterHref(target, param, value)} title={title ?? 'Filtrar tarefas por este valor'} aria-label={ariaLabel} onClick={event => { if (navigation && plainClick(event)) { event.preventDefault(); event.stopPropagation(); navigation.filterBy(param, value); } }}>{children}</a>;
 }
 
 /** Link para a lista de tarefas com um conjunto de filtros; navega sem recarregar quando há provedor de navegação. */

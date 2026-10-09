@@ -21,7 +21,7 @@ export function ConversationStepper({ phase, stages }: { phase: ConversationPhas
       const number = index + 1;
       const state = number < current ? 'done' : number === current ? 'current' : 'future';
       const tone = stepStates[state];
-      return <li key={label} className={`flex min-w-0 flex-[1_1_0] items-center gap-2 text-[12.5px] text-muted-strong ${connector} ${tone.item}`} aria-current={state === 'current' ? 'step' : undefined}>
+      return <li key={label} className={`flex min-w-max flex-[1_1_0] items-center gap-2 text-[12.5px] text-muted-strong ${connector} ${tone.item}`} aria-current={state === 'current' ? 'step' : undefined}>
         <span className={`inline-grid size-6 flex-none place-items-center rounded-full border-2 text-[11.5px] font-bold ${tone.dot}`} aria-hidden="true">{state === 'done' ? <IconCheck size={12} /> : number}</span>
         <span className={'whitespace-nowrap' + tone.label}>{label}<span className="sr-only">{state === 'done' ? ' (concluída)' : state === 'current' ? ' (fase atual)' : ' (pendente)'}</span></span>
       </li>;

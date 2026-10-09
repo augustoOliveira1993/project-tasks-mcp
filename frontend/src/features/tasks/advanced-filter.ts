@@ -42,6 +42,12 @@ export function expressionHasRules(node?: FilterNode): boolean {
   return Boolean(node && (node.kind === 'condition' || node.children.some(expressionHasRules)));
 }
 
+export function countFilterConditions(node?: FilterNode): number {
+  if (!node) return 0;
+  if (node.kind === 'condition') return 1;
+  return node.children.reduce((total, child) => total + countFilterConditions(child), 0);
+}
+
 export function expressionIsReady(node?: FilterNode, root = true): boolean {
   if (!node) return true;
   if (node.kind === 'group') return (root && node.children.length === 0 || node.children.length > 0) && node.children.every(child => expressionIsReady(child, false));

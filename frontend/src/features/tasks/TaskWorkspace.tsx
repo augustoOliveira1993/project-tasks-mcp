@@ -26,7 +26,7 @@ import { readTaskQueryState, syncTaskQueryState, taskTypes, type TaskQueryState 
 import { sortLabels } from './task-sort';
 import { AdvancedTaskFilterPanel } from './AdvancedTaskFilterPanel';
 import { emptyFilterGroup, expressionHasRules, expressionIsReady, type FilterField, type FilterGroup } from './advanced-filter';
-import { builtInViews, loadMyEmail, loadSavedViews, matchesView, mineView, snapshotView, storeMyEmail, storeSavedViews, viewPatch, type TaskView } from './task-views';
+import { builtInViews, countAdvancedFilters, loadMyEmail, loadSavedViews, matchesView, mineView, snapshotView, storeMyEmail, storeSavedViews, viewPatch, type TaskView } from './task-views';
 
 type TaskWorkspaceProps = {
   token: string;
@@ -125,7 +125,7 @@ export function TaskWorkspace({ token, nonce, projectId, repositories = [], proj
   const [createdFeatureNotice, setCreatedFeatureNotice] = useState('');
   const [state, setState] = useState<TaskQueryState>(readTaskQueryState);
   const [searchDraft, setSearchDraft] = useState(() => state.search);
-  const [advancedOpen, setAdvancedOpen] = useState(() => Boolean(state.priority || state.responsible || state.featureId || state.createdAfter || state.createdBefore || state.updatedAfter || state.updatedBefore || expressionHasRules(state.expression)));
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [filterDraft, setFilterDraft] = useState<FilterGroup>(() => state.expression);
   const [cursorHistory, setCursorHistory] = useState<string[]>(['']);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -195,6 +195,7 @@ export function TaskWorkspace({ token, nonce, projectId, repositories = [], proj
   const syncState = workspaceQuery.isPending ? 'pending' : workspaceQuery.isError ? 'error' : 'ready';
   const syncedAt = workspaceQuery.dataUpdatedAt || Infinity;
   const noFilters = matchesView(state, builtInViews[0]) && !state.search;
+  const advancedFilterCount = countAdvancedFilters(state);
 
   function patch(partial: Partial<TaskQueryState>) {
     setState(current => ({ ...current, ...partial, page: 1 }));
@@ -268,7 +269,6 @@ export function TaskWorkspace({ token, nonce, projectId, repositories = [], proj
     const restoreFromUrl = () => {
       const next = readTaskQueryState();
       setState(next);
-      setAdvancedOpen(Boolean(next.priority || next.responsible || next.featureId || next.createdAfter || next.createdBefore || next.updatedAfter || next.updatedBefore || expressionHasRules(next.expression)));
       setFilterDraft(next.expression);
       setCursorHistory(['']);
       setSelectedIds([]);
@@ -457,7 +457,7 @@ export function TaskWorkspace({ token, nonce, projectId, repositories = [], proj
         <select className={filterSelect} aria-label="Filtrar por área" value={state.area} onChange={event => patch({ area: event.target.value })}><option value="todos">Todas as áreas</option>{state.area === noAreaFilter && <option value={noAreaFilter}>Sem área</option>}{filterOptions.area.map(({ value }) => <option key={value} value={value}>{areaLabel(value)}</option>)}</select>
         <select className={filterSelect} aria-label="Filtrar por tipo" value={state.type} onChange={event => patch({ type: event.target.value })}><option value="todos">Todos os tipos</option>{filterOptions.type.map(({ value }) => <option value={value} key={value}>{typeLabel(value)}</option>)}</select>
         <select className={filterSelect} aria-label="Ordenar tarefas" value={state.sort} onChange={event => patch({ sort: event.target.value })}>{Object.entries(sortLabels).map(([value, label]) => <option value={value} key={value}>Ordem: {label}</option>)}</select>
-        <button type="button" className={buttonGhost} onClick={() => { setFilterDraft(state.expression); setAdvancedOpen(true); }} aria-expanded={advancedOpen}>＋ Mais filtros</button>
+        <button type="button" className={`${buttonGhost} gap-1.5`} onClick={() => { setFilterDraft(state.expression); setAdvancedOpen(true); }} aria-expanded={advancedOpen} aria-label={advancedFilterCount ? `Mais filtros, ${advancedFilterCount} filtro(s) avançado(s) aplicado(s)` : 'Mais filtros'} title={advancedFilterCount ? `${advancedFilterCount} filtro(s) avançado(s) aplicado(s). Clique para revisar.` : 'Abrir filtros avançados'}>＋ Mais filtros{advancedFilterCount > 0 && <span className="inline-grid size-[18px] place-items-center rounded-full bg-tone-blue-bg px-1 text-[10px] leading-none font-bold text-tone-blue" aria-hidden="true">{advancedFilterCount}</span>}</button>
       </div>
       {chips.length > 0 && <div className="flex flex-wrap items-center gap-1.5 px-5 pb-3 max-[760px]:px-3.5" role="group" aria-label="Filtros ativos">
         {chips.map(chip => <button type="button" className="group/chip inline-flex min-h-[26px] items-center gap-1.5 rounded-full border border-[#cfd6fa] bg-tone-blue-bg pr-1.5 pl-2.5 text-ui-xs font-semibold text-tone-blue hover:bg-[#e2e6ff]" key={chip.key} onClick={chip.clear} aria-label={`Remover filtro ${chip.label}`} title="Remover filtro">{chip.label}<span className="grid size-4 place-items-center rounded-[50%] text-[13px] leading-none group-hover/chip:bg-[#c8d0fb]" aria-hidden="true">×</span></button>)}
@@ -480,19 +480,19 @@ export function TaskWorkspace({ token, nonce, projectId, repositories = [], proj
             <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1"><TaskLink taskId={task._id} name={task.name} projectId={projectId} className="block max-w-[560px] min-w-0 overflow-hidden text-left text-ui-md font-bold text-ellipsis whitespace-nowrap text-ink no-underline hover:text-tone-blue hover:underline focus-visible:rounded-[4px] focus-visible:outline-offset-[3px] max-[760px]:leading-[1.4] max-[760px]:whitespace-normal" title={task.name} onOpen={() => onOpenTask(task)} rowFocus>{task.name}</TaskLink><TaskContentBadges token={token} nonce={nonce} projectId={projectId} task={task} /></div>
             <div className="mt-1.5 flex flex-wrap items-center gap-[5px]">
               <code className="inline-block rounded-[5px] bg-[#f3f4f8] px-1.5 py-px font-code text-[10px] leading-[normal] font-semibold text-muted-strong" title={task._id}>{shortId(task._id)}</code>
-              {task.area ? <FilterLink param="area" value={task.area} projectId={projectId} className={`${chip} max-w-full ${chipLink} ${areaChipTone(task.area)}`} title={`Filtrar pela área ${areaLabel(task.area)}`}>{areaLabel(task.area)}</FilterLink> : <span className={`${chip} max-w-full ${chipSlate}`}>{areaLabel(task.area)}</span>}
+              <FilterLink param="area" value={task.area || noAreaFilter} projectId={projectId} className={`${chip} max-w-full ${chipLink} ${task.area ? areaChipTone(task.area) : chipSlate}`} title={task.area ? `Filtrar pela área ${areaLabel(task.area)}` : 'Filtrar tarefas sem área'} aria-label={task.area ? `Filtrar pela área ${areaLabel(task.area)}` : 'Filtrar tarefas sem área'}>{areaLabel(task.area)}</FilterLink>
               {(task.acceptance?.length ?? 0) > 0 && (() => { const total = task.acceptance!.length; const done = task.acceptance!.filter((_item, index) => task.acceptanceProgress?.[index] === true).length; return <button type="button" className={`${flagButton} ${done === total ? 'bg-tone-green-bg text-tone-green' : chipSlate}`} title={`Critérios de aceite: ${done} de ${total} atendidos. Abrir critérios`} aria-label={`Ver critérios de aceite de ${task.name}, ${done} de ${total} atendidos`} onClick={() => onOpenTask(task, 'criteria')}><IconCheck size={12} />{done}/{total} critérios</button>; })()}
               {task.type && <FilterLink param="type" value={task.type} projectId={projectId} className={`${chip} max-w-full ${chipLink} bg-[#f4effc] text-[#603d99]`} title={`Filtrar pelo tipo ${typeLabel(task.type)}`}>{typeLabel(task.type)}</FilterLink>}
-              {featureName && task.featureId && <FeatureLink featureId={task.featureId} name={featureName} projectId={projectId} className={`${chip} max-w-[240px] ${chipLink} border border-line-strong bg-white text-ink-2`} title={`Ver todas as tarefas da feature “${featureName}”`}><IconFeature size={11} /><span className="overflow-hidden text-ellipsis">{featureName}</span></FeatureLink>}
+              {featureName && task.featureId && <FeatureLink featureId={task.featureId} name={featureName} projectId={projectId} className={`${chip} max-w-[240px] ${chipLink} border border-line-strong bg-white text-ink-2`} title={`Filtrar pela feature “${featureName}”`}><IconFeature size={11} /><span className="overflow-hidden text-ellipsis">{featureName}</span></FeatureLink>}
               {unread > 0 && <button type="button" className={`${flagButton} bg-tone-amber-bg text-tone-amber`} title={`${plural(unread, 'atividade não lida', 'atividades não lidas')}. Abrir detalhes`} aria-label={`Abrir detalhes de ${task.name}, ${plural(unread, 'atividade não lida', 'atividades não lidas')}`} onClick={() => onOpenTask(task)}><IconMail size={12} />{unread}</button>}
               {openQuestions > 0 && <button type="button" className={`${flagButton} bg-tone-blue-bg text-tone-blue`} title={`${plural(openQuestions, 'pergunta aberta', 'perguntas abertas')}. Abrir conversa`} aria-label={`Abrir conversa de ${task.name}, ${plural(openQuestions, 'pergunta aberta', 'perguntas abertas')}`} onClick={() => onOpenTaskConversation(task)}><IconQuestion size={12} />{openQuestions}</button>}
               {Boolean(taskSync?.hasGitDiff) && <span className={`${flagChip} bg-tone-green-bg text-tone-green`} title="Há diff Git publicado nesta tarefa" role="img" aria-label="Diff Git publicado"><IconDiff size={12} />diff</span>}
             </div>
             {task.checked && <small className="mt-1.5 inline-flex items-center gap-1 text-ui-xs font-semibold text-tone-green"><IconCheck size={11} /> Conferida por {task.checkedBy || 'membro'}</small>}
           </td>
-          <td className={`${tdMiddle} max-[760px]:col-[2] max-[760px]:row-[2]`}><Badge tone={statusTone[task.status]}>{statusLabels[task.status] ?? task.status}</Badge></td>
-          <td className={`${tdMiddle} max-[760px]:col-[3] max-[760px]:row-[2] max-[760px]:justify-self-end`}><span className={`inline-flex items-center rounded-ui-sm px-2 py-0.5 text-[10.5px] font-bold whitespace-nowrap ${priorityTone(priority.tone)}`} title={priority.text}>{priority.text}</span></td>
-          <td className={`${tdMiddle} max-[760px]:col-[2] max-[760px]:row-[3]`}><Person identity={task.responsible} /></td>
+          <td className={`${tdMiddle} max-[760px]:col-[2] max-[760px]:row-[2]`}><FilterLink param="status" value={task.status} projectId={projectId} className="inline-flex rounded-full no-underline hover:opacity-80 focus-visible:rounded-full focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#4b4fcb]" title={`Filtrar pelo status ${statusLabels[task.status] ?? task.status}`} aria-label={`Filtrar pelo status ${statusLabels[task.status] ?? task.status}`}><Badge tone={statusTone[task.status]}>{statusLabels[task.status] ?? task.status}</Badge></FilterLink></td>
+          <td className={`${tdMiddle} max-[760px]:col-[3] max-[760px]:row-[2] max-[760px]:justify-self-end`}>{task.priority == null ? <span className={`inline-flex items-center rounded-ui-sm px-2 py-0.5 text-[10.5px] font-bold whitespace-nowrap ${priorityTone(priority.tone)}`} title={priority.text}>{priority.text}</span> : <FilterLink param="priority" value={String(task.priority)} projectId={projectId} className="inline-flex rounded-ui-sm no-underline hover:opacity-80 focus-visible:rounded-ui-sm focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#4b4fcb]" title={`Filtrar pela prioridade ${priority.text}`} aria-label={`Filtrar pela prioridade ${priority.text}`}><span className={`inline-flex items-center rounded-ui-sm px-2 py-0.5 text-[10.5px] font-bold whitespace-nowrap ${priorityTone(priority.tone)}`}>{priority.text}</span></FilterLink>}</td>
+          <td className={`${tdMiddle} max-[760px]:col-[2] max-[760px]:row-[3]`}><FilterLink param="responsible" value={task.responsible?.trim() || noResponsibleFilter} projectId={projectId} className="inline-flex min-w-0 rounded-ui-sm px-1 py-0.5 no-underline hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#4b4fcb]" title={task.responsible?.trim() ? `Filtrar pelo responsável ${task.responsible}` : 'Filtrar tarefas sem responsável'} aria-label={task.responsible?.trim() ? `Filtrar pelo responsável ${task.responsible}` : 'Filtrar tarefas sem responsável'}><Person identity={task.responsible} /></FilterLink></td>
           <td className={`${tdMiddle} max-[760px]:col-[3] max-[760px]:row-[3] max-[760px]:justify-self-end`}><time className="text-ui-xs whitespace-nowrap text-muted-strong" dateTime={task.updatedAt} title={formatDate(task.updatedAt)}>{relativeTime(task.updatedAt, now)}</time></td>
           <td className={`${tdLast} max-[760px]:col-[2/4] max-[760px]:row-[4] max-[760px]:justify-self-stretch`}><div className="flex items-center justify-end gap-1.5 max-[760px]:justify-start"><button type="button" className={`${rowButton} ${primary.emphasis ? primaryTone : secondaryTone}`} aria-label={`${primary.label}: ${task.name}`} disabled={primary.id === 'check' && saving} onClick={() => runTaskAction(task, primary.id)}>{primary.label}</button><TaskActionsMenu task={task} canHardDelete={canHardDelete} saving={saving} onAction={action => runTaskAction(task, action)} /></div></td>
         </tr>;

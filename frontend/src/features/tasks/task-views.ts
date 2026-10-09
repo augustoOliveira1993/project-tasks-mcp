@@ -1,5 +1,5 @@
 import type { TaskQueryState } from './task-query-params';
-import { emptyFilterGroup, type FilterGroup } from './advanced-filter';
+import { countFilterConditions, emptyFilterGroup, type FilterGroup } from './advanced-filter';
 
 export type TaskViewState = Partial<Pick<TaskQueryState, 'search' | 'status' | 'area' | 'type' | 'priority' | 'responsible' | 'featureId' | 'flag' | 'sort'>> & { expression?: FilterGroup };
 export type TaskView = { id: string; label: string; description: string; state: TaskViewState; custom?: boolean };
@@ -29,6 +29,12 @@ export function matchesView(state: TaskQueryState, view: TaskView): boolean {
   const expected = viewPatch(view);
   const advancedActive = Boolean(state.createdAfter || state.createdBefore || state.updatedAfter || state.updatedBefore);
   return !advancedActive && JSON.stringify(state.expression) === JSON.stringify(expected.expression) && viewKeys.every(key => key === 'sort' && view.state.sort === undefined ? true : state[key] === expected[key]);
+}
+
+/** Conta filtros avançados que ficam atrás de “Mais filtros”, sem contar busca e seletores rápidos da fila. */
+export function countAdvancedFilters(state: TaskQueryState): number {
+  return [state.priority, state.responsible, state.featureId, state.createdAfter, state.createdBefore, state.updatedAfter, state.updatedBefore]
+    .filter(Boolean).length + countFilterConditions(state.expression);
 }
 
 export function snapshotView(name: string, state: TaskQueryState): TaskView {
