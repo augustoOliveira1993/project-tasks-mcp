@@ -50,7 +50,11 @@ export async function seedConversationTypes(projectId: string, session: ClientSe
   }).session(session).lean();
   const existingIds = plan.map(item => item.typeId);
   const existingSeeds = await ConversationType.find({ projectId, _id: { $in: existingIds } }).session(session).lean();
-  const activeBySeedName = new Map(activeByName.map(item => [item.nameKey, item]));
+  type ActiveConversationType = (typeof activeByName)[number];
+  type CreatedConversationType = Omit<ActiveConversationType, '__v'>;
+  const activeBySeedName = new Map<string | null | undefined, ActiveConversationType | CreatedConversationType>(
+    activeByName.map(item => [item.nameKey, item] as const)
+  );
   const byId = new Map(existingSeeds.map(item => [item._id, item]));
   const workflows = new Map<string, any>();
   const created: string[] = [];
