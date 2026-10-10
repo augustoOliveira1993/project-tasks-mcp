@@ -25,11 +25,12 @@ type ProjectsPageProps = {
   onSearchChange: (value: string) => void;
   onPageChange: (page: number) => void;
   onSelect: (projectId: string) => void;
+  onOpenOverview: () => void;
 };
 
-export function ProjectsPage({ projects, isPending, activeProjectId, search, currentPage, pages, total, onSearchChange, onPageChange, onSelect }: ProjectsPageProps) {
+export function ProjectsPage({ projects, isPending, activeProjectId, search, currentPage, pages, total, onSearchChange, onPageChange, onSelect, onOpenOverview }: ProjectsPageProps) {
   return <section className="rounded-xl border border-slate-200 bg-white p-[22px] shadow-sm max-[760px]:p-[15px]">
-    <div className="mb-[11px] flex items-center justify-between gap-3.5"><div><p className={eyebrowInHeading}>WORKSPACE</p><h1 className="mb-1 font-display text-[22px] leading-[normal] font-[750] tracking-[-.03em] text-[#273245]">Projetos acessíveis</h1><p className="m-0 text-[10px] text-muted-strong">Escolha um projeto para abrir sua fila de tasks.</p></div><Badge>{total} projeto(s)</Badge></div>
+    <div className="mb-[11px] flex flex-wrap items-center justify-between gap-3.5"><div><p className={eyebrowInHeading}>WORKSPACE</p><h1 className="mb-1 font-display text-[22px] leading-[normal] font-[750] tracking-[-.03em] text-[#273245]">Projetos acessíveis</h1><p className="m-0 text-[10px] text-muted-strong">Escolha um projeto para abrir sua fila de tarefas ou compare o desempenho geral.</p></div><div className="flex flex-wrap items-center gap-2"><button type="button" className="min-h-9 rounded-ui-md border border-line-strong bg-surface px-3 text-ui-xs font-semibold text-tone-blue hover:border-focus hover:bg-tone-blue-bg" onClick={onOpenOverview}>Visão geral</button><Badge>{total} projeto(s)</Badge></div></div>
     <label className={`${searchField} my-[18px] w-[min(420px,100%)]`}><span className="grid place-items-center text-[17px]">⌕</span><input className="w-full min-w-0 border-0 text-ui-sm text-[#394558] focus:shadow-none" value={search} onChange={event => onSearchChange(event.target.value)} placeholder="Buscar projeto" aria-label="Buscar projeto" /></label>
     {isPending ? <div className="px-[18px] py-7 text-center text-[11px] text-[#8792a2]">Carregando projetos…</div> : projects.length ? <div className="grid grid-cols-[repeat(auto-fill,minmax(min(250px,100%),1fr))] gap-[13px]">{projects.map(item => {
       const stats = projectStats(item);

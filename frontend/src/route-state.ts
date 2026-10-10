@@ -1,9 +1,9 @@
-export type AppRoute = 'projects' | 'tasks' | 'task' | 'dashboard' | 'conversations' | 'activity' | 'globalActivity' | 'catalogs' | 'catalogProjects' | 'catalogFeatures' | 'catalogTasks' | 'catalogAreas' | 'catalogResponsibles' | 'catalogConversationTypes' | 'settings' | 'help';
+export type AppRoute = 'projects' | 'tasks' | 'task' | 'dashboard' | 'globalDashboard' | 'conversations' | 'activity' | 'globalActivity' | 'catalogs' | 'catalogProjects' | 'catalogFeatures' | 'catalogTasks' | 'catalogAreas' | 'catalogResponsibles' | 'catalogConversationTypes' | 'settings' | 'help';
 export type AppTab = 'tasks' | 'dashboard' | 'chat' | 'activity' | 'catalogs' | 'admin' | 'help';
 export type CatalogSection = 'projects' | 'features' | 'tasks' | 'responsibles' | 'conversationTypes';
 
 const routePaths: Record<Exclude<AppRoute, 'task'>, string> = {
-  projects: '/projects', tasks: '/tasks', dashboard: '/dashboard', conversations: '/conversations',
+  projects: '/projects', tasks: '/tasks', dashboard: '/dashboard', globalDashboard: '/dashboard', conversations: '/conversations',
   activity: '/activity', globalActivity: '/activity/global', catalogs: '/catalogs', catalogProjects: '/catalogs/projects', catalogFeatures: '/catalogs/features',
   catalogTasks: '/catalogs/tasks', catalogAreas: '/catalogs/areas', catalogResponsibles: '/catalogs/responsibles', catalogConversationTypes: '/catalogs/conversation-types', settings: '/settings', help: '/help'
 };
@@ -20,9 +20,10 @@ export function taskIdFromPath(pathname: string): string {
   try { return decodeURIComponent(match[1]); } catch { return ''; }
 }
 
-export function routeFromPath(pathname: string): AppRoute {
+export function routeFromPath(pathname: string, search = ''): AppRoute {
   const path = pathname.replace(/\/+$/, '') || '/';
   if (taskIdFromPath(path)) return 'task';
+  if (path === routePaths.dashboard && new URLSearchParams(search).get('dashboardScope') === 'global') return 'globalDashboard';
   const route = (Object.entries(routePaths) as Array<[AppRoute, string]>).find(([, value]) => value === path)?.[0];
   // /admin remains the existing SPA entry point; its default view is the task workspace.
   return route ?? 'tasks';
@@ -36,6 +37,7 @@ export function tabForRoute(route: AppRoute): AppTab {
   if (route === 'task') return 'tasks';
   if (route === 'conversations') return 'chat';
   if (route === 'globalActivity') return 'activity';
+  if (route === 'globalDashboard') return 'dashboard';
   if (route === 'settings') return 'admin';
   if (route === 'projects') return 'tasks';
   if (isCatalogRoute(route)) return 'catalogs';

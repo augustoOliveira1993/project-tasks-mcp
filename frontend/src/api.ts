@@ -50,7 +50,7 @@ export type Task = {
   createdAt?: string;
   updatedAt?: string;
   leaseUntil?: string;
-  workspace?: { unreadCount: number; openQuestionCount: number; hasGitDiff: boolean; latestDiff: Record<string, unknown> | null };
+  workspace?: { unreadCount: number; openQuestionCount: number; conversationCount: number; hasGitDiff: boolean; latestDiff: Record<string, unknown> | null };
 };
 export type TaskWorkspaceSearch = {
   projectId: string;

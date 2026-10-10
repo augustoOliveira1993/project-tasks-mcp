@@ -11,6 +11,7 @@ import {
   MarkdownRevision,
   Operation,
   Project,
+  ProjectMemoryProposal,
   Task,
   TaskDependency,
   TaskDiff,
@@ -66,18 +67,20 @@ export async function deleteTaskCascade(projectId: string, taskId: string, actor
     }
   }
 
-  const [messages, documents, diffs, jobs, executions] = await Promise.all([
+  const [messages, documents, diffs, jobs, executions, memoryProposals] = await Promise.all([
     TaskMessage.find({ projectId, $or: [{ taskId }, { relatedTaskId: taskId }] }).select('_id operationId credentialId').session(session).lean(),
     MarkdownDocument.find({ projectId, targetKind: 'task', targetId: taskId }).select('_id').session(session).lean(),
     TaskDiff.find({ projectId, taskId }).select('_id').session(session).lean(),
     AutomationJob.find({ projectId, taskId }).select('_id').session(session).lean(),
-    Execution.find({ projectId, taskId }).select('_id').session(session).lean()
+    Execution.find({ projectId, taskId }).select('_id').session(session).lean(),
+    ProjectMemoryProposal.find({ projectId, taskId }).select('_id').session(session).lean()
   ]);
   const messageIds = messages.map(message => message._id);
   const documentIds = documents.map(document => document._id);
   const diffIds = diffs.map(diff => diff._id);
   const jobIds = jobs.map(job => job._id);
   const executionIds = [...new Set([...executions.map(execution => execution._id), ...(task.executionId ? [task.executionId] : [])])];
+  const memoryProposalIds = memoryProposals.map(proposal => proposal._id);
   const taskEventFilter = {
     projectId,
     $or: [
@@ -91,7 +94,7 @@ export async function deleteTaskCascade(projectId: string, taskId: string, actor
   };
   const taskEvents = await Event.find(taskEventFilter).select('_id operationId credentialId data').session(session).lean();
   const eventIds = taskEvents.map(event => event._id);
-  const relatedEntityIds = [...new Set([taskId, ...documentIds, ...diffIds, ...jobIds, ...messageIds, ...executionIds, ...eventIds])];
+  const relatedEntityIds = [...new Set([taskId, ...documentIds, ...diffIds, ...jobIds, ...messageIds, ...executionIds, ...memoryProposalIds, ...eventIds])];
   const operationKeys = new Set<string>();
   for (const event of taskEvents) {
     const operationId = event.data?.operationId;
@@ -110,6 +113,7 @@ export async function deleteTaskCascade(projectId: string, taskId: string, actor
   await remove('markdownDocuments', MarkdownDocument.deleteMany({ projectId, targetKind: 'task', targetId: taskId }, { session }));
   await remove('taskDiffs', TaskDiff.deleteMany({ projectId, taskId }, { session }));
   await remove('executions', Execution.deleteMany({ $or: [{ projectId, taskId }, ...(task.executionId ? [{ _id: task.executionId }] : [])] }, { session }));
+  await remove('projectMemoryProposals', ProjectMemoryProposal.deleteMany({ projectId, taskId }, { session }));
   await remove('automationJobs', AutomationJob.deleteMany({ projectId, taskId }, { session }));
   await remove('events', Event.deleteMany(taskEventFilter, { session }));
   await remove('deliveryEvents', DeliveryEvent.deleteMany({ projectId, _id: { $in: eventIds } }, { session }));
@@ -121,6 +125,7 @@ export async function deleteTaskCascade(projectId: string, taskId: string, actor
     { projectId, 'result.taskId': taskId },
     { projectId, 'result.relatedTaskId': taskId },
     { projectId, 'result.task._id': taskId },
+    { projectId, 'result.proposal._id': { $in: memoryProposalIds } },
     { projectId, 'result.tasks._id': taskId }
   ] };
   await remove('taskOperations', Operation.deleteMany(operationFilter, { session }));

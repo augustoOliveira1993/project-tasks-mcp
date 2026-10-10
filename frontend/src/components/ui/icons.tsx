@@ -7,6 +7,8 @@ function Icon({ size = 14, children, ...props }: IconProps & { children: ReactNo
 }
 
 export const IconMail = (props: IconProps) => <Icon {...props}><rect x="3" y="5" width="18" height="14" rx="2" /><path d="m3 7 9 6 9-6" /></Icon>;
+export const IconFile = (props: IconProps) => <Icon {...props}><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><path d="M14 3v6h6M8 13h8M8 17h8" /></Icon>;
+export const IconMessages = (props: IconProps) => <Icon {...props}><path d="M21 15a4 4 0 0 1-4 4H7l-4 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z" /><path d="M8 9h8M8 13h5" /></Icon>;
 export const IconQuestion = (props: IconProps) => <Icon {...props}><circle cx="12" cy="12" r="9" /><path d="M9.6 9.4a2.6 2.6 0 1 1 3.7 2.3c-.8.5-1.3 1-1.3 1.9M12 17h.01" /></Icon>;
 export const IconDiff = (props: IconProps) => <Icon {...props}><circle cx="6" cy="6" r="2.2" /><circle cx="6" cy="18" r="2.2" /><circle cx="18" cy="8" r="2.2" /><path d="M6 8.2v7.6M18 10.2c0 4-6 3-11 6.2" /></Icon>;
 export const IconCheck = (props: IconProps) => <Icon {...props}><path d="m5 12.5 4.5 4.5L19 7.5" /></Icon>;

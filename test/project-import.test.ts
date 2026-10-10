@@ -39,6 +39,11 @@ function fixture() {
   data.taskMessages = [record({ taskId, executionId, conversationId, message: 'Mensagem preservada' })];
   data.markdownDocuments = [record({ _id: documentId, targetKind: 'task', targetId: taskId, name: 'Plano', revision: 1 })];
   data.markdownRevisions = [record({ documentId, revision: 1, content: '# Plano\nConteúdo completo', sha256: 'old-hash', size: 0 })];
+  const memoryId = randomUUID();
+  data.projectMemories = [record({ _id: memoryId, title: 'Decisão versionada', category: 'decision', content: 'Persistir decisões com fonte.', status: 'active', revision: 1,
+    sources: [{ kind: 'task', id: taskId, title: 'Task 0', revision: 0 }] })];
+  data.projectMemoryRevisions = [record({ _id: randomUUID(), memoryId, revision: 1, title: 'Decisão versionada', category: 'decision', content: 'Persistir decisões com fonte.', status: 'active', archived: false,
+    sources: [{ kind: 'task', id: taskId, title: 'Task 0', revision: 0 }] })];
   data.taskDiffs = [record({ taskId, repositoryId, patch: 'diff completo', patchSha256: 'old-hash' })];
   data.events = [record({ entityId: taskId, action: 'set_acceptance_criterion', data: { criterionIndex: 0, complete: true, evidence: 'Evidência' }, at })];
   data.deliveryEvents = [record({ taskIds: [taskId], sequence: 7, at })];
@@ -81,6 +86,8 @@ test('real export imports atomically preserving IDs, history and content, disabl
   assert.equal(await Task.countDocuments({ projectId }), 2);
   const roundTrip = await service.exportProject(admin, projectId);
   assert.deepEqual((roundTrip.data as any).markdownRevisions.map((r: any) => r.content), seed.data.markdownRevisions.map((r: any) => r.content));
+  assert.equal((roundTrip.data as any).projectMemories[0].content, seed.data.projectMemories[0].content);
+  assert.equal((roundTrip.data as any).projectMemoryRevisions[0].content, seed.data.projectMemoryRevisions[0].content);
   assert.doesNotMatch(JSON.stringify(roundTrip), /importReceipt/);
 });
 
@@ -96,6 +103,7 @@ test('legacy import packages without project areas use the legacy area catalog',
 test('invalid counts, references, cycles and schema versions leave no partial data', async () => {
   const mutations = [
     (p: any) => { p.counts.tasks++; }, (p: any) => { p.data.tasks[0].repositoryId = randomUUID(); },
+    (p: any) => { p.data.projectMemories[0].sources[0].id = randomUUID(); },
     (p: any) => { p.data.tasks[1].dependencies = [p.data.tasks[0]._id]; }, (p: any) => { p.schemaVersion = 2; }
   ];
   for (const mutate of mutations) {

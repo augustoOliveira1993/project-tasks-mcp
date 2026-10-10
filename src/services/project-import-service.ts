@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { ClientSession } from 'mongoose';
 import { z } from 'zod';
-import { ConversationMessage, DeliveryEvent, Event, MarkdownDocument, MarkdownRevision, Project, TaskDependency } from '../db.js';
+import { ConversationMessage, DeliveryEvent, Event, MarkdownDocument, MarkdownRevision, Project, ProjectMemory, ProjectMemoryProposal, ProjectMemoryRevision, TaskDependency } from '../db.js';
 import { areasForProject } from '../area-catalog.js';
 import { projectExportCollections, redactExport } from './project-export-service.js';
 
@@ -20,6 +20,7 @@ const envelope = z.object({
 const hash = (text: string) => createHash('sha256').update(text).digest('hex');
 const canonical = (value: any): any => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object'
   ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
+const projectMemorySourceCollections: Record<string, string> = { task: 'tasks', feature: 'features', execution: 'executions', document: 'markdownDocuments', diff: 'taskDiffs' };
 
 export async function validateProjectImport(input: unknown) {
   const bundle = envelope.parse(input);
@@ -28,6 +29,10 @@ export async function validateProjectImport(input: unknown) {
   if (data.conversationTypes === undefined && bundle.counts.conversationTypes === undefined) {
     data.conversationTypes = [];
     bundle.counts.conversationTypes = 0;
+  }
+  for (const collection of ['projectMemories', 'projectMemoryRevisions', 'projectMemoryProposals']) if (data[collection] === undefined && bundle.counts[collection] === undefined) {
+    data[collection] = [];
+    bundle.counts[collection] = 0;
   }
   const project = row.parse(data.project) as any;
   check(project._id === bundle.source.projectId, 'O ID do projeto não corresponde à origem do pacote.');
@@ -139,6 +144,29 @@ export async function validateProjectImport(input: unknown) {
     ref(revision.documentId, 'markdownDocuments', 'revision.documentId', true);
     check(typeof revision.content === 'string' && Number.isInteger(revision.revision) && revision.revision > 0, 'Revisão de documento inválida.');
   }
+  for (const memory of data.projectMemories) {
+    check(['active', 'superseded'].includes(memory.status), 'Estado de memória inválido.');
+    check(Array.isArray(memory.sources) && memory.sources.length > 0, 'Fontes de memória ausentes.');
+    for (const source of memory.sources) {
+      ref(source.id, projectMemorySourceCollections[source.kind], 'memory.source', true);
+      if (source.kind === 'document') check(data.markdownRevisions.some((revision: any) => revision.documentId === source.id && revision.revision === source.revision), 'Revisão da fonte de memória ausente.');
+    }
+    check(data.projectMemoryRevisions.some((revision: any) => revision.memoryId === memory._id && revision.revision === memory.revision), 'Revisão atual da memória ausente.');
+  }
+  for (const revision of data.projectMemoryRevisions) {
+    ref(revision.memoryId, 'projectMemories', 'memoryRevision.memoryId', true);
+    check(Number.isInteger(revision.revision) && revision.revision > 0 && typeof revision.content === 'string', 'Revisão de memória inválida.');
+    for (const source of revision.sources ?? []) ref(source.id, projectMemorySourceCollections[source.kind], 'memoryRevision.source', true);
+  }
+  for (const proposal of data.projectMemoryProposals) {
+    check(['pending', 'approved', 'rejected'].includes(proposal.status), 'Estado de proposta de memória inválido.');
+    ref(proposal.taskId, 'tasks', 'memoryProposal.taskId', true);
+    ref(proposal.executionId, 'executions', 'memoryProposal.executionId', true);
+    ref(proposal.targetMemoryId, 'projectMemories', 'memoryProposal.targetMemoryId');
+    ref(proposal.memoryId, 'projectMemories', 'memoryProposal.memoryId');
+    check(Array.isArray(proposal.sources) && proposal.sources.length >= 2, 'Fontes da proposta de memória ausentes.');
+    for (const source of proposal.sources) ref(source.id, projectMemorySourceCollections[source.kind], 'memoryProposal.source', true);
+  }
   return { bundle, data, acceptanceProgressRepairs, digest: hash(JSON.stringify(canonical(data))) };
 }
 
@@ -222,12 +250,14 @@ export async function importProject(input: unknown, ownerKey: string, owner: str
       skip(name, id, reason);
     }
   };
-  const [existingEdges, existingDocs, existingRevisions, existingMessages, existingDeliveries] = await Promise.all([
+  const [existingEdges, existingDocs, existingRevisions, existingMessages, existingDeliveries, existingMemories, existingMemoryRevisions] = await Promise.all([
     TaskDependency.find({ projectId, taskId: { $in: data.taskDependencies.map((item: any) => item.taskId) } }).select('taskId dependencyId').session(session).lean(),
     MarkdownDocument.find({ projectId }).select('_id targetKind targetId name').session(session).lean(),
     MarkdownRevision.find({ documentId: { $in: data.markdownDocuments.map((item: any) => item._id) } }).select('documentId revision').session(session).lean(),
     ConversationMessage.find({ conversationId: { $in: data.conversationMessages.map((item: any) => item.conversationId) }, senderId: 'import', operationId: { $in: data.conversationMessages.map((item: any) => item.operationId) } }).select('conversationId operationId').session(session).lean(),
-    DeliveryEvent.find({ projectId, sequence: { $in: data.deliveryEvents.map((item: any) => item.sequence) } }).select('sequence').session(session).lean()
+    DeliveryEvent.find({ projectId, sequence: { $in: data.deliveryEvents.map((item: any) => item.sequence) } }).select('sequence').session(session).lean(),
+    ProjectMemory.find({ projectId, _id: { $in: data.projectMemories.map((item: any) => item._id) } }).select('_id').session(session).lean(),
+    ProjectMemoryRevision.find({ projectId, memoryId: { $in: data.projectMemoryRevisions.map((item: any) => item.memoryId) }, revision: { $in: data.projectMemoryRevisions.map((item: any) => item.revision) } }).select('memoryId revision').session(session).lean()
   ]);
   const edgeKeys = new Set(existingEdges.map(item => `${item.taskId}:${item.dependencyId}`));
   for (const edge of data.taskDependencies) { const key = `${edge.taskId}:${edge.dependencyId}`; if (edgeKeys.has(key)) markUniqueConflict('taskDependencies', [edge._id], 'A dependência já existe; registro preservado.'); else edgeKeys.add(key); }
@@ -242,6 +272,14 @@ export async function importProject(input: unknown, ownerKey: string, owner: str
   for (const message of data.conversationMessages) { const key = `${message.conversationId}:${message.operationId}`; if (messageKeys.has(key)) markUniqueConflict('conversationMessages', [message._id], 'A mensagem com esta operação já existe; registro preservado.'); else messageKeys.add(key); }
   const deliveryKeys = new Set(existingDeliveries.map(item => String(item.sequence)));
   for (const event of data.deliveryEvents) { const key = String(event.sequence); if (deliveryKeys.has(key)) markUniqueConflict('deliveryEvents', [event._id], 'A sequência do evento já existe; evento preservado.'); else deliveryKeys.add(key); }
+  const memoryIds = new Set(existingMemories.map(item => String(item._id)));
+  for (const memory of data.projectMemories) if (memoryIds.has(String(memory._id))) markUniqueConflict('projectMemories', [memory._id], 'A memória já existe; registro preservado.');
+  const memoryRevisionKeys = new Set(existingMemoryRevisions.map(item => `${item.memoryId}:${item.revision}`));
+  for (const revision of data.projectMemoryRevisions) {
+    const key = `${revision.memoryId}:${revision.revision}`;
+    if (memoryRevisionKeys.has(key)) markUniqueConflict('projectMemoryRevisions', [revision._id], 'A revisão da memória já existe; registro preservado.');
+    else memoryRevisionKeys.add(key);
+  }
   for (const [name, rows] of candidates) {
     const unique = uniqueConflicts.get(name);
     if (unique?.size) candidates.set(name, rows.filter(record => !unique.has(record._id)));
@@ -269,7 +307,10 @@ export async function importProject(input: unknown, ownerKey: string, owner: str
       taskDiffs: [['tasks', record.taskId], ['repositories', record.repositoryId]],
       automationJobs: [['tasks', record.taskId], ['repositories', record.repositoryId], ['executions', record.executionId], ['automationJobs', record.originJobId], ['conversations', record.conversationId], ['taskMessages', record.triggerMessageId]],
       markdownDocuments: [[record.targetKind === 'task' ? 'tasks' : 'features', record.targetId]],
-      markdownRevisions: [['markdownDocuments', record.documentId]]
+      markdownRevisions: [['markdownDocuments', record.documentId]],
+      projectMemories: (record.sources ?? []).map((source: any) => [projectMemorySourceCollections[source.kind], source.id]),
+      projectMemoryRevisions: [['projectMemories', record.memoryId], ...(record.sources ?? []).map((source: any) => [projectMemorySourceCollections[source.kind], source.id])],
+      projectMemoryProposals: [['tasks', record.taskId], ['executions', record.executionId], ['projectMemories', record.targetMemoryId], ['projectMemories', record.memoryId], ...(record.sources ?? []).map((source: any) => [projectMemorySourceCollections[source.kind], source.id])]
     };
     if (!(base[name] ?? []).every(([collection, id]) => has(collection, id))) return false;
     if (name === 'tasks' && !areaNames.has(record.area.toLocaleLowerCase('pt-BR'))) return false;
@@ -302,6 +343,11 @@ export async function importProject(input: unknown, ownerKey: string, owner: str
   }
   for (const proposal of candidates.get('actionProposals') ?? []) if (proposal.status === 'pending') {
     adjustments.push({ collection: 'actionProposals', id: proposal._id, status: proposal.status }); proposal.status = 'rejected';
+  }
+  for (const proposal of candidates.get('projectMemoryProposals') ?? []) if (proposal.status === 'pending') {
+    adjustments.push({ collection: 'projectMemoryProposals', id: proposal._id, status: proposal.status });
+    proposal.status = 'rejected'; proposal.rejectionReason = 'Proposta pendente foi encerrada durante a importação; uma pessoa deve revisá-la novamente.';
+    proposal.reviewedAt = new Date(); proposal.version = (proposal.version ?? 0) + 1;
   }
   for (const revision of candidates.get('markdownRevisions') ?? []) {
     revision.size = Buffer.byteLength(revision.content, 'utf8'); revision.sha256 = hash(revision.content);

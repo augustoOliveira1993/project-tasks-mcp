@@ -9,12 +9,13 @@ import { EventHub, readEvents } from './events.js';
 import { logger } from './logger.js';
 import { validateTaskDependencyGraph } from './services/task-dependency-service.js';
 import { getTaskContext } from './services/task-context-service.js';
-import { getProjectDashboard } from './services/project-dashboard-service.js';
+import { getGlobalDashboard, getProjectDashboard } from './services/project-dashboard-service.js';
 import { Automation } from './services/automation-service.js';
 import { taskMessageAuthorMetadata } from './services/task-message-author.js';
 import { deleteProjectCascade, ProjectDeletionConflict } from './services/project-deletion-service.js';
 import { deleteTaskCascade, TaskDeletionConflict } from './services/task-deletion-service.js';
 import { ConversationService } from './services/conversation-service.js';
+import { ProjectMemoryService } from './services/project-memory-service.js';
 import { exportProject } from './services/project-export-service.js';
 import { importProject, ProjectImportError } from './services/project-import-service.js';
 import { eventOrigin } from './event-origin.js';
@@ -22,7 +23,7 @@ import { areasForProject } from './area-catalog.js';
 import { normalizeGitRemote } from './git-remote.js';
 import { tools, adminSchema, approveActionProposalSchema, approveTasksSchema, changeTaskStatusSchema, setTaskAcceptanceCriterionSchema, setTaskCheckedSchema, projectData, featureData, taskData, states, id as idSchema, userId as userIdSchema } from './schema.js';
 import { taskWorkspaceSearch } from './schema.js';
-import { compileTaskFilter, quickFlagFilter, taskFilterSorts, taskFilterUsesCollaboration, type TaskFilterNode } from './task-workspace-search.js';
+import { compileTaskFilter, quickFlagFilter, taskFilterContentFields, taskFilterSorts, taskFilterUsesCollaboration, type TaskContentFilterField, type TaskFilterNode } from './task-workspace-search.js';
 
 export class DomainError extends Error { constructor(message: string, public status = 409) { super(message); } }
 export type Actor = { id: string; userId: string; scope: string; systemAdmin: boolean; projectToken?: string; sessionId?: string; jobId?: string; runnerId?: string; clientName?: string };
@@ -121,6 +122,7 @@ export class Service {
   readonly events = new EventHub();
   readonly automation = new Automation(this);
   readonly conversations = new ConversationService(this);
+  readonly memories = new ProjectMemoryService(this);
   private readonly taskWorkspaceSummaryCache = new Map<string, { expiresAt: number; summary: any; sync: any }>();
   constructor(public leaseMs = 30 * 60 * 1000) { requireThat(Number.isFinite(leaseMs) && leaseMs > 0, 'Invalid lease'); }
   private responsibleFor(actor: Actor) { const responsible = actor.userId.trim(); requireThat(responsible, 'Authenticated agent has no user identity', 401); return responsible; }
@@ -868,7 +870,9 @@ export class Service {
   }
   async call(actor: Actor, name: string, input: unknown): Promise<any> {
     const conversationTools = new Set(['create_conversation', 'open_task_conversation', 'update_conversation_title', 'link_conversation_task', 'delete_conversation', 'send_conversation_message', 'send_collaboration_message', 'mark_conversation_read', 'list_conversation_types', 'get_conversation_type', 'create_conversation_type', 'update_conversation_type', 'duplicate_conversation_type', 'archive_conversation_type', 'set_conversation_type']);
-    requireThat(['agent', 'trusted_local'].includes(actor.scope) || (actor.scope === 'human' && (name === 'archive_record' || name === 'edit_record' || name === 'create_project' || name === 'create_task' || name === 'create_feature' || name === 'preview_task_transfer' || name === 'transfer_task' || name === 'mark_task_read' || name === 'diagnose_task_execution' || name === 'recover_task_execution' || conversationTools.has(name))), 'Agent scope required', 403);
+    const projectMemoryTools = new Set(['list_project_memories', 'get_project_memory', 'search_project_memories', 'create_project_memory', 'update_project_memory', 'archive_project_memory',
+      'list_project_memory_proposals', 'get_project_memory_proposal', 'create_project_memory_proposal', 'retarget_project_memory_proposal', 'approve_project_memory_proposal', 'reject_project_memory_proposal']);
+    requireThat(['agent', 'trusted_local'].includes(actor.scope) || (actor.scope === 'human' && (name === 'archive_record' || name === 'edit_record' || name === 'create_project' || name === 'create_task' || name === 'create_feature' || name === 'preview_task_transfer' || name === 'transfer_task' || name === 'mark_task_read' || name === 'diagnose_task_execution' || name === 'recover_task_execution' || conversationTools.has(name) || projectMemoryTools.has(name))), 'Agent scope required', 403);
     const schema = tools[name as keyof typeof tools];
     requireThat(schema, 'Unknown tool', 404);
     const a: any = schema.parse(input);
@@ -919,6 +923,13 @@ export class Service {
       return result;
     }
     if (name === 'create_action_proposal') return this.conversations.createProposal(actor, a);
+    if (name === 'create_project_memory') return this.memories.create(actor, a);
+    if (name === 'update_project_memory') return this.memories.update(actor, a);
+    if (name === 'archive_project_memory') return this.memories.archive(actor, a);
+    if (name === 'create_project_memory_proposal') return this.memories.createProposal(actor, a);
+    if (name === 'retarget_project_memory_proposal') return this.memories.retargetProposal(actor, a);
+    if (name === 'approve_project_memory_proposal') return this.memories.approveProposal(actor, a);
+    if (name === 'reject_project_memory_proposal') return this.memories.rejectProposal(actor, a);
     const result = await this.mutate(actor, name, a, async s => {
       await this.automation.guard(actor, name, a, s);
       if (name.startsWith('create_')) {
@@ -1232,6 +1243,8 @@ export class Service {
     if (quickParts.length) pipeline.push({ $match: { $and: quickParts } });
     const readBaseline = needsWorkspace ? await this.taskReadBaseline(a.projectId, actor.userId, undefined, true) : 0;
     if (needsWorkspace) pipeline.push(...this.taskWorkspaceFlagStages(actor, a.projectId, readBaseline));
+    const contentFilterFields = taskFilterContentFields(a.expression);
+    if (contentFilterFields.length) pipeline.push(...this.taskWorkspaceContentStages(a.projectId, contentFilterFields));
     const advancedFilter = a.expression ? compileTaskFilter(a.expression) : undefined;
     const flagFilter = quickFlagFilter(quick.flag);
     if (advancedFilter && flagFilter) pipeline.push({ $match: { $and: [advancedFilter, flagFilter] } });
@@ -1273,7 +1286,7 @@ export class Service {
     const items = rawRows.map((row: any) => {
       const task = { ...row };
       for (const key of Object.keys(task)) if (key.startsWith('__')) delete task[key];
-      return { ...task, workspace: workspace.get(row._id) ?? { unreadCount: 0, openQuestionCount: 0, hasGitDiff: false, latestDiff: null } };
+      return { ...task, workspace: workspace.get(row._id) ?? { unreadCount: 0, openQuestionCount: 0, conversationCount: 0, hasGitDiff: false, latestDiff: null } };
     });
     const { summary, sync } = await this.taskWorkspaceSummary(actor, a.projectId);
     return { items, total, next, summary: { ...summary, sync } };
@@ -1334,12 +1347,37 @@ export class Service {
       } } }
     ];
   }
+  private taskWorkspaceContentStages(projectId: string, fields: TaskContentFilterField[]) {
+    const stages: any[] = [];
+    if (fields.includes('hasPlanning')) stages.push({ $lookup: { from: MarkdownDocument.collection.name, let: { taskId: '$_id' }, pipeline: [
+      { $match: { $expr: { $and: [{ $eq: ['$projectId', projectId] }, { $eq: ['$targetKind', 'task'] }, { $eq: ['$targetId', '$$taskId'] }] } } },
+      { $limit: 1 }, { $project: { _id: 1 } }
+    ], as: '__contentPlanningDocs' } });
+    if (fields.includes('hasAttachments')) stages.push({ $lookup: { from: this.taskAttachmentFiles().collectionName, let: { taskId: '$_id' }, pipeline: [
+      { $match: { $expr: { $and: [{ $eq: ['$metadata.projectId', projectId] }, { $eq: ['$metadata.taskId', '$$taskId'] }] } } },
+      { $limit: 1 }, { $project: { _id: 1 } }
+    ], as: '__contentAttachments' } });
+    if (fields.includes('hasConversations')) stages.push({ $lookup: { from: Conversation.collection.name, let: { taskId: '$_id' }, pipeline: [
+      { $match: { $expr: { $and: [{ $eq: ['$projectId', projectId] }, { $eq: ['$taskId', '$$taskId'] }, { $ne: ['$status', 'deleted'] }] } } },
+      { $limit: 1 }, { $project: { _id: 1 } }
+    ], as: '__contentConversations' } });
+    const fieldsToSet: Record<string, unknown> = {};
+    if (fields.includes('hasPlanning')) fieldsToSet['__workspace.hasPlanning'] = { $gt: [{ $size: '$__contentPlanningDocs' }, 0] };
+    if (fields.includes('hasAttachments')) fieldsToSet['__workspace.hasAttachments'] = { $gt: [{ $size: '$__contentAttachments' }, 0] };
+    if (fields.includes('hasConversations')) fieldsToSet['__workspace.hasConversations'] = { $gt: [{ $size: '$__contentConversations' }, 0] };
+    stages.push({ $addFields: fieldsToSet });
+    return stages;
+  }
   private async taskWorkspaceIndicators(actor: Actor, projectId: string, taskIds: string[]) {
     const result = new Map<string, any>();
     if (!taskIds.length) return result;
-    const [diffRows, questions] = await Promise.all([
+    const [diffRows, questions, conversationRows] = await Promise.all([
       TaskDiff.aggregate([{ $match: { projectId, taskId: { $in: taskIds } } }, { $sort: { createdAt: -1, _id: -1 } }, { $group: { _id: '$taskId', diff: { $first: { _id: '$_id', baseCommit: '$baseCommit', commit: '$commit', branch: '$branch', files: '$files', truncated: '$truncated', author: '$author', agent: '$agent', createdAt: '$createdAt' } } } }]),
-      TaskMessage.find({ projectId, taskId: { $in: taskIds }, type: 'pergunta' }).select('_id taskId createdAt conversationId').sort({ createdAt: 1, _id: 1 }).lean()
+      TaskMessage.find({ projectId, taskId: { $in: taskIds }, type: 'pergunta' }).select('_id taskId createdAt conversationId').sort({ createdAt: 1, _id: 1 }).lean(),
+      Conversation.aggregate([
+        { $match: { projectId, taskId: { $in: taskIds }, status: { $ne: 'deleted' } } },
+        { $group: { _id: '$taskId', count: { $sum: 1 } } }
+      ])
     ]);
     const questionIds = questions.map((question: any) => question._id);
     const answers = questionIds.length ? await TaskMessage.find({ projectId, type: 'resposta', $or: [{ replyTo: { $in: questionIds } }, { conversationId: { $in: questions.map((question: any) => question.conversationId).filter(Boolean) } }] }).select('_id replyTo conversationId createdAt').sort({ createdAt: 1, _id: 1 }).lean() : [];
@@ -1366,9 +1404,11 @@ export class Service {
     ]);
     const unreadByTask = new Map(unreadRows.map((row: any) => [row._id, row.count]));
     const diffByTask = new Map(diffRows.map((row: any) => [row._id, row.diff]));
+    const conversationsByTask = new Map(conversationRows.map((row: any) => [row._id, row.count]));
     for (const taskId of taskIds) result.set(taskId, {
       unreadCount: unreadByTask.get(taskId) ?? 0,
       openQuestionCount: openQuestions.get(taskId) ?? 0,
+      conversationCount: conversationsByTask.get(taskId) ?? 0,
       hasGitDiff: diffByTask.has(taskId),
       latestDiff: diffByTask.get(taskId) ?? null
     });
@@ -1376,7 +1416,7 @@ export class Service {
   }
   private async read(actor: Actor, name: string, a: any) {
     if (a.projectId) await this.access(actor, a.projectId);
-    else requireThat((name === 'list_records' && a.kind === 'project') || name === 'resolve_project_context' || name === 'resolve_task_context' || name === 'get_global_activity', 'Project required', 400);
+    else requireThat((name === 'list_records' && a.kind === 'project') || name === 'resolve_project_context' || name === 'resolve_task_context' || name === 'get_global_activity' || name === 'get_global_dashboard', 'Project required', 400);
     if (name === 'preview_task_transfer') {
       const plan = await this.taskTransferPlan(actor, a);
       const { internal: _internal, ...preview } = plan;
@@ -1389,6 +1429,9 @@ export class Service {
       const unread = await DeliveryEvent.exists({ projectId: a.projectId, taskIds: a.taskId, sequence: { $gt: readCursor }, author: { $ne: actor.userId } });
       return { ...context, task: { ...context.task, readCursor, unread: !!unread } };
     }
+    if (name === 'list_project_memories') return this.memories.list(actor, a);
+    if (name === 'get_project_memory') return this.memories.get(actor, a);
+    if (name === 'search_project_memories') return this.memories.search(actor, a);
     if (name === 'diagnose_task_execution') {
       const task: any = await Task.findOne({ _id: a.taskId, projectId: a.projectId, archived: false })
         .select('_id version status executionId leaseUntil responsible').lean();
@@ -1431,6 +1474,20 @@ export class Service {
       requireThat(!from || from <= new Date(), 'Dashboard period cannot start in the future', 400);
       return getProjectDashboard(a.projectId, from);
     }
+    if (name === 'get_global_dashboard') {
+      const from = a.from ? new Date(a.from) : undefined;
+      requireThat(!from || from <= new Date(), 'Dashboard period cannot start in the future', 400);
+      const projectAccessFilter = actor.scope === 'trusted_local'
+        ? actor.projectToken ? { $or: [{ visibility: { $ne: 'private' } }, { accessTokenHash: hash(actor.projectToken) }] } : { visibility: { $ne: 'private' } }
+        : actor.systemAdmin ? {} : { [`members.${memberKey(actor.userId)}`]: { $exists: true } };
+      const projects = await Project.find({ ...projectAccessFilter, archived: false })
+        .select('_id name')
+        .sort({ name: 1, _id: 1 })
+        .lean();
+      return getGlobalDashboard(projects.map(project => ({ id: String(project._id), name: project.name ?? '' })), from);
+    }
+    if (name === 'list_project_memory_proposals') return this.memories.listProposals(actor, a);
+    if (name === 'get_project_memory_proposal') return this.memories.getProposal(actor, a);
     if (name === 'list_conversations') return this.conversations.list(actor, a);
     if (name === 'get_conversation') return this.conversations.get(actor, a);
     if (name === 'list_conversation_types') return this.conversations.listTypes(actor, a);

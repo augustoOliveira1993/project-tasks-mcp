@@ -1,7 +1,7 @@
 import type { ClientSession, Model } from 'mongoose';
 import { Project, Feature, Task, TaskDependency, Execution, Event, TaskMessage, Conversation, ConversationType,
   ConversationMessage, ActionProposal, DeliveryEvent, TaskDiff, AutomationJob,
-  MarkdownDocument, MarkdownRevision } from '../db.js';
+  MarkdownDocument, MarkdownRevision, ProjectMemory, ProjectMemoryProposal, ProjectMemoryRevision } from '../db.js';
 
 const privateField = /^(?:.*(?:token|password|secret|credential|authorization|apiKey|privateKey).*|members|fence|leaseUntil|reservationUntil|providerSessionId|senderId|importReceipt)$/i;
 
@@ -10,7 +10,8 @@ export const projectExportCollections: Array<[string, Model<any>]> = [
   ['executions', Execution], ['events', Event], ['taskMessages', TaskMessage],
   ['conversationTypes', ConversationType], ['conversations', Conversation], ['conversationMessages', ConversationMessage],
   ['actionProposals', ActionProposal], ['deliveryEvents', DeliveryEvent], ['taskDiffs', TaskDiff],
-  ['automationJobs', AutomationJob], ['markdownDocuments', MarkdownDocument], ['markdownRevisions', MarkdownRevision]
+  ['automationJobs', AutomationJob], ['markdownDocuments', MarkdownDocument], ['markdownRevisions', MarkdownRevision],
+  ['projectMemories', ProjectMemory], ['projectMemoryRevisions', ProjectMemoryRevision], ['projectMemoryProposals', ProjectMemoryProposal]
 ];
 
 // Applies to nested event payloads and historical results as well as current records.

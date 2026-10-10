@@ -1,4 +1,4 @@
-export type FilterField = 'name' | 'id' | 'status' | 'area' | 'type' | 'priority' | 'responsible' | 'feature' | 'createdAt' | 'updatedAt' | 'checked' | 'unread' | 'openQuestions' | 'hasGitDiff';
+export type FilterField = 'name' | 'id' | 'status' | 'area' | 'type' | 'priority' | 'responsible' | 'feature' | 'createdAt' | 'updatedAt' | 'checked' | 'unread' | 'openQuestions' | 'hasGitDiff' | 'hasPlanning' | 'hasAttachments' | 'hasConversations';
 export type FilterOperator = 'contains' | 'not' | 'exact' | 'equals' | 'startsWith' | 'endsWith' | 'is' | 'isNot' | 'in' | 'notIn' | 'isEmpty' | 'isNotEmpty' | 'before' | 'after' | 'on' | 'between' | 'gt' | 'gte' | 'lt' | 'lte';
 export type FilterCondition = { kind: 'condition'; field: FilterField; operator: FilterOperator; value?: string | number | boolean | Array<string | number> };
 export type FilterGroup = { kind: 'group'; operator: 'AND' | 'OR'; children: FilterNode[] };
@@ -13,7 +13,9 @@ export const filterFields: Array<{ value: FilterField; label: string; type: 'tex
   { value: 'responsible', label: 'Responsável', type: 'enum' }, { value: 'feature', label: 'Feature', type: 'enum' },
   { value: 'createdAt', label: 'Data de criação', type: 'date' }, { value: 'updatedAt', label: 'Data de atualização', type: 'date' },
   { value: 'checked', label: 'Conferida', type: 'boolean' }, { value: 'unread', label: 'Tem novidades não lidas', type: 'boolean' },
-  { value: 'openQuestions', label: 'Tem perguntas abertas', type: 'boolean' }, { value: 'hasGitDiff', label: 'Tem diff Git', type: 'boolean' }
+  { value: 'openQuestions', label: 'Tem perguntas abertas', type: 'boolean' }, { value: 'hasGitDiff', label: 'Tem diff Git', type: 'boolean' },
+  { value: 'hasPlanning', label: 'Tem planejamento', type: 'boolean' }, { value: 'hasAttachments', label: 'Tem arquivos', type: 'boolean' },
+  { value: 'hasConversations', label: 'Tem conversas', type: 'boolean' }
 ];
 
 export const operatorsForField: Record<FilterField, FilterOperator[]> = {
@@ -22,7 +24,7 @@ export const operatorsForField: Record<FilterField, FilterOperator[]> = {
   type: ['is', 'isNot', 'in', 'notIn'], priority: ['is', 'isNot', 'gt', 'gte', 'lt', 'lte', 'between'],
   responsible: ['is', 'isNot', 'in', 'notIn', 'isEmpty', 'isNotEmpty'], feature: ['is', 'isNot', 'in', 'notIn', 'isEmpty', 'isNotEmpty'],
   createdAt: ['on', 'before', 'after', 'between'], updatedAt: ['on', 'before', 'after', 'between'],
-  checked: ['is'], unread: ['is'], openQuestions: ['is'], hasGitDiff: ['is']
+  checked: ['is'], unread: ['is'], openQuestions: ['is'], hasGitDiff: ['is'], hasPlanning: ['is'], hasAttachments: ['is'], hasConversations: ['is']
 };
 
 export const operatorLabels: Record<FilterOperator, string> = {

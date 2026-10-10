@@ -2,6 +2,7 @@ import { Event, Execution, Feature, MarkdownDocument, Project, Task, TaskMessage
 import type { TaskContextDto } from '../contracts.js';
 import { isKnownAiMcpClient } from './task-message-author.js';
 import { logger } from '../logger.js';
+import { searchProjectMemories } from './project-memory-retrieval-service.js';
 
 export const TASK_CONTEXT_MAX_BYTES = 128 * 1024;
 
@@ -19,7 +20,11 @@ function contextBytes(context: TaskContextDto) {
 
 function fitContext(context: TaskContextDto, truncated: Set<string>) {
   const protectedKeys = new Set(['_id', 'projectId', 'featureId', 'repositoryId', 'taskId', 'executionId', 'status', 'type', 'area', 'createdAt', 'updatedAt', 'leaseUntil', 'checked', 'complete', 'priority', 'version', 'archived', 'references']);
-  while (contextBytes(context) > TASK_CONTEXT_MAX_BYTES) {
+  // Reserve the final number of bytes for payloadBytes itself before trimming fields.
+  context.contextMeta.payloadBytes = TASK_CONTEXT_MAX_BYTES;
+  while (true) {
+    context.contextMeta.truncatedFields = [...truncated].sort();
+    if (contextBytes(context) <= TASK_CONTEXT_MAX_BYTES) break;
     const candidates: Array<{ parent: Record<string, unknown>; key: string; value: string; path: string }> = [];
     const visit = (value: unknown, path: string) => {
       if (Array.isArray(value)) { value.forEach((item, index) => visit(item, `${path}[${index}]`)); return; }
@@ -43,12 +48,13 @@ function fitContext(context: TaskContextDto, truncated: Set<string>) {
     const optionalArrays: Array<[string, unknown[]]> = [
       ['messages', context.messages], ['executions', context.executions],
       ['markdowns.task.items', context.markdowns.task.items], ['markdowns.feature.items', context.markdowns.feature.items],
-      ['task.statusHistory', context.task.statusHistory]
+      ['task.statusHistory', context.task.statusHistory], ['memories.items', context.memories.items]
     ];
     const removable = optionalArrays.find(([, items]) => items.length > 0);
     if (!removable) throw new Error('Required task context fields exceed the configured size limit');
     if (removable[0] === 'task.statusHistory') removable[1].shift();
     else removable[1].pop();
+    if (removable[0] === 'memories.items') context.memories.hasMore = true;
     truncated.add(removable[0]);
   }
   context.contextMeta.truncatedFields = [...truncated].sort();
@@ -158,6 +164,12 @@ export async function getTaskContext(projectId: string, taskId: string, includeA
     }
   }
 
+  const memoryQuery = [task.name, task.instructions, ...(task.acceptance ?? []).slice(0, 3), feature?.name, feature?.objective, task.area].filter(Boolean).join(' ').slice(0, 400);
+  const retrievedMemories = await searchProjectMemories({
+    projectId, query: memoryQuery, limit: 3, snippetChars: 360
+  });
+  if (retrievedMemories.hasMore) truncated.add('memories');
+
   const repository = repositoryRecord?.repositories?.[0] ?? null;
   const dependencyIds = new Set(task.dependencies ?? []);
   const orderedDependencies = [...dependencyIds].map(id => dependencyTasks.find(item => item._id === id)).filter(Boolean);
@@ -215,6 +227,14 @@ export async function getTaskContext(projectId: string, taskId: string, includeA
       id: repository.id!, name: text(repository.name, 200, 'repository.name', truncated), url: repository.url!,
       instructions: text(repository.instructions, 2000, 'repository.instructions', truncated)
     } : null,
+    memories: {
+      items: retrievedMemories.items,
+      hasMore: retrievedMemories.hasMore,
+      potentialConflicts: retrievedMemories.potentialConflicts,
+      notice: retrievedMemories.notice,
+      loadFullContentTool: 'get_project_memory',
+      searchTool: 'search_project_memories'
+    },
     markdowns: {
       task: markdownItems(taskDocs.slice(0, 10), taskMarkdownMore, truncated, 'markdowns.task'),
       feature: markdownItems(featureDocs.slice(0, 10), featureMarkdownMore, truncated, 'markdowns.feature')

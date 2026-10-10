@@ -17,6 +17,9 @@ import {
   MarkdownRevision,
   Operation,
   Project,
+  ProjectMemory,
+  ProjectMemoryProposal,
+  ProjectMemoryRevision,
   Runner,
   Task,
   TaskDependency,
@@ -44,6 +47,7 @@ export async function deleteProjectCascade(projectId: string, actor: AuditActor,
   const featureIds = await Feature.find({ projectId }).select('_id').session(session).lean();
   const tasks = await Task.find({ projectId }).select('_id status executionId').session(session).lean();
   const markdownDocuments = await MarkdownDocument.find({ projectId }).select('_id').session(session).lean();
+  const projectMemories = await ProjectMemory.find({ projectId }).select('_id').session(session).lean();
   const executions = await Execution.find({ projectId }).select('_id').session(session).lean();
   const taskIds = tasks.map(task => task._id);
 
@@ -67,6 +71,7 @@ export async function deleteProjectCascade(projectId: string, actor: AuditActor,
   const executionIds = new Set([...executions.map(execution => execution._id), ...tasks.map(task => task.executionId).filter(Boolean)]);
   const featureIdValues = featureIds.map(feature => feature._id);
   const documentIds = markdownDocuments.map(document => document._id);
+  const memoryIds = projectMemories.map(memory => memory._id);
   const repositoryIds = [...new Set((project.repositories ?? []).map(repository => repository.id).filter((id): id is string => !!id))];
 
   // Repository IDs can be referenced by a shared runner. Preserve capabilities
@@ -98,6 +103,9 @@ export async function deleteProjectCascade(projectId: string, actor: AuditActor,
   await remove('automationJobs', AutomationJob.deleteMany({ $or: [{ projectId }, { taskId: { $in: taskIds } }] }, { session }));
   await remove('markdownDocuments', MarkdownDocument.deleteMany({ $or: [{ projectId }, { targetId: { $in: [...taskIds, ...featureIdValues] } }] }, { session }));
   await remove('markdownRevisions', MarkdownRevision.deleteMany({ $or: [{ projectId }, { documentId: { $in: documentIds } }] }, { session }));
+  await remove('projectMemories', ProjectMemory.deleteMany({ projectId }, { session }));
+  await remove('projectMemoryRevisions', ProjectMemoryRevision.deleteMany({ $or: [{ projectId }, { memoryId: { $in: memoryIds } }] }, { session }));
+  await remove('projectMemoryProposals', ProjectMemoryProposal.deleteMany({ projectId }, { session }));
   await remove('projectOperations', Operation.deleteMany({ $or: [
       { projectId },
       { 'result._id': projectId },

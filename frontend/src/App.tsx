@@ -25,6 +25,7 @@ const HardDeleteDialog = lazy(() => import('./components/ui/HardDeleteDialog').t
 const TaskPage = lazy(() => import('./features/tasks/TaskPage').then(module => ({ default: module.TaskPage })));
 const TaskWorkspace = lazy(() => import('./features/tasks/TaskWorkspace').then(module => ({ default: module.TaskWorkspace })));
 const ProjectDashboardPage = lazy(() => import('./features/dashboard/ProjectDashboardPage').then(module => ({ default: module.ProjectDashboardPage })));
+const GlobalDashboardPage = lazy(() => import('./features/dashboard/GlobalDashboardPage').then(module => ({ default: module.GlobalDashboardPage })));
 const TransferTaskDialog = lazy(() => import('./features/tasks/TransferTaskDialog').then(module => ({ default: module.TransferTaskDialog })));
 const ConversationPanel = lazy(() => import('./components/conversations/ConversationPanel').then(module => ({ default: module.ConversationPanel })));
 const HelpToolsPanel = lazy(() => import('./components/help/HelpToolsPanel').then(module => ({ default: module.HelpToolsPanel })));
@@ -40,11 +41,12 @@ function App() {
   const [token, setToken] = useState(() => { try { return localStorage.getItem(tokenKey) ?? ''; } catch { return ''; } });
   const [nonce, setNonce] = useState(() => token ? 'saved-session' : '');
   const [activeProjectId, setActiveProjectId] = useState(() => projectIdFromSearch(window.location.search));
-  const [activeRoute, setActiveRoute] = useState<AppRoute>(() => routeFromPath(window.location.pathname));
+  const [activeRoute, setActiveRoute] = useState<AppRoute>(() => routeFromPath(window.location.pathname, window.location.search));
   const [activityScope, setActivityScope] = useState<'project' | 'global'>(() => routeFromPath(window.location.pathname) === 'globalActivity' || new URLSearchParams(window.location.search).get('activityScope') === 'global' ? 'global' : 'project');
   const [activityTaskSearch, setActivityTaskSearch] = useState('');
   const activeTab = tabForRoute(activeRoute);
   const catalogScreen = isCatalogRoute(activeRoute);
+  const globalDashboardRoute = activeRoute === 'globalDashboard';
   const globalActivityRoute = activeRoute === 'globalActivity' || activeRoute === 'activity' && activityScope === 'global';
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => { try { return localStorage.getItem(sidebarKey) === '1'; } catch { return false; } });
   const [notice, setNotice] = useState<{ message: string; kind: string } | null>(null);
@@ -93,8 +95,10 @@ function App() {
     if (targetRoute !== 'tasks') params.delete('taskId');
     if (targetRoute !== 'activity') params.delete('activityScope');
     if (legacyGlobalRoute) params.set('activityScope', 'global');
+    if (targetRoute === 'globalDashboard') params.set('dashboardScope', 'global');
+    else if (targetRoute === 'dashboard') params.delete('dashboardScope');
     const nextScope = legacyGlobalRoute || targetRoute === 'activity' && preserveQuery && params.get('activityScope') === 'global' ? 'global' : 'project';
-    const nextUrl = routeUrl(targetRoute, params.toString(), projectId, preserveQuery || legacyGlobalRoute);
+    const nextUrl = routeUrl(targetRoute, params.toString(), projectId, preserveQuery || legacyGlobalRoute || targetRoute === 'globalDashboard');
     const currentUrl = window.location.pathname + window.location.search;
     if (nextUrl !== currentUrl) window.history.pushState({ route: targetRoute }, '', nextUrl);
     setActiveRoute(targetRoute);
@@ -193,10 +197,10 @@ function App() {
     window.dispatchEvent(new PopStateEvent('popstate'));
   }
 
-  function openTasksWith(filters: Record<string, string>) {
+  function openTasksWith(filters: Record<string, string>, targetProjectId = activeProjectId) {
     const params = new URLSearchParams();
     for (const [key, value] of Object.entries(filters)) if (value) params.set(key, value);
-    window.history.pushState({ route: 'tasks' }, '', routeUrl('tasks', params.toString(), activeProjectId));
+    window.history.pushState({ route: 'tasks' }, '', routeUrl('tasks', params.toString(), targetProjectId));
     window.dispatchEvent(new PopStateEvent('popstate'));
   }
 
@@ -232,7 +236,7 @@ function App() {
 
   useEffect(() => {
     const restoreRouteFromUrl = () => {
-      const route = routeFromPath(window.location.pathname);
+      const route = routeFromPath(window.location.pathname, window.location.search);
       setActiveRoute(route);
       setActivityScope(route === 'globalActivity' || new URLSearchParams(window.location.search).get('activityScope') === 'global' ? 'global' : 'project');
       setActiveProjectId(projectIdFromSearch(window.location.search));
@@ -263,7 +267,7 @@ function App() {
   const canHardDelete = capabilitiesQuery.data?.scope === 'human' && capabilitiesQuery.data.systemAdmin === true && capabilitiesQuery.data.canHardDelete === true;
   const projects = projectsQuery.data ?? [];
   useEffect(() => {
-    if (projects.length && !projects.some(item => item.project._id === activeProjectId)) setActiveProjectId(projects[0].project._id);
+    if (activeRoute !== 'globalDashboard' && projects.length && !projects.some(item => item.project._id === activeProjectId)) setActiveProjectId(projects[0].project._id);
   }, [projects, activeProjectId, activeRoute]);
   const currentSummary = projects.find(item => item.project._id === activeProjectId);
   const project = currentSummary?.project;
@@ -285,7 +289,7 @@ function App() {
     refetchInterval: 30_000
   });
   const unreadConversationCount = (conversationsBadgeQuery.data?.items ?? []).filter(item => (item.unread?.count ?? 0) > 0).length;
-  const screenTitle = activeRoute === 'projects' ? 'Projetos' : activeTab === 'dashboard' ? 'Dashboard do projeto' : activeTab === 'activity' ? 'Atividade' : activeTab === 'chat' ? 'Conversas' : activeTab === 'admin' ? 'Administração' : activeTab === 'help' ? 'Ajuda' : catalogScreen ? 'Cadastros' : activeRoute === 'task' ? 'Tarefa' : 'Tarefas';
+  const screenTitle = activeRoute === 'globalDashboard' ? 'Visão geral dos projetos' : activeRoute === 'projects' ? 'Projetos' : activeTab === 'dashboard' ? 'Dashboard do projeto' : activeTab === 'activity' ? 'Atividade' : activeTab === 'chat' ? 'Conversas' : activeTab === 'admin' ? 'Administração' : activeTab === 'help' ? 'Ajuda' : catalogScreen ? 'Cadastros' : activeRoute === 'task' ? 'Tarefa' : 'Tarefas';
   useEffect(() => { document.title = (token ? screenTitle + (project ? ' · ' + project.name : '') + ' · ' : '') + 'Project Tasks'; }, [token, screenTitle, project?.name]);
   useEffect(() => {
     if (activeRoute !== 'tasks' || !requestedTaskId) return;
@@ -579,6 +583,7 @@ function App() {
         <button className={activeRoute === 'activity' || globalActivityRoute ? 'nav-item active' : 'nav-item'} onClick={() => navigateToRoute('activity')}><span>◷</span> Atividade</button>
         <div className="sidebar-label nav-section-label">WORKSPACE</div>
         <button className={activeRoute === 'projects' ? 'nav-item active' : 'nav-item'} onClick={() => navigateToRoute('projects')}><span>▣</span> Meus projetos <b>{projects.length}</b></button>
+        <button className={globalDashboardRoute ? 'nav-item active' : 'nav-item'} onClick={() => navigateToRoute('globalDashboard', '', false)}><span>▤</span> Visão geral</button>
         <div className="sidebar-label nav-section-label">CADASTROS</div>
         <button className={activeRoute === 'catalogProjects' || activeRoute === 'catalogs' || activeRoute === 'catalogAreas' ? 'nav-item active' : 'nav-item'} onClick={() => navigateToRoute('catalogProjects')}><span>▣</span> Projetos</button>
         <button className={activeRoute === 'catalogFeatures' ? 'nav-item active' : 'nav-item'} onClick={() => navigateToRoute('catalogFeatures')}><span>◈</span> Features</button>
@@ -593,18 +598,19 @@ function App() {
       <div className="sidebar-footer"><span className="online-dot" /> Conectado ao MCP <button className="small-icon" onClick={signOut} title="Sair">↪</button></div>
     </aside>
     <main className="main-area min-h-screen">
-      <header className="topbar"><div className="breadcrumbs"><button type="button" className="small-icon sidebar-toggle" aria-controls="app-sidebar" aria-expanded={!sidebarCollapsed} aria-label={sidebarCollapsed ? 'Mostrar menu lateral' : 'Ocultar menu lateral'} title={(sidebarCollapsed ? 'Mostrar' : 'Ocultar') + ' menu lateral (Ctrl+B)'} onClick={toggleSidebar}><IconMenu size={18} /></button><span>Workspace</span><span>/</span><strong>{activeRoute === 'projects' ? 'Projetos' : activeTab === 'activity' ? 'Atividade' : catalogScreen ? `Cadastros · ${{projects:'Projetos',features:'Features',tasks:'Tarefas',responsibles:'Responsáveis',conversationTypes:'Tipos de conversa'}[catalogSectionForRoute(activeRoute)]}` : project?.name ?? 'Carregando projeto'}</strong></div><div className="topbar-actions"><span className="connection-pill"><span className="online-dot" /> Serviço ativo</span><button className="avatar-button" onClick={signOut} title="Sair">AU</button></div></header>
+      <header className="topbar"><div className="breadcrumbs"><button type="button" className="small-icon sidebar-toggle" aria-controls="app-sidebar" aria-expanded={!sidebarCollapsed} aria-label={sidebarCollapsed ? 'Mostrar menu lateral' : 'Ocultar menu lateral'} title={(sidebarCollapsed ? 'Mostrar' : 'Ocultar') + ' menu lateral (Ctrl+B)'} onClick={toggleSidebar}><IconMenu size={18} /></button><span>Workspace</span><span>/</span><strong>{activeRoute === 'globalDashboard' ? 'Visão geral' : activeRoute === 'projects' ? 'Projetos' : activeTab === 'activity' ? 'Atividade' : catalogScreen ? `Cadastros · ${{projects:'Projetos',features:'Features',tasks:'Tarefas',responsibles:'Responsáveis',conversationTypes:'Tipos de conversa'}[catalogSectionForRoute(activeRoute)]}` : project?.name ?? 'Carregando projeto'}</strong></div><div className="topbar-actions"><span className="connection-pill"><span className="online-dot" /> Serviço ativo</span><button className="avatar-button" onClick={signOut} title="Sair">AU</button></div></header>
       <div className="content-wrap">
         {projectsQuery.isError && <div className="notice error">{errorMessage(projectsQuery.error)}</div>}
         <Suspense fallback={<div className="loading">Carregando tela…</div>}>
-        {activeRoute === 'projects' && <ProjectsPage projects={currentProjectPage} isPending={projectsQuery.isPending} activeProjectId={activeProjectId} search={allProjectsSearch} currentPage={projectPage} pages={projectPages} total={filteredProjects.length} onSearchChange={value => { setAllProjectsSearch(value); setProjectPage(1); }} onPageChange={setProjectPage} onSelect={selectProject} />}
-        {activeRoute !== 'projects' && !catalogScreen && !globalActivityRoute && !projects.length && !projectsQuery.isPending && <div className="empty-state"><h2>Nenhum projeto disponível</h2><p>Esta credencial ainda não possui projetos acessíveis.</p><button className="button secondary" onClick={() => navigateToRoute('projects')}>Abrir projetos</button></div>}
+        {activeRoute === 'projects' && <ProjectsPage projects={currentProjectPage} isPending={projectsQuery.isPending} activeProjectId={activeProjectId} search={allProjectsSearch} currentPage={projectPage} pages={projectPages} total={filteredProjects.length} onSearchChange={value => { setAllProjectsSearch(value); setProjectPage(1); }} onPageChange={setProjectPage} onSelect={selectProject} onOpenOverview={() => navigateToRoute('globalDashboard', '', false)} />}
+        {activeRoute !== 'projects' && !catalogScreen && !globalActivityRoute && !globalDashboardRoute && !projects.length && !projectsQuery.isPending && <div className="empty-state"><h2>Nenhum projeto disponível</h2><p>Esta credencial ainda não possui projetos acessíveis.</p><button className="button secondary" onClick={() => navigateToRoute('projects')}>Abrir projetos</button></div>}
         {activeTab === 'admin' && !project && !projectsQuery.isPending && canHardDelete && <div className="grid max-w-[850px] gap-[18px]"><div className="page-heading"><div><p className="eyebrow">CONFIGURAÇÃO</p><h1>Administração</h1><p className="muted-text">Importe um projeto para começar neste MCP.</p></div></div><ProjectImportPanel token={token} canImport onImported={async result => { await projectsQuery.refetch(); setActiveProjectId(result.projectId); navigateToRoute('settings', result.projectId, false); }} /></div>}
         {catalogScreen && <CatalogsPage section={catalogSectionForRoute(activeRoute)} token={token} nonce={nonce} projects={projects.map(item => item.project)} project={project} tasks={tasks} notify={notify} onNavigateToConversations={() => navigateToRoute('conversations', activeProjectId, false)} onProjectCreated={async created => { await projectsQuery.refetch(); navigateToRoute(routeForCatalogSection('projects'), created._id, false); }} onSelectProject={projectId => navigateToRoute(activeRoute, projectId, false)} systemAdmin={capabilitiesQuery.data?.systemAdmin === true} onChanged={() => { void projectsQuery.refetch(); void tasksQuery.refetch(); }} />}
-        {activeRoute !== 'projects' && !catalogScreen && (project || globalActivityRoute) && <>
-          {activeRoute !== 'task' && activeRoute !== 'dashboard' && <div className="page-heading"><div><p className="eyebrow">{activeTab === 'tasks' ? 'ACOMPANHAMENTO' : activeTab === 'chat' ? 'COLABORAÇÃO' : activeTab === 'activity' ? 'ATIVIDADE' : activeTab === 'admin' ? 'CONFIGURAÇÃO' : 'DOCUMENTAÇÃO'}</p><h1>{activeTab === 'tasks' ? 'Tarefas do projeto' : activeTab === 'chat' ? 'Conversas com IA' : activeTab === 'activity' ? 'Atividade' : activeTab === 'admin' ? 'Administração' : 'Ajuda do Project Tasks'}</h1><p className="muted-text">{activeTab === 'tasks' ? 'Acompanhe execução, revisão e conclusão do trabalho.' : activeTab === 'chat' ? 'Esclareça pedidos com a IA e autorize a execução quando a proposta estiver pronta.' : activeTab === 'activity' ? globalActivityRoute ? 'Acompanhe eventos recentes de todos os projetos.' : 'Acompanhe eventos, mudanças e colaboração neste projeto.' : activeTab === 'admin' ? 'Credenciais e configurações restritas do workspace.' : 'Referência rápida para os servidores e ferramentas MCP.'}</p></div>{activeTab === 'tasks' && <div className="button-row"><button className="button secondary" onClick={() => setSummaryOpen(true)}>Resumo do projeto</button></div>}{activeTab === 'chat' && <div id="conversation-heading-actions" className="button-row" />}</div>}
+        {activeRoute !== 'projects' && !catalogScreen && (project || globalActivityRoute || globalDashboardRoute) && <>
+          {activeRoute !== 'task' && activeRoute !== 'dashboard' && activeRoute !== 'globalDashboard' && <div className="page-heading"><div><p className="eyebrow">{activeTab === 'tasks' ? 'ACOMPANHAMENTO' : activeTab === 'chat' ? 'COLABORAÇÃO' : activeTab === 'activity' ? 'ATIVIDADE' : activeTab === 'admin' ? 'CONFIGURAÇÃO' : 'DOCUMENTAÇÃO'}</p><h1>{activeTab === 'tasks' ? 'Tarefas do projeto' : activeTab === 'chat' ? 'Conversas com IA' : activeTab === 'activity' ? 'Atividade' : activeTab === 'admin' ? 'Administração' : 'Ajuda do Project Tasks'}</h1><p className="muted-text">{activeTab === 'tasks' ? 'Acompanhe execução, revisão e conclusão do trabalho.' : activeTab === 'chat' ? 'Esclareça pedidos com a IA e autorize a execução quando a proposta estiver pronta.' : activeTab === 'activity' ? globalActivityRoute ? 'Acompanhe eventos recentes de todos os projetos.' : 'Acompanhe eventos, mudanças e colaboração neste projeto.' : activeTab === 'admin' ? 'Credenciais e configurações restritas do workspace.' : 'Referência rápida para os servidores e ferramentas MCP.'}</p></div>{activeTab === 'tasks' && <div className="button-row"><button className="button secondary" onClick={() => setSummaryOpen(true)}>Resumo do projeto</button></div>}{activeTab === 'chat' && <div id="conversation-heading-actions" className="button-row" />}</div>}
           {activeTab === 'tasks' && activeRoute !== 'task' && <TaskWorkspace key={activeProjectId} token={token} nonce={nonce} projectId={activeProjectId} repositories={project?.repositories ?? []} projectAreas={project?.areas ?? ['backend', 'frontend', 'outro']} tasks={tasks} isPending={tasksQuery.isPending} isError={tasksQuery.isError} error={tasksQuery.error} saving={saving} updatedAt={tasksQuery.dataUpdatedAt || undefined} refreshing={tasksQuery.isFetching} canHardDelete={canHardDelete} systemAdmin={capabilitiesQuery.data?.systemAdmin === true} onRefresh={() => { void projectsQuery.refetch(); if (activeRoute === 'tasks') void queryClient.invalidateQueries({ queryKey: ['task-workspace-search', nonce, activeProjectId] }); else void tasksQuery.refetch(); }} onOpenTask={openTaskDetails} onOpenTaskConversation={openTaskConversationFromTable} onTransferTask={setTransferTask} onChangeStatus={setStatusTask} onToggleChecked={toggleChecked} onRequestHardDeleteTask={requestTaskHardDelete} onArchiveTask={archiveTask} onApproveSelected={approveSelected} onSetTasksChecked={setTasksChecked} />}
           {activeRoute === 'dashboard' && <ProjectDashboardPage token={token} nonce={nonce} projectId={activeProjectId} />}
+          {globalDashboardRoute && <GlobalDashboardPage token={token} nonce={nonce} onOpenProject={projectId => navigateToRoute('dashboard', projectId, false)} />}
           {activeRoute === 'task' && pageTaskId && <TaskPage key={activeProjectId + ':' + pageTaskId} taskId={pageTaskId} token={token} nonce={nonce} projectId={activeProjectId} project={project!} tasks={tasks} checking={adminMutation.isPending || saving} notify={notify} onToggleChecked={toggleChecked} onOpenConversation={openConversation} onRequestTransfer={setTransferTask} systemAdmin={capabilitiesQuery.data?.systemAdmin === true} onReview={reviewTask} onChangeStatus={setStatusTask} close={() => navigateToRoute('tasks', activeProjectId, false)} />}
           {activeTab === 'chat' && <ConversationPanel token={token} nonce={nonce} projectId={activeProjectId} tasks={tasks} requestedConversationId={conversationToOpen || undefined} onConversationSelected={rememberConversation} onOpenTask={openTaskFromConversation} onOpenAdmin={() => setActiveTab('admin')} />}
           {activeTab === 'activity' && (globalActivityRoute && capabilitiesQuery.data?.systemAdmin !== true
