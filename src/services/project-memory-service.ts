@@ -196,7 +196,11 @@ export class ProjectMemoryService {
       const changed = memory.title !== a.data.title || memory.category !== a.data.category || memory.content !== a.data.content
         || memory.status !== status || JSON.stringify(memory.sources ?? []) !== JSON.stringify(sources);
       if (!changed) return memoryDto(memory, true);
-      if ((memory.scope ?? 'project') === 'task') await this.assertOwnerTask(actor, a.projectId, memory.ownerTaskId, session, true);
+      if ((memory.scope ?? 'project') === 'task') {
+        const ownerTaskId = memory.ownerTaskId;
+        ensure(typeof ownerTaskId === 'string', 'Task-scoped project memory has no owner task', 409);
+        await this.assertOwnerTask(actor, a.projectId, ownerTaskId, session, true);
+      }
       memory.title = a.data.title; memory.category = a.data.category; memory.content = a.data.content;
       memory.status = status; memory.set('sources', sources); memory.author = actor.userId;
       memory.revision = (memory.revision ?? 0) + 1; memory.version = (memory.version ?? 0) + 1;
