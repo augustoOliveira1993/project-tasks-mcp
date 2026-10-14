@@ -166,7 +166,7 @@ export async function getTaskContext(projectId: string, taskId: string, includeA
 
   const memoryQuery = [task.name, task.instructions, ...(task.acceptance ?? []).slice(0, 3), feature?.name, feature?.objective, task.area].filter(Boolean).join(' ').slice(0, 400);
   const retrievedMemories = await searchProjectMemories({
-    projectId, query: memoryQuery, limit: 3, snippetChars: 360
+    projectId, query: memoryQuery, scope: 'both', ownerTaskId: taskId, limit: 3, snippetChars: 360
   });
   if (retrievedMemories.hasMore) truncated.add('memories');
 

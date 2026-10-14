@@ -6,6 +6,8 @@ export const PROJECT_MEMORY_RETRIEVAL_VERSION = 'mongo-text-context-v2';
 export type ProjectMemorySearchOptions = {
   projectId: string;
   query: string;
+  scope?: 'project' | 'task' | 'both';
+  ownerTaskId?: string;
   taskId?: string;
   featureId?: string;
   area?: string;
@@ -82,15 +84,22 @@ export async function searchProjectMemories(options: ProjectMemorySearchOptions)
     referenceMatches.push({ sources: { $elemMatch: { kind: 'feature', id: options.featureId } } });
     referenceMatches.push({ sources: { $elemMatch: { featureId: options.featureId } } });
   }
+  const scope = options.scope ?? 'project';
+  const scopeFilter: Record<string, unknown> = scope === 'both'
+    ? { $or: [...(!options.ownerTaskId ? [] : [{ scope: 'task', ownerTaskId: options.ownerTaskId }]), { scope: 'project' }, { scope: { $exists: false } }] }
+    : scope === 'task'
+      ? { scope: 'task', ownerTaskId: options.ownerTaskId }
+      : { $or: [{ scope: 'project' }, { scope: { $exists: false } }] };
   const filters: Record<string, unknown>[] = [
     { projectId: options.projectId, archived: false, status: 'active' },
+    scopeFilter,
     { $text: { $search: terms, $caseSensitive: false, $diacriticSensitive: false } }
   ];
-  if (referenceMatches.length) filters.push({ $or: referenceMatches });
+  if (referenceMatches.length && scope !== 'both') filters.push({ $or: referenceMatches });
   if (options.area) filters.push({ sources: { $elemMatch: { kind: 'task', area: options.area } } });
   const filter = { $and: filters };
   const rows = await ProjectMemory.find(filter)
-    .select({ _id: 1, title: 1, category: 1, content: 1, status: 1, revision: 1, sources: 1, score: { $meta: 'textScore' } })
+    .select({ _id: 1, title: 1, category: 1, content: 1, status: 1, revision: 1, scope: 1, ownerTaskId: 1, sources: 1, score: { $meta: 'textScore' } })
     .sort({ score: { $meta: 'textScore' }, updatedAt: -1, _id: 1 })
     .limit(options.limit + 1)
     .lean();
@@ -100,6 +109,8 @@ export async function searchProjectMemories(options: ProjectMemorySearchOptions)
     memoryId: memory._id,
     title: Array.from(memory.title ?? '').slice(0, 255).join(''),
     category: memory.category,
+    scope: memory.scope ?? 'project',
+    ...(memory.ownerTaskId ? { ownerTaskId: memory.ownerTaskId } : {}),
     revision: memory.revision,
     status: 'active' as const,
     rank: index + 1,

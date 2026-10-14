@@ -109,22 +109,26 @@ MarkdownRevision.schema.index({ documentId: 1, revision: 1 }, { unique: true });
 const projectMemorySource = new Schema({ kind: String, id: String, title: String, revision: Number, area: String, featureId: String }, { _id: false, strict: true });
 export const ProjectMemory = mongoose.model('ProjectMemory', new Schema({
   ...base, projectId: { type: String, index: true }, title: String, category: String, content: String,
+  scope: { type: String, enum: ['project', 'task'], default: 'project' }, ownerTaskId: String,
   status: { type: String, default: 'active' }, sources: { type: [projectMemorySource], default: [] },
   revision: { type: Number, default: 0 }, author: String
 }, { ...options, autoIndex: false }));
 ProjectMemory.schema.index({ projectId: 1, archived: 1, status: 1, createdAt: 1, _id: 1 });
+ProjectMemory.schema.index({ projectId: 1, scope: 1, ownerTaskId: 1, archived: 1, status: 1, createdAt: 1, _id: 1 });
 ProjectMemory.schema.index({ projectId: 1, category: 1, status: 1, archived: 1, title: 1 }, { collation: { locale: 'en', strength: 1 } });
 ProjectMemory.schema.index({ projectId: 1, title: 'text', category: 'text', content: 'text', 'sources.title': 'text' }, {
   name: 'project_memory_text', default_language: 'portuguese', weights: { title: 5, category: 2, 'sources.title': 2, content: 1 }
 });
 export const ProjectMemoryRevision = mongoose.model('ProjectMemoryRevision', new Schema({
   _id: String, projectId: { type: String, index: true }, memoryId: { type: String, index: true }, revision: Number,
+  scope: { type: String, enum: ['project', 'task'], default: 'project' }, ownerTaskId: String,
   title: String, category: String, content: String, status: String, archived: Boolean, sources: { type: [projectMemorySource], default: [] },
   author: String, createdAt: Date
 }, { versionKey: false, strict: true }));
 ProjectMemoryRevision.schema.index({ memoryId: 1, revision: 1 }, { unique: true });
 export const ProjectMemoryProposal = mongoose.model('ProjectMemoryProposal', new Schema({
-  ...base, projectId: { type: String, index: true }, taskId: String, executionId: String,
+  ...base, projectId: { type: String, index: true }, taskId: String, scope: { type: String, enum: ['project', 'task'], default: 'project' },
+  ownerTaskId: String, executionId: String,
   title: String, category: String, content: String, sources: { type: [projectMemorySource], default: [] },
   status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
   targetMemoryId: String, expectedMemoryVersion: Number, memoryId: String, approvedRevision: Number,
@@ -132,6 +136,7 @@ export const ProjectMemoryProposal = mongoose.model('ProjectMemoryProposal', new
 }, options));
 ProjectMemoryProposal.schema.index({ projectId: 1, status: 1, createdAt: 1, _id: 1 });
 ProjectMemoryProposal.schema.index({ projectId: 1, taskId: 1, createdAt: 1, _id: 1 });
+ProjectMemoryProposal.schema.index({ projectId: 1, scope: 1, ownerTaskId: 1, status: 1, createdAt: 1, _id: 1 });
 export const Operation = mongoose.model('Operation', new Schema({ _id: String, projectId: String, fingerprint: String, result: Schema.Types.Mixed }, { versionKey: false }));
 export const Credential = mongoose.model('Credential', new Schema({ _id: String, hash: { type: String, unique: true }, userId: String,
   scope: String, systemAdmin: Boolean, revoked: { type: Boolean, default: false }, fence: { type: Number, default: 0 } }, options));

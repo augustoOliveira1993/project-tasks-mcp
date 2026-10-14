@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { ClientSession } from 'mongoose';
-import { Execution, Feature, MarkdownDocument, MarkdownRevision, ProjectMemory, ProjectMemoryProposal, ProjectMemoryRevision, Task, TaskDiff } from '../models.js';
+import { AutomationJob, Execution, Feature, MarkdownDocument, MarkdownRevision, ProjectMemory, ProjectMemoryProposal, ProjectMemoryRevision, Task, TaskDiff } from '../models.js';
 import { pageByCreatedAt, PageCursorError } from '../pagination.js';
 import { DomainError, type Actor, type Service } from '../service.js';
 import { searchProjectMemories } from './project-memory-retrieval-service.js';
@@ -15,6 +15,7 @@ function ensure(condition: unknown, message: string, status = 409): asserts cond
 function memoryDto(memory: any, includeContent = false) {
   return {
     _id: memory._id, projectId: memory.projectId, version: memory.version ?? 0,
+    scope: memory.scope ?? 'project', ...(memory.ownerTaskId ? { ownerTaskId: memory.ownerTaskId } : {}),
     title: memory.title, category: memory.category, status: memory.status ?? 'active',
     archived: memory.archived ?? false, revision: memory.revision ?? 0,
     sources: memory.sources ?? [], author: memory.author ?? null,
@@ -26,6 +27,7 @@ function memoryDto(memory: any, includeContent = false) {
 function proposalDto(proposal: any, includeContent = false) {
   return {
     _id: proposal._id, projectId: proposal.projectId, version: proposal.version ?? 0,
+    scope: proposal.scope ?? 'project', ...(proposal.ownerTaskId ? { ownerTaskId: proposal.ownerTaskId } : {}),
     taskId: proposal.taskId, executionId: proposal.executionId,
     title: proposal.title, category: proposal.category, status: proposal.status,
     sources: proposal.sources ?? [], targetMemoryId: proposal.targetMemoryId ?? null,
@@ -50,6 +52,32 @@ function safeReason(value: string) {
 
 export class ProjectMemoryService {
   constructor(private service: Service) {}
+
+  private async assertOwnerTask(actor: Actor, projectId: string, taskId: string, session?: ClientSession, requireCompleted = false) {
+    const task = await Task.findOne({ _id: taskId, projectId, archived: false }).select('_id status').session(session ?? null).lean();
+    ensure(task, 'Task memory owner not found in this project', 404);
+    if (requireCompleted) ensure(task.status === 'concluida', 'Task-scoped memory can only be recorded after its owner task is completed', 409);
+    if (actor.jobId) {
+      const job = await AutomationJob.findOne({ _id: actor.jobId, projectId, taskId }).select('_id').session(session ?? null).lean();
+      ensure(job, 'Task memory is outside the authorized runner task', 403);
+    }
+  }
+
+  private async assertMemoryOwnership(actor: Actor, memory: any, ownerTaskId?: string, session?: ClientSession) {
+    const scope = memory.scope ?? 'project';
+    if (scope === 'task') {
+      ensure(ownerTaskId === memory.ownerTaskId, 'Project memory not found', 404);
+      await this.assertOwnerTask(actor, memory.projectId, memory.ownerTaskId, session);
+    } else ensure(!ownerTaskId, 'ownerTaskId is only valid for task-scoped memory', 400);
+  }
+
+  private async scopedSources(projectId: string, scope: 'project' | 'task', ownerTaskId: string | undefined, input: SourceInput[], session: ClientSession) {
+    const sources = [...input];
+    if (scope === 'task' && ownerTaskId && !sources.some(source => source.kind === 'task' && source.id === ownerTaskId)) {
+      sources.unshift({ kind: 'task', id: ownerTaskId });
+    }
+    return this.verifiedSources(projectId, sources, session);
+  }
 
   private async verifiedSources(projectId: string, sources: SourceInput[], session: ClientSession) {
     const result = [];
@@ -93,8 +121,11 @@ export class ProjectMemoryService {
   }
 
   async list(_actor: Actor, a: any) {
+    const scope = a.scope ?? 'project';
+    if (scope === 'task') await this.assertOwnerTask(_actor, a.projectId, a.ownerTaskId);
     const filter: Record<string, unknown> = {
       projectId: a.projectId, archived: false,
+      ...(scope === 'task' ? { scope: 'task', ownerTaskId: a.ownerTaskId } : { $or: [{ scope: 'project' }, { scope: { $exists: false } }] }),
       status: a.status ?? 'active',
       ...(a.category ? { category: a.category } : {}),
       ...(a.search ? { $text: { $search: a.search } } : {})
@@ -111,29 +142,38 @@ export class ProjectMemoryService {
   async get(_actor: Actor, a: any) {
     const memory = await ProjectMemory.findOne({ _id: a.memoryId, projectId: a.projectId }).lean();
     ensure(memory, 'Project memory not found', 404);
+    await this.assertMemoryOwnership(_actor, memory, a.ownerTaskId);
     if (a.revision === undefined || a.revision === memory.revision) return memoryDto(memory, true);
     const snapshot = await ProjectMemoryRevision.findOne({ projectId: a.projectId, memoryId: a.memoryId, revision: a.revision }).lean();
     ensure(snapshot, 'Project memory revision not found', 404);
+    ensure((snapshot.scope ?? 'project') === (memory.scope ?? 'project') && snapshot.ownerTaskId === memory.ownerTaskId, 'Project memory revision ownership does not match its record', 409);
     return memoryDto({ ...snapshot, version: memory.version, createdAt: memory.createdAt, updatedAt: snapshot.createdAt }, true);
   }
 
   async search(_actor: Actor, a: any) {
     const project = await this.service.access(_actor, a.projectId);
     if (a.taskId) ensure(await Task.exists({ _id: a.taskId, projectId: a.projectId }), 'Task not found', 404);
+    if ((a.scope ?? 'project') === 'task') {
+      await this.assertOwnerTask(_actor, a.projectId, a.ownerTaskId);
+      ensure(!a.taskId || a.taskId === a.ownerTaskId, 'Task-scoped search must use its owner task', 400);
+    }
     if (a.featureId) ensure(await Feature.exists({ _id: a.featureId, projectId: a.projectId }), 'Feature not found', 404);
     if (a.area) ensure(areasForProject(project).includes(a.area), 'Unknown project area', 400);
     return searchProjectMemories({
-      projectId: a.projectId, query: a.query, taskId: a.taskId, featureId: a.featureId, area: a.area,
+      projectId: a.projectId, query: a.query, scope: a.scope ?? 'project', ownerTaskId: a.ownerTaskId,
+      taskId: a.taskId, featureId: a.featureId, area: a.area,
       limit: a.limit, snippetChars: 480
     });
   }
 
   async create(actor: Actor, a: any) {
     return this.service.mutate(actor, 'create_project_memory', a, async (session: ClientSession) => {
-      await this.service.automation.guard(actor, 'create_project_memory', a, session);
-      const sources = await this.verifiedSources(a.projectId, a.data.sources, session);
+      await this.service.automation.guard(actor, 'create_project_memory', { ...a, taskId: a.ownerTaskId }, session);
+      const scope = a.scope ?? 'project';
+      if (scope === 'task') await this.assertOwnerTask(actor, a.projectId, a.ownerTaskId, session, true);
+      const sources = await this.scopedSources(a.projectId, scope, a.ownerTaskId, a.data.sources, session);
       const memory = new ProjectMemory({
-        _id: randomUUID(), projectId: a.projectId, title: a.data.title, category: a.data.category,
+        _id: randomUUID(), projectId: a.projectId, scope, ...(scope === 'task' ? { ownerTaskId: a.ownerTaskId } : {}), title: a.data.title, category: a.data.category,
         content: a.data.content, status: 'active', sources, revision: 1, author: actor.userId
       });
       await memory.save({ session });
@@ -146,15 +186,17 @@ export class ProjectMemoryService {
 
   async update(actor: Actor, a: any) {
     return this.service.mutate(actor, 'update_project_memory', a, async (session: ClientSession) => {
-      await this.service.automation.guard(actor, 'update_project_memory', a, session);
+      await this.service.automation.guard(actor, 'update_project_memory', { ...a, taskId: a.ownerTaskId }, session);
       const memory = await ProjectMemory.findOne({ _id: a.memoryId, projectId: a.projectId, archived: false }).session(session);
       ensure(memory, 'Project memory not found or archived', 404);
+      await this.assertMemoryOwnership(actor, memory, a.ownerTaskId, session);
       ensure(memory.version === a.version, 'Project memory version conflict');
-      const sources = await this.verifiedSources(a.projectId, a.data.sources, session);
+      const sources = await this.scopedSources(a.projectId, memory.scope ?? 'project', memory.ownerTaskId ?? undefined, a.data.sources, session);
       const status = a.data.status ?? memory.status ?? 'active';
       const changed = memory.title !== a.data.title || memory.category !== a.data.category || memory.content !== a.data.content
         || memory.status !== status || JSON.stringify(memory.sources ?? []) !== JSON.stringify(sources);
       if (!changed) return memoryDto(memory, true);
+      if ((memory.scope ?? 'project') === 'task') await this.assertOwnerTask(actor, a.projectId, memory.ownerTaskId, session, true);
       memory.title = a.data.title; memory.category = a.data.category; memory.content = a.data.content;
       memory.status = status; memory.set('sources', sources); memory.author = actor.userId;
       memory.revision = (memory.revision ?? 0) + 1; memory.version = (memory.version ?? 0) + 1;
@@ -168,9 +210,10 @@ export class ProjectMemoryService {
 
   async archive(actor: Actor, a: any) {
     return this.service.mutate(actor, 'archive_project_memory', a, async (session: ClientSession) => {
-      await this.service.automation.guard(actor, 'archive_project_memory', a, session);
+      await this.service.automation.guard(actor, 'archive_project_memory', { ...a, taskId: a.ownerTaskId }, session);
       const memory = await ProjectMemory.findOne({ _id: a.memoryId, projectId: a.projectId, archived: false }).session(session);
       ensure(memory, 'Project memory not found or archived', 404);
+      await this.assertMemoryOwnership(actor, memory, a.ownerTaskId, session);
       ensure(memory.version === a.version, 'Project memory version conflict');
       memory.archived = true; memory.version = (memory.version ?? 0) + 1;
       memory.revision = (memory.revision ?? 0) + 1; memory.author = actor.userId;
@@ -183,7 +226,11 @@ export class ProjectMemoryService {
   }
 
   async listProposals(_actor: Actor, a: any) {
-    const filter = { projectId: a.projectId, ...(a.status ? { status: a.status } : {}), ...(a.taskId ? { taskId: a.taskId } : {}) };
+    const scope = a.scope ?? 'project';
+    if (scope === 'task') await this.assertOwnerTask(_actor, a.projectId, a.ownerTaskId);
+    if (scope === 'task' && a.taskId) ensure(a.taskId === a.ownerTaskId, 'Task-scoped proposals must be filtered by their owner task', 400);
+    const filter = { projectId: a.projectId, ...(a.status ? { status: a.status } : {}), ...(a.taskId ? { taskId: a.taskId } : {}),
+      ...(scope === 'task' ? { scope: 'task', ownerTaskId: a.ownerTaskId } : scope === 'all' ? {} : { $or: [{ scope: 'project' }, { scope: { $exists: false } }] }) };
     try {
       const result = await pageByCreatedAt<any>(ProjectMemoryProposal, filter, a.after, a.limit);
       return { items: result.items.map(item => proposalDto(item)), next: result.next };
@@ -196,6 +243,12 @@ export class ProjectMemoryService {
   async getProposal(_actor: Actor, a: any) {
     const proposal = await ProjectMemoryProposal.findOne({ _id: a.proposalId, projectId: a.projectId }).lean();
     ensure(proposal, 'Project memory proposal not found', 404);
+    if ((proposal.scope ?? 'project') === 'task') {
+      ensure(a.ownerTaskId === proposal.ownerTaskId, 'Project memory proposal not found', 404);
+      const ownerTaskId = proposal.ownerTaskId;
+      ensure(typeof ownerTaskId === 'string', 'Project memory proposal not found', 404);
+      await this.assertOwnerTask(_actor, a.projectId, ownerTaskId);
+    } else ensure(!a.ownerTaskId, 'ownerTaskId is only valid for task-scoped proposals', 400);
     return proposalDto(proposal, true);
   }
 
@@ -203,8 +256,11 @@ export class ProjectMemoryService {
     ensure(!actor.jobId, 'Runner jobs cannot publish memory proposals outside their task scope', 403);
     return this.service.mutate(actor, 'create_project_memory_proposal', a, async (session: ClientSession) => {
       const { task, execution } = await this.completedSource(a.projectId, a.taskId, a.executionId, session);
+      const scope = a.scope ?? 'project';
+      const ownerTaskId = scope === 'task' ? a.taskId : undefined;
+      if (ownerTaskId) await this.assertOwnerTask(actor, a.projectId, ownerTaskId, session, true);
       this.validateProposalContent(a.data.title, a.data.content);
-      if (a.targetMemoryId) await this.explicitTarget(a.projectId, a.data.category, a.targetMemoryId, a.expectedMemoryVersion, session);
+      if (a.targetMemoryId) await this.explicitTarget(a.projectId, a.data.category, a.targetMemoryId, a.expectedMemoryVersion, scope, ownerTaskId, session);
       const extraSources: SourceInput[] = a.data.sources;
       const diffIds = extraSources.filter(source => source.kind === 'diff').map(source => source.id);
       ensure(!diffIds.length || await TaskDiff.countDocuments({ _id: { $in: diffIds }, projectId: a.projectId, taskId: a.taskId }).session(session) === new Set(diffIds).size,
@@ -215,7 +271,7 @@ export class ProjectMemoryService {
         ...extraSources
       ], session);
       const proposal = new ProjectMemoryProposal({
-        _id: randomUUID(), projectId: a.projectId, taskId: a.taskId, executionId: a.executionId,
+        _id: randomUUID(), projectId: a.projectId, taskId: a.taskId, scope, ...(ownerTaskId ? { ownerTaskId } : {}), executionId: a.executionId,
         title: a.data.title, category: a.data.category, content: a.data.content, sources,
         status: 'pending', targetMemoryId: a.targetMemoryId, expectedMemoryVersion: a.expectedMemoryVersion,
         createdBy: actor.userId, version: 0
@@ -232,7 +288,7 @@ export class ProjectMemoryService {
     return this.service.mutate(actor, 'retarget_project_memory_proposal', a, async (session: ClientSession) => {
       const proposal: any = await ProjectMemoryProposal.findOne({ _id: a.proposalId, projectId: a.projectId, status: 'pending' }).session(session);
       ensure(proposal && proposal.version === a.version, 'Proposal is no longer pending or version conflict');
-      await this.explicitTarget(a.projectId, proposal.category, a.targetMemoryId, a.expectedMemoryVersion, session);
+      await this.explicitTarget(a.projectId, proposal.category, a.targetMemoryId, a.expectedMemoryVersion, proposal.scope ?? 'project', proposal.ownerTaskId, session);
       proposal.targetMemoryId = a.targetMemoryId; proposal.expectedMemoryVersion = a.expectedMemoryVersion;
       proposal.version = (proposal.version ?? 0) + 1;
       await proposal.save({ session });
@@ -248,11 +304,15 @@ export class ProjectMemoryService {
       const proposal: any = await ProjectMemoryProposal.findOne({ _id: a.proposalId, projectId: a.projectId, status: 'pending' }).session(session);
       ensure(proposal && proposal.version === a.version, 'Proposal is no longer pending or version conflict');
       const { task } = await this.completedSource(a.projectId, proposal.taskId, proposal.executionId, session);
+      if ((proposal.scope ?? 'project') === 'task') {
+        ensure(proposal.ownerTaskId === proposal.taskId, 'Task-scoped memory proposal ownership does not match its source task', 409);
+        await this.assertOwnerTask(actor, a.projectId, proposal.ownerTaskId, session, true);
+      }
       this.validateProposalContent(proposal.title, proposal.content);
       const sources = await this.verifiedSources(a.projectId, proposal.sources ?? [], session);
       let memory: any;
       if (proposal.targetMemoryId) {
-        memory = await this.explicitTarget(a.projectId, proposal.category, proposal.targetMemoryId, proposal.expectedMemoryVersion, session);
+        memory = await this.explicitTarget(a.projectId, proposal.category, proposal.targetMemoryId, proposal.expectedMemoryVersion, proposal.scope ?? 'project', proposal.ownerTaskId, session);
         const changed = memory.title !== proposal.title || memory.category !== proposal.category || memory.content !== proposal.content
           || JSON.stringify(memory.sources ?? []) !== JSON.stringify(sources);
         if (changed) {
@@ -263,11 +323,15 @@ export class ProjectMemoryService {
           await this.saveRevision(memory, session);
         }
       } else {
-        const duplicate: any = await ProjectMemory.findOne({ projectId: a.projectId, category: proposal.category, title: proposal.title, status: 'active', archived: false })
+        const duplicateFilter: Record<string, any> = { projectId: a.projectId, category: proposal.category, title: proposal.title, status: 'active', archived: false };
+        Object.assign(duplicateFilter, (proposal.scope ?? 'project') === 'task'
+          ? { scope: 'task', ownerTaskId: proposal.ownerTaskId }
+          : { $or: [{ scope: 'project' }, { scope: { $exists: false } }] });
+        const duplicate: any = await ProjectMemory.findOne(duplicateFilter)
           .collation({ locale: 'en', strength: 1 }).select('_id version title').session(session).lean();
         ensure(!duplicate, `Potential active-memory conflict: ${duplicate?._id ?? ''} version ${duplicate?.version ?? ''}; reread it and explicitly retarget this proposal before approval`, 409);
         memory = new ProjectMemory({
-          _id: randomUUID(), projectId: a.projectId, title: proposal.title, category: proposal.category,
+          _id: randomUUID(), projectId: a.projectId, scope: proposal.scope ?? 'project', ...(proposal.ownerTaskId ? { ownerTaskId: proposal.ownerTaskId } : {}), title: proposal.title, category: proposal.category,
           content: proposal.content, status: 'active', sources, revision: 1, author: actor.userId
         });
         await memory.save({ session });
@@ -306,8 +370,11 @@ export class ProjectMemoryService {
     return { task, execution };
   }
 
-  private async explicitTarget(projectId: string, category: string, memoryId: string, expectedVersion: number, session: ClientSession) {
-    const memory: any = await ProjectMemory.findOne({ _id: memoryId, projectId, archived: false, status: 'active' }).session(session);
+  private async explicitTarget(projectId: string, category: string, memoryId: string, expectedVersion: number, scope: 'project' | 'task', ownerTaskId: string | undefined, session: ClientSession) {
+    const ownership: Record<string, any> = scope === 'task'
+      ? { scope: 'task', ownerTaskId }
+      : { $or: [{ scope: 'project' }, { scope: { $exists: false } }] };
+    const memory: any = await ProjectMemory.findOne({ _id: memoryId, projectId, archived: false, status: 'active', ...ownership }).session(session);
     ensure(memory && memory.category === category, 'Target memory is missing, inactive, or has a different category', 409);
     ensure(memory.version === expectedVersion, `Target memory version conflict: current=${memory.version}; reread the memory and retarget the proposal`, 409);
     return memory;
@@ -323,7 +390,7 @@ export class ProjectMemoryService {
 
   private proposalEventData(proposal: any) {
     return {
-      proposalId: proposal._id, taskId: proposal.taskId, executionId: proposal.executionId,
+      proposalId: proposal._id, taskId: proposal.taskId, scope: proposal.scope ?? 'project', ownerTaskId: proposal.ownerTaskId, executionId: proposal.executionId,
       status: proposal.status, title: proposal.title, category: proposal.category,
       sources: (proposal.sources ?? []).map((source: any) => ({ kind: source.kind, id: source.id, revision: source.revision })),
       targetMemoryId: proposal.targetMemoryId, expectedMemoryVersion: proposal.expectedMemoryVersion,
@@ -335,12 +402,13 @@ export class ProjectMemoryService {
   private async saveRevision(memory: any, session: ClientSession) {
     await ProjectMemoryRevision.create([{
       _id: randomUUID(), projectId: memory.projectId, memoryId: memory._id, revision: memory.revision,
+      scope: memory.scope ?? 'project', ownerTaskId: memory.ownerTaskId,
       title: memory.title, category: memory.category, content: memory.content, status: memory.status,
       archived: memory.archived ?? false, sources: memory.sources ?? [], author: memory.author, createdAt: new Date()
     }], { session });
   }
 
   private eventData(memory: ReturnType<typeof memoryDto>) {
-    return { memoryId: memory._id, title: memory.title, category: memory.category, status: memory.status, archived: memory.archived, revision: memory.revision, version: memory.version, sources: memory.sources };
+    return { memoryId: memory._id, scope: memory.scope ?? 'project', ownerTaskId: memory.ownerTaskId, title: memory.title, category: memory.category, status: memory.status, archived: memory.archived, revision: memory.revision, version: memory.version, sources: memory.sources };
   }
 }

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
 import mongoose from 'mongoose';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
-import { connect, Execution, MarkdownDocument, MarkdownRevision, ProjectMemory, ProjectMemoryProposal, Task, TaskDiff } from '../src/db.js';
+import { connect, Execution, MarkdownDocument, MarkdownRevision, migrateProjectMemoryScopes, ProjectMemory, ProjectMemoryProposal, ProjectMemoryRevision, Task, TaskDiff } from '../src/db.js';
 import { Service, authenticate, bootstrap, type Actor } from '../src/service.js';
 
 let repl: MongoMemoryReplSet;
@@ -164,6 +164,65 @@ test('memory proposals require completed evidence and human review, preserve pro
   assert.equal((await service.call(owner, 'get_project_memory', { projectId: conflict.project._id, memoryId: existing._id, revision: 1 })).content, 'Earlier verified decision.');
 });
 
+test('aggregated proposal listings paginate both scopes without expanding task proposal content', async () => {
+  const first = await createProject('Aggregated memory proposals project');
+  const sibling = await service.call(owner, 'create_task', { operationId: op(), projectId: first.project._id, data: {
+    name: 'Sibling proposal task', instructions: 'Task-specific evidence', acceptance: ['Evidence stays private'], priority: 1,
+    area: 'backend', repositoryId: first.task.repositoryId, featureId: first.feature._id, dependencies: []
+  } });
+  const firstExecution = await completeTask(first.project._id, first.task._id);
+  const siblingExecution = await completeTask(first.project._id, sibling._id);
+  const projectProposal = await service.call(owner, 'create_project_memory_proposal', { operationId: op(), projectId: first.project._id,
+    taskId: first.task._id, executionId: firstExecution,
+    data: { title: 'Shared proposal', category: 'convention', content: 'Share only after review.', sources: [] }
+  });
+  const siblingProjectProposal = await service.call(owner, 'create_project_memory_proposal', { operationId: op(), projectId: first.project._id,
+    taskId: sibling._id, executionId: siblingExecution,
+    data: { title: 'Sibling shared proposal', category: 'convention', content: 'Shared after the sibling source is reviewed.', sources: [] }
+  });
+  const taskProposal = await service.call(owner, 'create_project_memory_proposal', { operationId: op(), projectId: first.project._id,
+    taskId: first.task._id, executionId: firstExecution, scope: 'task',
+    data: { title: 'Alpha private proposal', category: 'decision', content: 'Private alpha task evidence.', sources: [] }
+  });
+  const siblingProposal = await service.call(owner, 'create_project_memory_proposal', { operationId: op(), projectId: first.project._id,
+    taskId: sibling._id, executionId: siblingExecution, scope: 'task',
+    data: { title: 'Sibling private proposal', category: 'decision', content: 'Private sibling task evidence.', sources: [] }
+  });
+  const foreign = await createProject('Foreign aggregated proposals project');
+  const foreignExecution = await completeTask(foreign.project._id, foreign.task._id);
+  const foreignProposal = await service.call(owner, 'create_project_memory_proposal', { operationId: op(), projectId: foreign.project._id,
+    taskId: foreign.task._id, executionId: foreignExecution,
+    data: { title: 'Foreign proposal', category: 'convention', content: 'Must not enter the other project.', sources: [] }
+  });
+
+  const firstPage = await service.call(owner, 'list_project_memory_proposals', { projectId: first.project._id, scope: 'all', status: 'pending', limit: 2 });
+  assert.equal(firstPage.items.length, 2);
+  assert.ok(firstPage.next);
+  const secondPage = await service.call(owner, 'list_project_memory_proposals', { projectId: first.project._id, scope: 'all', status: 'pending', after: firstPage.next, limit: 2 });
+  const listed = [...firstPage.items, ...secondPage.items];
+  assert.deepEqual(new Set(listed.map((item: any) => item._id)), new Set([projectProposal._id, siblingProjectProposal._id, taskProposal._id, siblingProposal._id]));
+  assert.ok(listed.every((item: any) => !Object.hasOwn(item, 'content')));
+  assert.equal(listed.find((item: any) => item._id === projectProposal._id).scope, 'project');
+  assert.equal(listed.find((item: any) => item._id === taskProposal._id).ownerTaskId, first.task._id);
+  assert.equal(listed.find((item: any) => item._id === siblingProposal._id).ownerTaskId, sibling._id);
+  assert.ok(!listed.some((item: any) => item._id === foreignProposal._id));
+  assert.equal((await service.call(owner, 'list_project_memory_proposals', { projectId: first.project._id, scope: 'all', taskId: sibling._id, status: 'pending', limit: 10 })).items.length, 2);
+  await assert.rejects(service.call(owner, 'list_project_memory_proposals', { projectId: first.project._id, scope: 'task', limit: 10 }), /require ownerTaskId/i);
+  await assert.rejects(service.call(owner, 'list_project_memory_proposals', { projectId: first.project._id, scope: 'all', ownerTaskId: first.task._id, limit: 10 }), /only valid for task-scoped/i);
+  await assert.rejects(service.call(owner, 'get_project_memory_proposal', { projectId: first.project._id, proposalId: taskProposal._id }), /not found/i);
+  await assert.rejects(service.call(owner, 'get_project_memory_proposal', { projectId: first.project._id, proposalId: taskProposal._id, ownerTaskId: sibling._id }), /not found/i);
+  assert.equal((await service.call(owner, 'get_project_memory_proposal', { projectId: first.project._id, proposalId: taskProposal._id, ownerTaskId: first.task._id })).content, 'Private alpha task evidence.');
+
+  const approved = await service.call(human, 'approve_project_memory_proposal', { operationId: op(), projectId: first.project._id, proposalId: taskProposal._id, version: taskProposal.version });
+  const approvedList = await service.call(owner, 'list_project_memory_proposals', { projectId: first.project._id, scope: 'all', status: 'approved', limit: 10 });
+  assert.equal(approvedList.items.length, 1);
+  assert.equal(approvedList.items[0].scope, 'task');
+  assert.equal(approvedList.items[0].ownerTaskId, first.task._id);
+  assert.ok(!Object.hasOwn(approvedList.items[0], 'content'));
+  assert.ok(!(await service.call(owner, 'list_project_memories', { projectId: first.project._id, limit: 10 })).items.some((item: any) => item._id === approved.memory._id));
+  assert.ok((await service.call(owner, 'list_project_memories', { projectId: first.project._id, scope: 'task', ownerTaskId: first.task._id, limit: 10 })).items.some((item: any) => item._id === approved.memory._id));
+});
+
 test('project memories validate same-project sources, preserve revisions, paginate, and enforce access', async () => {
   const first = await createProject('Memory owner project');
   const other = await createProject('Other project');
@@ -305,4 +364,101 @@ test('project memories validate same-project sources, preserve revisions, pagina
   assert.equal(archived.revision, 3);
   const remaining = await service.call(owner, 'list_project_memories', { projectId: first.project._id, limit: 10 });
   assert.ok(remaining.items.every((item: any) => item._id !== memory._id));
+});
+
+test('task memories preserve ownership and revisions while context combines project knowledge without sibling leakage', async () => {
+  const first = await createProject('Task memory ownership project');
+  const sibling = await service.call(owner, 'create_task', { operationId: op(), projectId: first.project._id, data: {
+    name: 'Beta calibration task', instructions: 'beta calibration common guidance', acceptance: ['Beta is isolated'], priority: 1,
+    area: 'backend', repositoryId: first.task.repositoryId, featureId: first.feature._id, dependencies: []
+  } });
+  await Task.updateOne({ _id: first.task._id }, { $set: { name: 'Alpha calibration task', instructions: 'alpha calibration common guidance' } });
+  const shared = await service.call(owner, 'create_project_memory', { operationId: op(), projectId: first.project._id,
+    data: { title: 'Shared calibration guidance', category: 'convention', content: 'Common guidance for cross task calibration.', sources: [{ kind: 'feature', id: first.feature._id }] }
+  });
+  await assert.rejects(service.call(owner, 'create_project_memory', { operationId: op(), projectId: first.project._id, scope: 'task', ownerTaskId: first.task._id,
+    data: { title: 'Premature alpha memory', category: 'decision', content: 'This must wait for task completion.', sources: [{ kind: 'feature', id: first.feature._id }] }
+  }), /only be recorded after its owner task is completed/i);
+  const alphaExecutionId = await completeTask(first.project._id, first.task._id);
+  await completeTask(first.project._id, sibling._id);
+  const alpha = await service.call(owner, 'create_project_memory', { operationId: op(), projectId: first.project._id, scope: 'task', ownerTaskId: first.task._id,
+    data: { title: 'Alpha calibration evidence', category: 'decision', content: 'Alpha task private calibration evidence.', sources: [{ kind: 'feature', id: first.feature._id }] }
+  });
+  const beta = await service.call(owner, 'create_project_memory', { operationId: op(), projectId: first.project._id, scope: 'task', ownerTaskId: sibling._id,
+    data: { title: 'Beta calibration evidence', category: 'decision', content: 'Beta task private calibration evidence.', sources: [{ kind: 'feature', id: first.feature._id }] }
+  });
+  assert.equal(alpha.scope, 'task');
+  assert.equal(alpha.ownerTaskId, first.task._id);
+  assert.ok(alpha.sources.some((source: any) => source.kind === 'task' && source.id === first.task._id));
+  assert.deepEqual((await service.call(owner, 'list_project_memories', { projectId: first.project._id, limit: 10 })).items.map((item: any) => item._id), [shared._id]);
+  assert.deepEqual((await service.call(owner, 'list_project_memories', { projectId: first.project._id, scope: 'task', ownerTaskId: first.task._id, limit: 10 })).items.map((item: any) => item._id), [alpha._id]);
+  await assert.rejects(service.call(owner, 'list_project_memories', { projectId: first.project._id, scope: 'task', limit: 10 }), /requires ownerTaskId/i);
+  await assert.rejects(service.call(owner, 'get_project_memory', { projectId: first.project._id, memoryId: alpha._id, ownerTaskId: sibling._id }), /not found/i);
+  const alphaSearch = await service.call(owner, 'search_project_memories', { projectId: first.project._id, query: 'beta calibration private evidence', scope: 'task', ownerTaskId: first.task._id, limit: 10 });
+  assert.ok(alphaSearch.items.every((item: any) => item.memoryId === alpha._id));
+  assert.ok(!alphaSearch.items.some((item: any) => item.memoryId === beta._id));
+
+  const alphaContext = await service.call(owner, 'get_task_context', { projectId: first.project._id, taskId: first.task._id });
+  const betaContext = await service.call(owner, 'get_task_context', { projectId: first.project._id, taskId: sibling._id });
+  const alphaIds = alphaContext.memories.items.map((item: any) => item.memoryId);
+  const betaIds = betaContext.memories.items.map((item: any) => item.memoryId);
+  assert.ok(alphaIds.includes(shared._id) && alphaIds.includes(alpha._id));
+  assert.ok(!alphaIds.includes(beta._id));
+  assert.ok(betaIds.includes(shared._id) && betaIds.includes(beta._id));
+  assert.ok(!betaIds.includes(alpha._id));
+  assert.ok(alphaContext.memories.items.find((item: any) => item.memoryId === alpha._id).scope === 'task');
+
+  await Task.updateOne({ _id: first.task._id }, { $set: { status: 'pendente' } });
+  await assert.rejects(service.call(owner, 'update_project_memory', { operationId: op(), projectId: first.project._id, memoryId: alpha._id,
+    ownerTaskId: first.task._id, version: alpha.version,
+    data: { title: alpha.title, category: alpha.category, content: 'Cannot revise while the owner task is active.', sources: alpha.sources.map((source: any) => ({ kind: source.kind, id: source.id })) }
+  }), /only be recorded after its owner task is completed/i);
+  await Task.updateOne({ _id: first.task._id }, { $set: { status: 'concluida' } });
+  const updated = await service.call(owner, 'update_project_memory', { operationId: op(), projectId: first.project._id, memoryId: alpha._id,
+    ownerTaskId: first.task._id, version: alpha.version,
+    data: { title: alpha.title, category: alpha.category, content: 'Updated alpha task calibration evidence.', sources: alpha.sources.map((source: any) => ({ kind: source.kind, id: source.id })) }
+  });
+  assert.equal(updated.scope, 'task');
+  assert.equal((await ProjectMemoryRevision.findOne({ memoryId: alpha._id, revision: updated.revision }).lean())?.ownerTaskId, first.task._id);
+  assert.equal((await service.call(owner, 'get_project_memory', { projectId: first.project._id, memoryId: alpha._id, ownerTaskId: first.task._id })).content, 'Updated alpha task calibration evidence.');
+  await assert.rejects(service.call(owner, 'archive_project_memory', { operationId: op(), projectId: first.project._id, memoryId: alpha._id, version: updated.version }), /not found/i);
+  const archived = await service.call(owner, 'archive_project_memory', { operationId: op(), projectId: first.project._id, memoryId: alpha._id, ownerTaskId: first.task._id, version: updated.version });
+  assert.equal(archived.scope, 'task');
+  assert.equal(archived.archived, true);
+
+  const proposal = await service.call(owner, 'create_project_memory_proposal', { operationId: op(), projectId: first.project._id, taskId: first.task._id,
+    executionId: alphaExecutionId, scope: 'task', data: { title: 'Approved Alpha learning', category: 'decision', content: 'Approved task scoped learning.', sources: [] }
+  });
+  assert.equal(proposal.ownerTaskId, first.task._id);
+  assert.equal((await service.call(owner, 'list_project_memory_proposals', { projectId: first.project._id, scope: 'task', ownerTaskId: first.task._id, status: 'pending', limit: 10 })).items[0]._id, proposal._id);
+  await assert.rejects(service.call(owner, 'get_project_memory_proposal', { projectId: first.project._id, proposalId: proposal._id, ownerTaskId: sibling._id }), /not found/i);
+  await assert.rejects(service.call(human, 'retarget_project_memory_proposal', { operationId: op(), projectId: first.project._id,
+    proposalId: proposal._id, version: proposal.version, targetMemoryId: beta._id, expectedMemoryVersion: beta.version
+  }), /target memory is missing/i);
+  const approved = await service.call(human, 'approve_project_memory_proposal', { operationId: op(), projectId: first.project._id, proposalId: proposal._id, version: proposal.version });
+  assert.equal(approved.memory.scope, 'task');
+  assert.equal(approved.memory.ownerTaskId, first.task._id);
+  assert.ok((await service.call(owner, 'list_project_memories', { projectId: first.project._id, scope: 'task', ownerTaskId: first.task._id, limit: 10 })).items.some((item: any) => item._id === approved.memory._id));
+});
+
+test('task memory proposal approval rechecks that the source task is still completed', async () => {
+  const { project, task } = await createProject('Task memory approval completion project');
+  const executionId = await completeTask(project._id, task._id);
+  const proposal = await service.call(owner, 'create_project_memory_proposal', { operationId: op(), projectId: project._id, taskId: task._id,
+    executionId, scope: 'task', data: { title: 'Completed-task learning', category: 'decision', content: 'Wait for the originating task to finish.', sources: [] }
+  });
+  await Task.updateOne({ _id: task._id, projectId: project._id }, { $set: { status: 'pendente' } });
+  await assert.rejects(service.call(human, 'approve_project_memory_proposal', { operationId: op(), projectId: project._id, proposalId: proposal._id, version: proposal.version }),
+    /memory proposals require a completed task/i);
+});
+
+test('legacy memory records without scope migrate to the shared project scope', async () => {
+  const projectId = op(), memoryId = op();
+  await ProjectMemory.collection.insertOne({ _id: memoryId, projectId, title: 'Legacy', category: 'decision', content: 'Legacy content', status: 'active', archived: false, revision: 1, sources: [], createdAt: new Date(), updatedAt: new Date() } as any);
+  await ProjectMemoryRevision.collection.insertOne({ _id: op(), projectId, memoryId, revision: 1, title: 'Legacy', category: 'decision', content: 'Legacy content', status: 'active', archived: false, sources: [], createdAt: new Date() } as any);
+  await ProjectMemoryProposal.collection.insertOne({ _id: op(), projectId, taskId: op(), title: 'Legacy proposal', category: 'decision', content: 'Legacy proposal', status: 'rejected', sources: [], createdAt: new Date(), updatedAt: new Date() } as any);
+  await migrateProjectMemoryScopes();
+  assert.equal((await ProjectMemory.collection.findOne({ _id: memoryId } as any))?.scope, 'project');
+  assert.equal((await ProjectMemoryRevision.collection.findOne({ projectId } as any))?.scope, 'project');
+  assert.equal((await ProjectMemoryProposal.collection.findOne({ projectId } as any))?.scope, 'project');
 });

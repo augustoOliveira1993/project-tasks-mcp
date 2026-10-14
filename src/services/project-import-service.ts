@@ -34,6 +34,10 @@ export async function validateProjectImport(input: unknown) {
     data[collection] = [];
     bundle.counts[collection] = 0;
   }
+  // Older exports predate explicit ownership; preserve their shared project scope.
+  for (const collection of ['projectMemories', 'projectMemoryRevisions', 'projectMemoryProposals']) {
+    for (const record of data[collection] ?? []) record.scope ??= 'project';
+  }
   const project = row.parse(data.project) as any;
   check(project._id === bundle.source.projectId, 'O ID do projeto não corresponde à origem do pacote.');
   check(typeof project.name === 'string' && project.name.trim(), 'Projeto sem nome.');
@@ -145,6 +149,11 @@ export async function validateProjectImport(input: unknown) {
     check(typeof revision.content === 'string' && Number.isInteger(revision.revision) && revision.revision > 0, 'Revisão de documento inválida.');
   }
   for (const memory of data.projectMemories) {
+    check(['project', 'task'].includes(memory.scope), 'Escopo de memória inválido.');
+    if (memory.scope === 'task') {
+      ref(memory.ownerTaskId, 'tasks', 'memory.ownerTaskId', true);
+      check((memory.sources ?? []).some((source: any) => source.kind === 'task' && source.id === memory.ownerTaskId), 'Memória da tarefa precisa citar sua tarefa proprietária como fonte.');
+    } else check(memory.ownerTaskId == null, 'Memória de projeto não pode ter ownerTaskId.');
     check(['active', 'superseded'].includes(memory.status), 'Estado de memória inválido.');
     check(Array.isArray(memory.sources) && memory.sources.length > 0, 'Fontes de memória ausentes.');
     for (const source of memory.sources) {
@@ -155,15 +164,28 @@ export async function validateProjectImport(input: unknown) {
   }
   for (const revision of data.projectMemoryRevisions) {
     ref(revision.memoryId, 'projectMemories', 'memoryRevision.memoryId', true);
+    check(['project', 'task'].includes(revision.scope), 'Escopo de revisão de memória inválido.');
+    const memory = data.projectMemories.find((item: any) => item._id === revision.memoryId);
+    check(memory && revision.scope === memory.scope && revision.ownerTaskId === memory.ownerTaskId, 'Ownership da revisão de memória não corresponde à memória.');
     check(Number.isInteger(revision.revision) && revision.revision > 0 && typeof revision.content === 'string', 'Revisão de memória inválida.');
     for (const source of revision.sources ?? []) ref(source.id, projectMemorySourceCollections[source.kind], 'memoryRevision.source', true);
   }
   for (const proposal of data.projectMemoryProposals) {
+    check(['project', 'task'].includes(proposal.scope), 'Escopo de proposta de memória inválido.');
     check(['pending', 'approved', 'rejected'].includes(proposal.status), 'Estado de proposta de memória inválido.');
     ref(proposal.taskId, 'tasks', 'memoryProposal.taskId', true);
+    if (proposal.scope === 'task') {
+      ref(proposal.ownerTaskId, 'tasks', 'memoryProposal.ownerTaskId', true);
+      check(proposal.ownerTaskId === proposal.taskId, 'Proposta task-scoped deve pertencer à própria task de origem.');
+    } else check(proposal.ownerTaskId == null, 'Proposta de projeto não pode ter ownerTaskId.');
     ref(proposal.executionId, 'executions', 'memoryProposal.executionId', true);
     ref(proposal.targetMemoryId, 'projectMemories', 'memoryProposal.targetMemoryId');
     ref(proposal.memoryId, 'projectMemories', 'memoryProposal.memoryId');
+    for (const memoryId of [proposal.targetMemoryId, proposal.memoryId].filter(Boolean)) {
+      const targetMemory = data.projectMemories.find((memory: any) => memory._id === memoryId);
+      check(targetMemory && targetMemory.scope === proposal.scope && targetMemory.ownerTaskId === proposal.ownerTaskId,
+        'Ownership da memória vinculada não corresponde à proposta.');
+    }
     check(Array.isArray(proposal.sources) && proposal.sources.length >= 2, 'Fontes da proposta de memória ausentes.');
     for (const source of proposal.sources) ref(source.id, projectMemorySourceCollections[source.kind], 'memoryProposal.source', true);
   }
@@ -308,9 +330,9 @@ export async function importProject(input: unknown, ownerKey: string, owner: str
       automationJobs: [['tasks', record.taskId], ['repositories', record.repositoryId], ['executions', record.executionId], ['automationJobs', record.originJobId], ['conversations', record.conversationId], ['taskMessages', record.triggerMessageId]],
       markdownDocuments: [[record.targetKind === 'task' ? 'tasks' : 'features', record.targetId]],
       markdownRevisions: [['markdownDocuments', record.documentId]],
-      projectMemories: (record.sources ?? []).map((source: any) => [projectMemorySourceCollections[source.kind], source.id]),
-      projectMemoryRevisions: [['projectMemories', record.memoryId], ...(record.sources ?? []).map((source: any) => [projectMemorySourceCollections[source.kind], source.id])],
-      projectMemoryProposals: [['tasks', record.taskId], ['executions', record.executionId], ['projectMemories', record.targetMemoryId], ['projectMemories', record.memoryId], ...(record.sources ?? []).map((source: any) => [projectMemorySourceCollections[source.kind], source.id])]
+      projectMemories: [['tasks', record.ownerTaskId], ...(record.sources ?? []).map((source: any) => [projectMemorySourceCollections[source.kind], source.id])],
+      projectMemoryRevisions: [['projectMemories', record.memoryId], ['tasks', record.ownerTaskId], ...(record.sources ?? []).map((source: any) => [projectMemorySourceCollections[source.kind], source.id])],
+      projectMemoryProposals: [['tasks', record.taskId], ['tasks', record.ownerTaskId], ['executions', record.executionId], ['projectMemories', record.targetMemoryId], ['projectMemories', record.memoryId], ...(record.sources ?? []).map((source: any) => [projectMemorySourceCollections[source.kind], source.id])]
     };
     if (!(base[name] ?? []).every(([collection, id]) => has(collection, id))) return false;
     if (name === 'tasks' && !areaNames.has(record.area.toLocaleLowerCase('pt-BR'))) return false;

@@ -23,6 +23,8 @@ type MemorySource = {
 type ProjectMemory = {
   _id: string;
   version: number;
+  scope: 'project' | 'task';
+  ownerTaskId?: string;
   title: string;
   category: MemoryCategory;
   status: MemoryStatus;
@@ -33,6 +35,8 @@ type MemoryDetail = ProjectMemory & { content: string };
 type MemoryProposal = {
   _id: string;
   version: number;
+  scope: 'project' | 'task';
+  ownerTaskId?: string;
   taskId: string;
   executionId: string;
   title: string;
@@ -138,7 +142,7 @@ export function ProjectMemoryPanel({ token, projectId }: { token: string; projec
     enabled: Boolean(token && projectId),
     initialPageParam: '',
     queryFn: ({ pageParam }) => query<ApiPage<ProjectMemory>>(token, 'list_project_memories', {
-      projectId, limit: 20, ...(search ? { search } : {}), ...(category ? { category } : {}),
+      projectId, scope: 'project', limit: 20, ...(search ? { search } : {}), ...(category ? { category } : {}),
       ...(status ? { status } : {}), ...(pageParam ? { after: pageParam } : {})
     }),
     getNextPageParam: lastPage => lastPage.next ?? undefined
@@ -148,7 +152,7 @@ export function ProjectMemoryPanel({ token, projectId }: { token: string; projec
     enabled: Boolean(token && projectId),
     initialPageParam: '',
     queryFn: ({ pageParam }) => query<ApiPage<MemoryProposal>>(token, 'list_project_memory_proposals', {
-      projectId, status: 'pending', limit: 20, ...(pageParam ? { after: pageParam } : {})
+      projectId, scope: 'all', status: 'pending', limit: 20, ...(pageParam ? { after: pageParam } : {})
     }),
     getNextPageParam: lastPage => lastPage.next ?? undefined
   });
@@ -160,7 +164,13 @@ export function ProjectMemoryPanel({ token, projectId }: { token: string; projec
   const proposalDetailQuery = useQuery({
     queryKey: ['project-memory-proposal-detail', projectId, openProposalId],
     enabled: Boolean(token && projectId && openProposalId),
-    queryFn: () => query<ProposalDetail>(token, 'get_project_memory_proposal', { projectId, proposalId: openProposalId })
+    queryFn: () => {
+      const proposal = proposalsQuery.data?.pages.flatMap(page => page.items).find(item => item._id === openProposalId);
+      return query<ProposalDetail>(token, 'get_project_memory_proposal', {
+        projectId, proposalId: openProposalId,
+        ...(proposal?.scope === 'task' && proposal.ownerTaskId ? { ownerTaskId: proposal.ownerTaskId } : {})
+      });
+    }
   });
 
   const saveMemory = useMutation({
@@ -174,7 +184,7 @@ export function ProjectMemoryPanel({ token, projectId }: { token: string; projec
           ...(source.revision.trim() ? { revision: Number(source.revision) } : {})
         }))
       };
-      if (draft.version === undefined) return query<MemoryDetail>(token, 'create_project_memory', { operationId: operationId(), projectId, data });
+      if (draft.version === undefined) return query<MemoryDetail>(token, 'create_project_memory', { operationId: operationId(), projectId, scope: 'project', data });
       return query<MemoryDetail>(token, 'update_project_memory', {
         operationId: operationId(), projectId, memoryId: editingMemoryId, version: draft.version, data
       });
@@ -220,6 +230,7 @@ export function ProjectMemoryPanel({ token, projectId }: { token: string; projec
       setRejectionReason('');
       await queryClient.invalidateQueries({ queryKey: ['project-memory-proposals', projectId] });
       await queryClient.invalidateQueries({ queryKey: ['project-memories', projectId] });
+      await queryClient.invalidateQueries({ queryKey: ['task-memories', projectId] });
     },
     onError: error => setMessage(error instanceof Error ? error.message : 'Não foi possível revisar a proposta.')
   });
@@ -237,7 +248,7 @@ export function ProjectMemoryPanel({ token, projectId }: { token: string; projec
       setDraft({
         title: detail.title, category: detail.category, status: detail.status, content: detail.content,
         version: detail.version,
-        sources: detail.sources.map(source => ({ kind: source.kind, id: source.id, revision: source.revision === undefined ? '' : String(source.revision) }))
+        sources: detail.sources.map(source => ({ kind: source.kind, id: source.id, revision: source.kind === 'document' && source.revision !== undefined ? String(source.revision) : '' }))
       });
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Não foi possível carregar a memória.');
@@ -292,7 +303,7 @@ export function ProjectMemoryPanel({ token, projectId }: { token: string; projec
     </form>}
 
     <section className="grid min-w-0 gap-3" aria-labelledby="memory-list-title">
-      <div><h3 id="memory-list-title" className="text-ui-sm font-bold text-ink">Acervo aprovado</h3><p className="mt-1 text-ui-xs text-muted-strong">O conteúdo completo é carregado ao abrir um registro.</p></div>
+      <div><h3 id="memory-list-title" className="text-ui-sm font-bold text-ink">Acervo aprovado</h3><p className="mt-1 text-ui-xs text-muted-strong">O conteúdo completo é carregado ao abrir um registro. Uma task em Fontes indica proveniência; o escopo compartilhado continua sendo do projeto.</p></div>
       <form className="grid grid-cols-[minmax(180px,2fr)_minmax(140px,1fr)_minmax(140px,1fr)_auto] gap-2 max-[720px]:grid-cols-1" role="search" onSubmit={event => { event.preventDefault(); setSearch(searchInput.trim()); }}>
         <label className={labelClass}>Pesquisar memórias<input className={inputClass} maxLength={160} value={searchInput} onChange={event => setSearchInput(event.target.value)} placeholder="Título ou conteúdo" /></label>
         <label className={labelClass}>Categoria<select className={inputClass} value={category} onChange={event => setCategory(event.target.value as CategoryFilter)}><option value="">Todas</option>{categories.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
@@ -305,7 +316,7 @@ export function ProjectMemoryPanel({ token, projectId }: { token: string; projec
       {memories.length > 0 && <div className="grid gap-2">
         {memories.map(memory => <article key={memory._id} className="grid min-w-0 gap-2 rounded-ui-sm border border-line px-3 py-3">
           <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
-            <div className="min-w-0"><h4 className="wrap-anywhere text-ui-sm font-bold text-ink">{memory.title}</h4><p className="mt-1 text-ui-xs text-muted-strong">{categoryLabels[memory.category]} · {memory.status === 'active' ? 'Ativa' : 'Substituída'} · revisão {memory.revision} · versão {memory.version} · {memory.sources.length} fonte(s)</p></div>
+            <div className="min-w-0"><h4 className="wrap-anywhere text-ui-sm font-bold text-ink">{memory.title}</h4><p className="mt-1 text-ui-xs text-muted-strong">Escopo: compartilhada no projeto · {categoryLabels[memory.category]} · {memory.status === 'active' ? 'Ativa' : 'Substituída'} · revisão {memory.revision} · versão {memory.version} · {memory.sources.length} fonte(s)</p></div>
             <div className="flex shrink-0 flex-wrap gap-1.5">
               <button type="button" className={buttonSecondarySmall} onClick={() => setOpenMemoryId(openMemoryId === memory._id ? '' : memory._id)} aria-expanded={openMemoryId === memory._id}>{openMemoryId === memory._id ? 'Fechar' : 'Abrir'}</button>
               <button type="button" className={buttonSecondarySmall} onClick={() => void beginEdit(memory)}>Editar</button>
@@ -330,7 +341,7 @@ export function ProjectMemoryPanel({ token, projectId }: { token: string; projec
       {proposals.length > 0 && <div className="grid gap-2">
         {proposals.map(proposal => <article key={proposal._id} className="grid min-w-0 gap-2 rounded-ui-sm border border-line px-3 py-3">
           <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
-            <div className="min-w-0"><h4 className="wrap-anywhere text-ui-sm font-bold text-ink">{proposal.title}</h4><p className="mt-1 text-ui-xs text-muted-strong">{categoryLabels[proposal.category]} · pendente · tarefa <TaskLink taskId={proposal.taskId} name="Tarefa fonte" projectId={projectId} title="Abrir tarefa que fundamenta a sugestão" className="text-tone-blue underline underline-offset-2">abrir fonte</TaskLink></p></div>
+            <div className="min-w-0"><h4 className="wrap-anywhere text-ui-sm font-bold text-ink">{proposal.title}</h4><p className="mt-1 text-ui-xs text-muted-strong">Escopo: {proposal.scope === 'task' ? <>exclusivo da tarefa <TaskLink taskId={proposal.ownerTaskId ?? proposal.taskId} name="Tarefa proprietária" projectId={projectId} title="Abrir tarefa proprietária" className="text-tone-blue underline underline-offset-2">abrir proprietária</TaskLink></> : 'compartilhado no projeto'} · {categoryLabels[proposal.category]} · pendente · tarefa fonte <TaskLink taskId={proposal.taskId} name="Tarefa fonte" projectId={projectId} title="Abrir tarefa que fundamenta a sugestão" className="text-tone-blue underline underline-offset-2">abrir fonte</TaskLink></p></div>
             <button type="button" className={buttonSecondarySmall} onClick={() => setOpenProposalId(openProposalId === proposal._id ? '' : proposal._id)} aria-expanded={openProposalId === proposal._id}>{openProposalId === proposal._id ? 'Fechar revisão' : 'Revisar conteúdo e fontes'}</button>
           </div>
           {openProposalId === proposal._id && <div className="grid min-w-0 gap-3 border-t border-line pt-3">

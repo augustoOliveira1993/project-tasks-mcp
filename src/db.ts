@@ -38,6 +38,12 @@ async function migrateProjectMemoryTextIndex() {
   if (!sameWeights || current.default_language !== 'portuguese') await collection.dropIndex(current.name!);
 }
 
+export async function migrateProjectMemoryScopes() {
+  await ProjectMemory.updateMany({ scope: { $exists: false } }, { $set: { scope: 'project' } });
+  await ProjectMemoryRevision.updateMany({ scope: { $exists: false } }, { $set: { scope: 'project' } });
+  await ProjectMemoryProposal.updateMany({ scope: { $exists: false } }, { $set: { scope: 'project' } });
+}
+
 export async function connect(uri: string) {
   await mongoose.connect(uri);
   const hello = await mongoose.connection.db!.admin().command({ hello: 1 });
@@ -47,6 +53,7 @@ export async function connect(uri: string) {
   await ProjectMemory.init();
   await migrateLegacyTaskTextIndex();
   await migrateProjectMemoryTextIndex();
+  await migrateProjectMemoryScopes();
   await ProjectMemory.createIndexes();
   await Promise.all([Project, Feature, Task, TaskDependency, Execution, Event, TaskMessage, Conversation, ConversationType, ConversationMessage, ConversationRead, ActionProposal, DeliveryEvent, DeliveryRead, TaskRead, TaskDiff, AutomationPolicy, Runner, AutomationJob, MarkdownDocument, MarkdownRevision, ProjectMemoryRevision, ProjectMemoryProposal, Operation, Credential, Bootstrap].map(model => model.init()));
 }
