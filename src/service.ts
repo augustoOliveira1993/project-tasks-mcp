@@ -9,11 +9,7 @@ import { EventHub, readEvents } from './events.js';
 import { logger } from './logger.js';
 import { validateTaskDependencyGraph } from './services/task-dependency-service.js';
 import { getTaskContext } from './services/task-context-service.js';
-<<<<<<< HEAD
-import { getPortfolioDashboard, getProjectDashboard } from './services/project-dashboard-service.js';
-=======
 import { getGlobalDashboard, getProjectDashboard } from './services/project-dashboard-service.js';
->>>>>>> 9c6390edb4c0782932252fa27bc56fc1c607f84e
 import { Automation } from './services/automation-service.js';
 import { taskMessageAuthorMetadata } from './services/task-message-author.js';
 import { deleteProjectCascade, ProjectDeletionConflict } from './services/project-deletion-service.js';
@@ -333,10 +329,12 @@ export class Service {
     const contentType = input.contentType.trim().toLowerCase().split(';', 1)[0];
     requireThat(contentType.length <= 255 && /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/i.test(contentType), 'Invalid content type', 400);
     const bucket = this.taskAttachmentBucket();
-    const upload = bucket.openUploadStream(fileName, { metadata: {
-      projectId: input.projectId, taskId: input.taskId, originalName: fileName,
-      contentType, uploadedBy: actor.userId, ...(input.operationKey ? { operationKey: input.operationKey } : {})
-    } });
+    const upload = bucket.openUploadStream(fileName, {
+      metadata: {
+        projectId: input.projectId, taskId: input.taskId, originalName: fileName,
+        contentType, uploadedBy: actor.userId, ...(input.operationKey ? { operationKey: input.operationKey } : {})
+      }
+    });
     try {
       await pipeline(Readable.from([input.content]), upload);
       const file = await bucket.find({ _id: upload.id }).next();
@@ -1274,15 +1272,21 @@ export class Service {
       } catch (error) { if (error instanceof DomainError) throw error; throw new DomainError('Invalid task search cursor', 400); }
     }
     const cursorValue = (field: string, value: unknown) => ['createdAt', 'updatedAt'].includes(field) && typeof value === 'string' ? new Date(value) : value;
-    const afterMatch = (values: unknown[]) => ({ $or: sortKeys.map(([field, direction], index) => ({ $and: [
-      ...sortKeys.slice(0, index).map(([previous], previousIndex) => ({ [previous]: cursorValue(previous, values[previousIndex]) })),
-      { [field]: { [direction === 1 ? '$gt' : '$lt']: cursorValue(field, values[index]) } }
-    ] })) });
+    const afterMatch = (values: unknown[]) => ({
+      $or: sortKeys.map(([field, direction], index) => ({
+        $and: [
+          ...sortKeys.slice(0, index).map(([previous], previousIndex) => ({ [previous]: cursorValue(previous, values[previousIndex]) })),
+          { [field]: { [direction === 1 ? '$gt' : '$lt']: cursorValue(field, values[index]) } }
+        ]
+      }))
+    });
     const queryCursor = (row: any) => sortKeys.map(([field]) => field === '__workspaceStatusRank' ? row.__workspaceStatusRank : row[field]);
-    const beforeFacet = [...pipeline, { $facet: {
-      counted: [{ $count: 'total' }],
-      rows: [...(cursorValues ? [{ $match: afterMatch(cursorValues) }] : []), { $sort: sort }, { $limit: a.limit + 1 }]
-    } }];
+    const beforeFacet = [...pipeline, {
+      $facet: {
+        counted: [{ $count: 'total' }],
+        rows: [...(cursorValues ? [{ $match: afterMatch(cursorValues) }] : []), { $sort: sort }, { $limit: a.limit + 1 }]
+      }
+    }];
     const taskAggregation = Task.aggregate(beforeFacet).allowDiskUse(true);
     if (!search && a.sort === 'name') taskAggregation.collation({ locale: 'pt', strength: 1 });
     let results: any[] = await taskAggregation.exec();
@@ -1330,48 +1334,92 @@ export class Service {
   }
   private taskWorkspaceFlagStages(actor: Actor, projectId: string, baseline: number) {
     return [
-      { $lookup: { from: TaskRead.collection.name, let: { taskId: '$_id' }, pipeline: [
-        { $match: { $expr: { $and: [{ $eq: ['$projectId', projectId] }, { $eq: ['$userId', actor.userId] }, { $eq: ['$taskId', '$$taskId'] }] } } }, { $project: { _id: 0, lastSequence: 1 } }, { $limit: 1 }
-      ], as: '__taskRead' } },
+      {
+        $lookup: {
+          from: TaskRead.collection.name, let: { taskId: '$_id' }, pipeline: [
+            { $match: { $expr: { $and: [{ $eq: ['$projectId', projectId] }, { $eq: ['$userId', actor.userId] }, { $eq: ['$taskId', '$$taskId'] }] } } }, { $project: { _id: 0, lastSequence: 1 } }, { $limit: 1 }
+          ], as: '__taskRead'
+        }
+      },
       { $addFields: { __workspaceReadSequence: { $max: [baseline, { $ifNull: [{ $first: '$__taskRead.lastSequence' }, 0] }] } } },
-      { $lookup: { from: DeliveryEvent.collection.name, let: { taskId: '$_id', readSequence: '$__workspaceReadSequence' }, pipeline: [
-        { $match: { $expr: { $and: [{ $eq: ['$projectId', projectId] }, { $in: ['$$taskId', '$taskIds'] }, { $gt: ['$sequence', '$$readSequence'] }, { $ne: ['$author', actor.userId] }] } } }, { $count: 'count' }
-      ], as: '__unreadEvents' } },
-      { $lookup: { from: TaskDiff.collection.name, let: { taskId: '$_id' }, pipeline: [
-        { $match: { $expr: { $and: [{ $eq: ['$projectId', projectId] }, { $eq: ['$taskId', '$$taskId'] }] } } }, { $sort: { createdAt: -1, _id: -1 } }, { $limit: 1 }, { $project: { _id: 1 } }
-      ], as: '__diffs' } },
-      { $lookup: { from: TaskMessage.collection.name, let: { taskId: '$_id' }, pipeline: [
-        { $match: { $expr: { $and: [{ $eq: ['$projectId', projectId] }, { $eq: ['$taskId', '$$taskId'] }, { $eq: ['$type', 'pergunta'] }] } } },
-        { $lookup: { from: TaskMessage.collection.name, let: { questionId: '$_id', conversation: '$conversationId', questionAt: '$createdAt' }, pipeline: [
-          { $match: { $expr: { $and: [{ $eq: ['$projectId', projectId] }, { $eq: ['$type', 'resposta'] }, { $or: [
-            { $eq: ['$replyTo', '$$questionId'] },
-            { $and: [{ $eq: [{ $ifNull: ['$replyTo', null] }, null] }, { $ne: ['$$conversation', null] }, { $eq: ['$conversationId', '$$conversation'] }, { $gte: ['$createdAt', '$$questionAt'] }] }
-          ] }] } } }, { $limit: 1 }
-        ], as: '__answers' } },
-        { $match: { $expr: { $eq: [{ $size: '$__answers' }, 0] } } }, { $count: 'count' }
-      ], as: '__openQuestions' } },
-      { $addFields: { __workspace: {
-        unread: { $gt: [{ $ifNull: [{ $first: '$__unreadEvents.count' }, 0] }, 0] },
-        openQuestionCount: { $ifNull: [{ $first: '$__openQuestions.count' }, 0] },
-        openQuestions: { $gt: [{ $ifNull: [{ $first: '$__openQuestions.count' }, 0] }, 0] },
-        hasGitDiff: { $gt: [{ $size: '$__diffs' }, 0] }
-      } } }
+      {
+        $lookup: {
+          from: DeliveryEvent.collection.name, let: { taskId: '$_id', readSequence: '$__workspaceReadSequence' }, pipeline: [
+            { $match: { $expr: { $and: [{ $eq: ['$projectId', projectId] }, { $in: ['$$taskId', '$taskIds'] }, { $gt: ['$sequence', '$$readSequence'] }, { $ne: ['$author', actor.userId] }] } } }, { $count: 'count' }
+          ], as: '__unreadEvents'
+        }
+      },
+      {
+        $lookup: {
+          from: TaskDiff.collection.name, let: { taskId: '$_id' }, pipeline: [
+            { $match: { $expr: { $and: [{ $eq: ['$projectId', projectId] }, { $eq: ['$taskId', '$$taskId'] }] } } }, { $sort: { createdAt: -1, _id: -1 } }, { $limit: 1 }, { $project: { _id: 1 } }
+          ], as: '__diffs'
+        }
+      },
+      {
+        $lookup: {
+          from: TaskMessage.collection.name, let: { taskId: '$_id' }, pipeline: [
+            { $match: { $expr: { $and: [{ $eq: ['$projectId', projectId] }, { $eq: ['$taskId', '$$taskId'] }, { $eq: ['$type', 'pergunta'] }] } } },
+            {
+              $lookup: {
+                from: TaskMessage.collection.name, let: { questionId: '$_id', conversation: '$conversationId', questionAt: '$createdAt' }, pipeline: [
+                  {
+                    $match: {
+                      $expr: {
+                        $and: [{ $eq: ['$projectId', projectId] }, { $eq: ['$type', 'resposta'] }, {
+                          $or: [
+                            { $eq: ['$replyTo', '$$questionId'] },
+                            { $and: [{ $eq: [{ $ifNull: ['$replyTo', null] }, null] }, { $ne: ['$$conversation', null] }, { $eq: ['$conversationId', '$$conversation'] }, { $gte: ['$createdAt', '$$questionAt'] }] }
+                          ]
+                        }]
+                      }
+                    }
+                  }, { $limit: 1 }
+                ], as: '__answers'
+              }
+            },
+            { $match: { $expr: { $eq: [{ $size: '$__answers' }, 0] } } }, { $count: 'count' }
+          ], as: '__openQuestions'
+        }
+      },
+      {
+        $addFields: {
+          __workspace: {
+            unread: { $gt: [{ $ifNull: [{ $first: '$__unreadEvents.count' }, 0] }, 0] },
+            openQuestionCount: { $ifNull: [{ $first: '$__openQuestions.count' }, 0] },
+            openQuestions: { $gt: [{ $ifNull: [{ $first: '$__openQuestions.count' }, 0] }, 0] },
+            hasGitDiff: { $gt: [{ $size: '$__diffs' }, 0] }
+          }
+        }
+      }
     ];
   }
   private taskWorkspaceContentStages(projectId: string, fields: TaskContentFilterField[]) {
     const stages: any[] = [];
-    if (fields.includes('hasPlanning')) stages.push({ $lookup: { from: MarkdownDocument.collection.name, let: { taskId: '$_id' }, pipeline: [
-      { $match: { $expr: { $and: [{ $eq: ['$projectId', projectId] }, { $eq: ['$targetKind', 'task'] }, { $eq: ['$targetId', '$$taskId'] }] } } },
-      { $limit: 1 }, { $project: { _id: 1 } }
-    ], as: '__contentPlanningDocs' } });
-    if (fields.includes('hasAttachments')) stages.push({ $lookup: { from: this.taskAttachmentFiles().collectionName, let: { taskId: '$_id' }, pipeline: [
-      { $match: { $expr: { $and: [{ $eq: ['$metadata.projectId', projectId] }, { $eq: ['$metadata.taskId', '$$taskId'] }] } } },
-      { $limit: 1 }, { $project: { _id: 1 } }
-    ], as: '__contentAttachments' } });
-    if (fields.includes('hasConversations')) stages.push({ $lookup: { from: Conversation.collection.name, let: { taskId: '$_id' }, pipeline: [
-      { $match: { $expr: { $and: [{ $eq: ['$projectId', projectId] }, { $eq: ['$taskId', '$$taskId'] }, { $ne: ['$status', 'deleted'] }] } } },
-      { $limit: 1 }, { $project: { _id: 1 } }
-    ], as: '__contentConversations' } });
+    if (fields.includes('hasPlanning')) stages.push({
+      $lookup: {
+        from: MarkdownDocument.collection.name, let: { taskId: '$_id' }, pipeline: [
+          { $match: { $expr: { $and: [{ $eq: ['$projectId', projectId] }, { $eq: ['$targetKind', 'task'] }, { $eq: ['$targetId', '$$taskId'] }] } } },
+          { $limit: 1 }, { $project: { _id: 1 } }
+        ], as: '__contentPlanningDocs'
+      }
+    });
+    if (fields.includes('hasAttachments')) stages.push({
+      $lookup: {
+        from: this.taskAttachmentFiles().collectionName, let: { taskId: '$_id' }, pipeline: [
+          { $match: { $expr: { $and: [{ $eq: ['$metadata.projectId', projectId] }, { $eq: ['$metadata.taskId', '$$taskId'] }] } } },
+          { $limit: 1 }, { $project: { _id: 1 } }
+        ], as: '__contentAttachments'
+      }
+    });
+    if (fields.includes('hasConversations')) stages.push({
+      $lookup: {
+        from: Conversation.collection.name, let: { taskId: '$_id' }, pipeline: [
+          { $match: { $expr: { $and: [{ $eq: ['$projectId', projectId] }, { $eq: ['$taskId', '$$taskId'] }, { $ne: ['$status', 'deleted'] }] } } },
+          { $limit: 1 }, { $project: { _id: 1 } }
+        ], as: '__contentConversations'
+      }
+    });
     const fieldsToSet: Record<string, unknown> = {};
     if (fields.includes('hasPlanning')) fieldsToSet['__workspace.hasPlanning'] = { $gt: [{ $size: '$__contentPlanningDocs' }, 0] };
     if (fields.includes('hasAttachments')) fieldsToSet['__workspace.hasAttachments'] = { $gt: [{ $size: '$__contentAttachments' }, 0] };
@@ -1407,9 +1455,13 @@ export class Service {
     const unreadRows = await DeliveryEvent.aggregate([
       { $match: { projectId, taskIds: { $in: taskIds }, sequence: { $gt: baseline }, author: { $ne: actor.userId } } }, { $unwind: '$taskIds' },
       { $match: { taskIds: { $in: taskIds } } },
-      { $lookup: { from: TaskRead.collection.name, let: { taskId: '$taskIds' }, pipeline: [
-        { $match: { $expr: { $and: [{ $eq: ['$projectId', projectId] }, { $eq: ['$userId', actor.userId] }, { $eq: ['$taskId', '$$taskId'] }] } } }, { $project: { _id: 0, lastSequence: 1 } }, { $limit: 1 }
-      ], as: 'read' } },
+      {
+        $lookup: {
+          from: TaskRead.collection.name, let: { taskId: '$taskIds' }, pipeline: [
+            { $match: { $expr: { $and: [{ $eq: ['$projectId', projectId] }, { $eq: ['$userId', actor.userId] }, { $eq: ['$taskId', '$$taskId'] }] } } }, { $project: { _id: 0, lastSequence: 1 } }, { $limit: 1 }
+          ], as: 'read'
+        }
+      },
       { $match: { $expr: { $gt: ['$sequence', { $max: [baseline, { $ifNull: [{ $first: '$read.lastSequence' }, 0] }] }] } } },
       { $group: { _id: '$taskIds', count: { $sum: 1 } } }
     ]);
@@ -1427,11 +1479,7 @@ export class Service {
   }
   private async read(actor: Actor, name: string, a: any) {
     if (a.projectId) await this.access(actor, a.projectId);
-<<<<<<< HEAD
-    else requireThat((name === 'list_records' && a.kind === 'project') || name === 'resolve_project_context' || name === 'resolve_task_context' || name === 'get_global_activity' || name === 'get_portfolio_dashboard', 'Project required', 400);
-=======
     else requireThat((name === 'list_records' && a.kind === 'project') || name === 'resolve_project_context' || name === 'resolve_task_context' || name === 'get_global_activity' || name === 'get_global_dashboard', 'Project required', 400);
->>>>>>> 9c6390edb4c0782932252fa27bc56fc1c607f84e
     if (name === 'preview_task_transfer') {
       const plan = await this.taskTransferPlan(actor, a);
       const { internal: _internal, ...preview } = plan;
@@ -1502,6 +1550,18 @@ export class Service {
       const to = a.to ? new Date(a.to) : undefined;
       requireThat(!from || !to || from <= to, 'Dashboard period start must not be after its end', 400);
       return getPortfolioDashboard(projects.map(project => ({ id: project._id!, name: project.name ?? '' })), from, to, a.granularity);
+    }
+    if (name === 'get_global_dashboard') {
+      const from = a.from ? new Date(a.from) : undefined;
+      requireThat(!from || from <= new Date(), 'Dashboard period cannot start in the future', 400);
+      const projectAccessFilter = actor.scope === 'trusted_local'
+        ? actor.projectToken ? { $or: [{ visibility: { $ne: 'private' } }, { accessTokenHash: hash(actor.projectToken) }] } : { visibility: { $ne: 'private' } }
+        : actor.systemAdmin ? {} : { [`members.${memberKey(actor.userId)}`]: { $exists: true } };
+      const projects = await Project.find({ ...projectAccessFilter, archived: false })
+        .select('_id name')
+        .sort({ name: 1, _id: 1 })
+        .lean();
+      return getGlobalDashboard(projects.map(project => ({ id: String(project._id), name: project.name ?? '' })), from);
     }
     if (name === 'get_global_dashboard') {
       const from = a.from ? new Date(a.from) : undefined;
