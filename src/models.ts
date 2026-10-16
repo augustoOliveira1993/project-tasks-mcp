@@ -14,7 +14,7 @@ Project.schema.index({ archived: 1, createdAt: 1, _id: 1 });
 export const Feature = mongoose.model('Feature', new Schema({ ...base, projectId: { type: String, index: true }, name: String, objective: String, context: String, acceptance: [String] }, options));
 export const Task = mongoose.model('Task', new Schema({ ...base, projectId: { type: String, index: true }, featureId: String, name: String,
   instructions: String, acceptance: [String], acceptanceProgress: { type: [Boolean], default: [] }, priority: Number, area: String, type: { type: String, default: 'feature' }, repositoryId: String, dependencies: [String],
-  status: { type: String, default: 'pendente' }, executionId: String, responsible: String, leaseUntil: Date, checked: { type: Boolean, default: false }, checkedBy: String, checkedAt: Date }, options));
+  status: { type: String, default: 'pendente' }, executionId: String, responsible: String, plannedStartAt: Date, plannedDueAt: Date, leaseUntil: Date, checked: { type: Boolean, default: false }, checkedBy: String, checkedAt: Date }, options));
 Task.schema.index({ projectId: 1, status: 1, _id: 1 });
 Task.schema.index({ projectId: 1, archived: 1, createdAt: 1, _id: 1 });
 Task.schema.index({ projectId: 1, archived: 1, status: 1, createdAt: 1, _id: 1 });

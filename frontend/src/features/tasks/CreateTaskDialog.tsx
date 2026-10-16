@@ -5,7 +5,7 @@ import type { Project, Task } from '../../api';
 import { errorMessage } from '../../lib/format';
 import { AssigneePicker } from '../../components/ui/AssigneePicker';
 import { useAssignees } from './assignees';
-import { submitNewTask } from './task-create';
+import { plannedDateTime, submitNewTask } from './task-create';
 import { buttonPrimary, buttonSecondary, eyebrow, notice } from '../../components/ui/classes';
 
 type Feature = { _id: string; name: string; archived?: boolean };
@@ -64,6 +64,8 @@ export function CreateTaskDialog({ token, nonce, projectId, repositories, areas,
       await Promise.all([
         client.invalidateQueries({ queryKey: ['project-tasks', nonce, projectId] }),
         client.invalidateQueries({ queryKey: ['project-sync-report', nonce, projectId] }),
+        client.invalidateQueries({ queryKey: ['project-dashboard', nonce, projectId] }),
+        client.invalidateQueries({ queryKey: ['portfolio-dashboard', nonce] }),
         client.invalidateQueries({ queryKey: ['admin-projects', nonce] })
       ]);
       onCreated(task);
@@ -73,6 +75,15 @@ export function CreateTaskDialog({ token, nonce, projectId, repositories, areas,
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
+    const plannedStartAt = String(form.get('plannedStartAt') ?? '');
+    const plannedDueAt = String(form.get('plannedDueAt') ?? '');
+    const dueControl = event.currentTarget.elements.namedItem('plannedDueAt') as HTMLInputElement;
+    if (plannedStartAt && plannedDueAt && plannedStartAt > plannedDueAt) {
+      dueControl.setCustomValidity('A entrega planejada precisa ser no mesmo dia ou depois do início.');
+      dueControl.reportValidity();
+      return;
+    }
+    dueControl.setCustomValidity('');
     create.mutate({
       name: String(form.get('name') ?? ''),
       instructions: String(form.get('instructions') ?? ''),
@@ -83,7 +94,9 @@ export function CreateTaskDialog({ token, nonce, projectId, repositories, areas,
       type: String(form.get('type') ?? 'feature') as Parameters<typeof submitNewTask>[2]['type'],
       priority: Number(form.get('priority') ?? 2),
       dependencies,
-      responsible: String(form.get('responsible') ?? '')
+      responsible: String(form.get('responsible') ?? ''),
+      plannedStartAt: plannedDateTime(plannedStartAt) ?? undefined,
+      plannedDueAt: plannedDateTime(plannedDueAt) ?? undefined
     });
   }
 
@@ -103,6 +116,10 @@ export function CreateTaskDialog({ token, nonce, projectId, repositories, areas,
         <label className={field}>Tipo<select className={control} name="type" defaultValue="feature">{['feature', 'fix', 'chore', 'docs', 'refactor', 'test', 'perf', 'build', 'ci', 'revert'].map(type => <option key={type} value={type}>{type}</option>)}</select></label>
         <label className={field}>Prioridade<select className={control} name="priority" defaultValue="2">{[0, 1, 2, 3, 4, 5].map(priority => <option key={priority} value={priority}>{priority}</option>)}</select></label>
         <AssigneePicker className="[&_select]:text-[#344054]" name="responsible" label="Responsável (opcional)" assignees={assignees.data ?? []} isPending={assignees.isPending} isError={assignees.isError} />
+      </div>
+      <div className="grid grid-cols-2 gap-3 max-[480px]:grid-cols-1" role="group" aria-label="Cronograma planejado da tarefa">
+        <label className={field}>Início planejado<input className={control} type="date" name="plannedStartAt" /></label>
+        <label className={field}>Entrega planejada<input className={control} type="date" name="plannedDueAt" /><small className={hint}>Datas opcionais para acompanhar o cronograma.</small></label>
       </div>
       <div className="grid gap-[7px] text-[10px] text-[#566275]" role="group" aria-labelledby="task-dependencies-label">
         <strong id="task-dependencies-label" className="font-semibold">Dependências (opcional)</strong>

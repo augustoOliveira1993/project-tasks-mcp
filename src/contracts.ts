@@ -51,6 +51,8 @@ export type TaskContextDto = {
     statusHistory: Array<{ status: string; startedAt: Date; endedAt: Date | null; durationMs: number }>;
     executionId: string | null;
     responsible: string | null;
+    plannedStartAt: Date | null;
+    plannedDueAt: Date | null;
     checked: boolean;
     leaseUntil?: Date | null;
     checkedBy: string | null;

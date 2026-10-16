@@ -40,6 +40,8 @@ export type Task = {
   priority?: number;
   responsible?: string;
   featureId?: string | null;
+  plannedStartAt?: string | null;
+  plannedDueAt?: string | null;
   acceptance?: string[];
   acceptanceProgress?: boolean[];
   acceptanceEvidence?: Array<string | null>;

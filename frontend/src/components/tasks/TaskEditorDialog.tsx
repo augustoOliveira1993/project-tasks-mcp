@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { operationId, request } from '../../api';
 import type { Project, Task } from '../../api';
 import { errorMessage } from '../../lib/format';
+import { plannedDateInput, plannedDateTime } from '../../features/tasks/task-create';
 import { AssigneePicker } from '../ui/AssigneePicker';
 import { useAssignees } from '../../features/tasks/assignees';
 import { buttonPrimary, buttonSecondary, eyebrow, notice } from '../ui/classes';
@@ -34,6 +35,8 @@ export function TaskEditorDialog({ token, nonce, project, tasks, features, task,
     onSuccess: async result => {
       await Promise.all([
         client.invalidateQueries({ queryKey: ['project-tasks', nonce, project._id] }),
+        client.invalidateQueries({ queryKey: ['project-dashboard', nonce, project._id] }),
+        client.invalidateQueries({ queryKey: ['portfolio-dashboard', nonce] }),
         client.invalidateQueries({ queryKey: ['task-context', nonce, project._id, task._id] }),
         client.invalidateQueries({ queryKey: ['admin-projects', nonce] })
       ]);
@@ -51,6 +54,15 @@ export function TaskEditorDialog({ token, nonce, project, tasks, features, task,
     const instructions = String(form.get('instructions') ?? '').trim();
     const acceptance = String(form.get('acceptance') ?? '').split('\n').map(value => value.trim()).filter(Boolean);
     if (!acceptance.length) return notify('Informe pelo menos um critério de aceite.', 'error');
+    const plannedStartAt = String(form.get('plannedStartAt') ?? '');
+    const plannedDueAt = String(form.get('plannedDueAt') ?? '');
+    const dueControl = event.currentTarget.elements.namedItem('plannedDueAt') as HTMLInputElement;
+    if (plannedStartAt && plannedDueAt && plannedStartAt > plannedDueAt) {
+      dueControl.setCustomValidity('A entrega planejada precisa ser no mesmo dia ou depois do início.');
+      dueControl.reportValidity();
+      return;
+    }
+    dueControl.setCustomValidity('');
     const responsible = String(form.get('responsible') ?? '').trim();
     if (task.responsible && !responsible) return notify('O contrato atual não permite limpar o responsável. Informe outro responsável ou mantenha o valor existente.', 'error');
     const originalAcceptance = task.acceptance ?? [];
@@ -59,6 +71,7 @@ export function TaskEditorDialog({ token, nonce, project, tasks, features, task,
       name, instructions, area: String(form.get('area') ?? ''), repositoryId: String(form.get('repositoryId') ?? ''),
       featureId: String(form.get('featureId') ?? '') || null, type: String(form.get('type') ?? 'feature'),
       priority: Number(form.get('priority') ?? 2), dependencies,
+      plannedStartAt: plannedDateTime(plannedStartAt), plannedDueAt: plannedDateTime(plannedDueAt),
       ...(responsible ? { responsible } : {})
     };
     if (acceptanceChanged) data.acceptance = acceptance;
@@ -79,6 +92,10 @@ export function TaskEditorDialog({ token, nonce, project, tasks, features, task,
         <label className={fieldLabel}>Tipo<select className={control} name="type" defaultValue={task.type ?? 'feature'}>{taskTypes.map(type => <option key={type} value={type}>{type}</option>)}</select></label>
         <label className={fieldLabel}>Prioridade<select className={control} name="priority" defaultValue={task.priority ?? 2}>{[0, 1, 2, 3, 4, 5].map(priority => <option key={priority} value={priority}>{priority}</option>)}</select></label>
         <div><AssigneePicker className="[&_select]:text-[#344054]" name="responsible" assignees={assignees.data ?? []} isPending={assignees.isPending} isError={assignees.isError} defaultValue={task.responsible} allowEmpty={!task.responsible} /><small className={hint}>Escolha entre as credenciais ativas de pessoas e agentes. O responsável só pode ser trocado, não removido.</small></div>
+      </div>
+      <div className="grid grid-cols-2 gap-3 max-[480px]:grid-cols-1" role="group" aria-label="Cronograma planejado da tarefa">
+        <label className={fieldLabel}>Início planejado<input className={control} type="date" name="plannedStartAt" defaultValue={plannedDateInput(task.plannedStartAt)} /></label>
+        <label className={fieldLabel}>Entrega planejada<input className={control} type="date" name="plannedDueAt" defaultValue={plannedDateInput(task.plannedDueAt)} /><small className={hint}>Limpe os campos para remover as datas planejadas.</small></label>
       </div>
       <div className="grid gap-[7px] text-[10px] text-[#566275]" role="group" aria-labelledby="edit-task-dependencies-label"><strong className="font-semibold" id="edit-task-dependencies-label">Dependências</strong><div className="grid max-h-[150px] gap-1 overflow-y-auto rounded-[7px] border border-[#e1e5ed] p-[7px]">{tasks.filter(item => item._id !== task._id).map(item => <label className="flex cursor-pointer items-center gap-2 px-0.5 py-1 text-[10px] font-normal text-[#566275]" key={item._id}><input className="m-0 size-[14px] flex-none rounded-[7px] border border-[#e1e5ed] bg-white p-0 text-[11px] text-[#344054] accent-accent" type="checkbox" checked={dependencies.includes(item._id)} onChange={event => setDependencies(current => event.target.checked ? [...current, item._id] : current.filter(id => id !== item._id))} /><span>{item.name} · {item.status}</span></label>)}</div></div>
       <div className="mt-1 flex items-center justify-end gap-2"><button type="button" className={buttonSecondary} onClick={close} disabled={mutation.isPending}>Cancelar</button><button className={buttonPrimary} disabled={mutation.isPending || repositories.length === 0}>{mutation.isPending ? 'Salvando…' : 'Salvar tarefa'}</button></div>

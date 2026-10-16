@@ -122,7 +122,7 @@ function markdownItems(items: any[], more: boolean, truncated: Set<string>, path
 export async function getTaskContext(projectId: string, taskId: string, includeAdministrativeDetails = false): Promise<TaskContextDto | null> {
   const startedAt = Date.now();
   const [task, project] = await Promise.all([
-    Task.findOne({ _id: taskId, projectId }).select('_id projectId version archived featureId name instructions acceptance acceptanceProgress priority area type repositoryId dependencies status executionId responsible leaseUntil checked checkedBy checkedAt createdAt updatedAt').lean(),
+    Task.findOne({ _id: taskId, projectId }).select('_id projectId version archived featureId name instructions acceptance acceptanceProgress priority area type repositoryId dependencies status executionId responsible plannedStartAt plannedDueAt leaseUntil checked checkedBy checkedAt createdAt updatedAt').lean(),
     Project.findById(projectId).select('_id version name description instructions').lean()
   ]);
   if (!task || !project) return null;
@@ -194,6 +194,7 @@ export async function getTaskContext(projectId: string, taskId: string, includeA
       repositoryId: task.repositoryId ?? '', dependencies: [...dependencyIds], status: task.status ?? 'pendente',
       statusHistory: buildStatusHistory(statusEvents, { status: task.status ?? 'pendente', createdAt: task.createdAt!, updatedAt: task.updatedAt! }),
       executionId: task.executionId ?? null, responsible: task.responsible ? text(task.responsible, 160, 'task.responsible', truncated) : null,
+      plannedStartAt: task.plannedStartAt ?? null, plannedDueAt: task.plannedDueAt ?? null,
       checked: task.checked ?? false,
       ...(includeAdministrativeDetails ? { leaseUntil: task.leaseUntil ?? null } : {}),
       checkedBy: task.checkedBy ? text(task.checkedBy, 160, 'task.checkedBy', truncated) : null,

@@ -53,3 +53,9 @@ Para atualização sem sobrescrita concorrente, use `update_markdown` com `docum
 ## Resumo do projeto por área
 
 Use `get_project_area_summary` com `projectId` para obter Markdown atualizado, separado em `Backend`, `Frontend` e `Outro`. Cada área mostra as tasks concluídas, pendentes e nos demais estados, incluindo status e tipo. Opcionalmente informe `featureId` para resumir somente uma feature. A ferramenta é somente leitura: ela não grava documento nem cria uma cópia que possa ficar desatualizada.
+
+## Dashboards de projeto e portfólio
+
+Use `get_project_dashboard` com `projectId` para consultar status, responsáveis, áreas e features, além de tendências agrupadas por dia, semana ou mês. `from` e `to` limitam as métricas pela data de criação da tarefa; `granularity` escolhe o agrupamento temporal. O retorno também inclui tarefas com datas planejadas de início/entrega e o histórico real de status dessas tarefas.
+
+Use `get_portfolio_dashboard` para agregar os projetos acessíveis à identidade autenticada. O retorno traz indicadores globais e um resumo por projeto; as permissões são aplicadas pelo servidor e projetos fora do escopo não aparecem. Ambos os contratos são somente leitura. `plannedStartAt` e `plannedDueAt` são opcionais nas tarefas e podem ser enviados por `create_task` ou `edit_record`; a data de início não pode ser posterior à data de entrega.

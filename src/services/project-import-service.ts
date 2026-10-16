@@ -85,6 +85,7 @@ export async function validateProjectImport(input: unknown) {
   };
   const taskById = new Map<string, any>(data.tasks.map((task: any) => [task._id, task]));
   for (const task of data.tasks) {
+    check(!task.plannedStartAt || !task.plannedDueAt || new Date(task.plannedStartAt) <= new Date(task.plannedDueAt), 'Datas planejadas inválidas na tarefa.');
     ref(task.repositoryId, 'repositories', 'task.repositoryId', true);
     ref(task.featureId, 'features', 'task.featureId');
     ref(task.executionId, 'executions', 'task.executionId');

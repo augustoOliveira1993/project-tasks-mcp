@@ -9,7 +9,7 @@ import { EventHub, readEvents } from './events.js';
 import { logger } from './logger.js';
 import { validateTaskDependencyGraph } from './services/task-dependency-service.js';
 import { getTaskContext } from './services/task-context-service.js';
-import { getProjectDashboard } from './services/project-dashboard-service.js';
+import { getPortfolioDashboard, getProjectDashboard } from './services/project-dashboard-service.js';
 import { Automation } from './services/automation-service.js';
 import { taskMessageAuthorMetadata } from './services/task-message-author.js';
 import { deleteProjectCascade, ProjectDeletionConflict } from './services/project-deletion-service.js';
@@ -20,7 +20,7 @@ import { importProject, ProjectImportError } from './services/project-import-ser
 import { eventOrigin } from './event-origin.js';
 import { areasForProject } from './area-catalog.js';
 import { normalizeGitRemote } from './git-remote.js';
-import { tools, adminSchema, approveActionProposalSchema, approveTasksSchema, changeTaskStatusSchema, setTaskAcceptanceCriterionSchema, setTaskCheckedSchema, projectData, featureData, taskData, states, id as idSchema, userId as userIdSchema } from './schema.js';
+import { tools, adminSchema, approveActionProposalSchema, approveTasksSchema, changeTaskStatusSchema, setTaskAcceptanceCriterionSchema, setTaskCheckedSchema, projectData, featureData, taskDataPatch, states, id as idSchema, userId as userIdSchema } from './schema.js';
 import { taskWorkspaceSearch } from './schema.js';
 import { compileTaskFilter, quickFlagFilter, taskFilterSorts, taskFilterUsesCollaboration, type TaskFilterNode } from './task-workspace-search.js';
 
@@ -1006,7 +1006,8 @@ export class Service {
           } else requireThat(!await Task.exists({ projectId: a.projectId, ...(a.kind === 'feature' ? { featureId: a.id } : {}), status: { $nin: ['concluida', 'cancelada'] } }).session(s), 'Active tasks prevent archival');
           doc.archived = true;
         } else {
-          const data = ({ project: projectData, feature: featureData, task: taskData }[a.kind as 'project' | 'feature' | 'task']).partial().parse(a.data);
+          const editSchemas = { project: projectData.partial(), feature: featureData.partial(), task: taskDataPatch };
+          const data = editSchemas[a.kind as 'project' | 'feature' | 'task'].parse(a.data);
           if (a.kind === 'task' && 'acceptance' in data && data.acceptance) (data as any).acceptanceProgress = data.acceptance.map(() => false);
           if (a.kind === 'project') {
             const projectData = data as any;
@@ -1014,7 +1015,13 @@ export class Service {
             if (projectData.visibility === 'private') requireThat(projectData.accessTokenHash || doc.accessTokenHash, 'Private project requires an access token');
             if (projectData.visibility === 'public') projectData.accessTokenHash = undefined;
           }
-          if (a.kind === 'task') await this.graph(a.projectId, a.id, { ...plain(doc), ...data }, s);
+          if (a.kind === 'task') {
+            const current = plain(doc) as any;
+            const plannedStartAt = 'plannedStartAt' in data ? data.plannedStartAt : current.plannedStartAt;
+            const plannedDueAt = 'plannedDueAt' in data ? data.plannedDueAt : current.plannedDueAt;
+            requireThat(!plannedStartAt || !plannedDueAt || new Date(plannedStartAt) <= new Date(plannedDueAt), 'Planned start must not be after planned delivery', 400);
+            await this.graph(a.projectId, a.id, { ...current, ...data }, s);
+          }
           if (a.kind === 'project' && 'repositories' in data && data.repositories) {
             const ids = data.repositories.map((r: any) => r.id);
             requireThat(new Set(ids).size === ids.length, 'Duplicate repository');
@@ -1376,7 +1383,7 @@ export class Service {
   }
   private async read(actor: Actor, name: string, a: any) {
     if (a.projectId) await this.access(actor, a.projectId);
-    else requireThat((name === 'list_records' && a.kind === 'project') || name === 'resolve_project_context' || name === 'resolve_task_context' || name === 'get_global_activity', 'Project required', 400);
+    else requireThat((name === 'list_records' && a.kind === 'project') || name === 'resolve_project_context' || name === 'resolve_task_context' || name === 'get_global_activity' || name === 'get_portfolio_dashboard', 'Project required', 400);
     if (name === 'preview_task_transfer') {
       const plan = await this.taskTransferPlan(actor, a);
       const { internal: _internal, ...preview } = plan;
@@ -1428,8 +1435,22 @@ export class Service {
     }
     if (name === 'get_project_dashboard') {
       const from = a.from ? new Date(a.from) : undefined;
-      requireThat(!from || from <= new Date(), 'Dashboard period cannot start in the future', 400);
-      return getProjectDashboard(a.projectId, from);
+      const to = a.to ? new Date(a.to) : undefined;
+      requireThat(!from || !to || from <= to, 'Dashboard period start must not be after its end', 400);
+      return getProjectDashboard(a.projectId, from, to, a.granularity);
+    }
+    if (name === 'get_portfolio_dashboard') {
+      if (actor.scope !== 'trusted_local' && actor.scope !== 'system') {
+        requireThat(await Credential.exists({ _id: actor.id, revoked: false, scope: actor.scope }), 'Credential revoked', 401);
+      }
+      const accessFilter = actor.scope === 'trusted_local'
+        ? actor.projectToken ? { $or: [{ visibility: { $ne: 'private' } }, { accessTokenHash: hash(actor.projectToken) }] } : { visibility: { $ne: 'private' } }
+        : actor.systemAdmin ? {} : { [`members.${memberKey(actor.userId)}`]: { $exists: true } };
+      const projects = await Project.find({ ...accessFilter, archived: false }).select('_id name').sort({ name: 1, _id: 1 }).lean();
+      const from = a.from ? new Date(a.from) : undefined;
+      const to = a.to ? new Date(a.to) : undefined;
+      requireThat(!from || !to || from <= to, 'Dashboard period start must not be after its end', 400);
+      return getPortfolioDashboard(projects.map(project => ({ id: project._id!, name: project.name ?? '' })), from, to, a.granularity);
     }
     if (name === 'list_conversations') return this.conversations.list(actor, a);
     if (name === 'get_conversation') return this.conversations.get(actor, a);

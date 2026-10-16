@@ -78,10 +78,19 @@ const gitBinding = z.object({ canonicalRemoteUrl: z.string().min(1).max(2048), r
 export const repository = z.object({ id, name: text, url: z.string().url(), instructions: z.string().max(20000), git: gitBinding.optional() }).strict();
 export const projectData = z.object({ name: text, description: text, instructions: text, repositories: z.array(repository).min(1).max(100), areas: areas.default([...LEGACY_AREAS]), visibility: z.enum(['public', 'private']).default('public'), accessToken: z.string().min(16).max(512).optional() }).strict().refine(data => data.visibility !== 'private' || !!data.accessToken, 'Private project requires an access token');
 export const featureData = z.object({ name: text, objective: text, context: text, acceptance: z.array(text).min(1).max(100) }).strict();
-export const taskData = z.object({
+const plannedDate = z.string().datetime().nullable().optional();
+const taskDataFields = z.object({
   name: text, instructions: text, acceptance: z.array(text).min(1).max(100), priority: z.number().int().min(0).max(5),
-  area: areaName, repositoryId: id, featureId: id.nullish(), type: taskType.default('feature'), dependencies: z.array(id).max(100), responsible: text.optional()
+  area: areaName, repositoryId: id, featureId: id.nullish(), type: taskType.default('feature'), dependencies: z.array(id).max(100), responsible: text.optional(),
+  plannedStartAt: plannedDate, plannedDueAt: plannedDate
 }).strict();
+function validatePlannedDates(data: { plannedStartAt?: string | null; plannedDueAt?: string | null }, context: z.RefinementCtx) {
+  if (data.plannedStartAt && data.plannedDueAt && Date.parse(data.plannedStartAt) > Date.parse(data.plannedDueAt)) {
+    context.addIssue({ code: 'custom', path: ['plannedDueAt'], message: 'Planned start must not be after planned delivery' });
+  }
+}
+export const taskData = taskDataFields.superRefine(validatePlannedDates);
+export const taskDataPatch = taskDataFields.partial().superRefine(validatePlannedDates);
 const op = { operationId: id };
 const target = { projectId: id, taskId: id, executionId: id, version: z.number().int().nonnegative(), ...op };
 const taskTransferTarget = {
@@ -152,7 +161,8 @@ export const tools = {
   list_project_activity: z.object({ projectId: id, taskId: id.optional(), search: z.string().trim().min(1).max(160).optional(), after: cursor.optional(), limit: z.number().int().min(1).max(100).default(25) }).strict().describe('Consulta o histórico paginado de atividades do projeto; search filtra pelo nome ou ID da tarefa.'),
   get_global_activity: z.object({ after: cursor.optional(), limit: z.number().int().min(1).max(100).default(25) }).strict().describe('Consulta atividades globais recentes; somente administradores de sistema.'),
   get_summary: z.object({ projectId: id, featureId: id.optional() }).strict(),
-  get_project_dashboard: z.object({ projectId: id, from: z.string().datetime().optional() }).strict().describe('Agrega tarefas, responsáveis, áreas e duração de desenvolvimento do projeto; from filtra tarefas pela data de criação.'),
+  get_project_dashboard: z.object({ projectId: id, from: z.string().datetime().optional(), to: z.string().datetime().optional(), granularity: z.enum(['day', 'week', 'month']).default('month') }).strict().describe('Agrega tarefas por status, responsável, área e feature; from/to filtram pela data de criação e granularity escolhe a série temporal.'),
+  get_portfolio_dashboard: z.object({ from: z.string().datetime().optional(), to: z.string().datetime().optional(), granularity: z.enum(['day', 'week', 'month']).default('month') }).strict().describe('Agrega os projetos acessíveis à identidade autenticada; retorna indicadores e séries temporais do portfólio.'),
   get_project_area_summary: z.object({ projectId: id, featureId: id.optional() }).strict(),
   get_project_novelties: z.object({ projectId: id, after: z.number().int().nonnegative().optional(), limit: z.number().int().min(1).max(100).default(25) }).strict(),
   mark_project_read: z.object({ ...op, projectId: id, cursor: z.number().int().nonnegative() }).strict(),
