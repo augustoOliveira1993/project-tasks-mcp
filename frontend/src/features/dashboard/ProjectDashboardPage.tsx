@@ -5,9 +5,15 @@ import { ErrorNotice } from '../../components/ui/ErrorNotice';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { buttonSecondary, eyebrow, textButton } from '../../components/ui/classes';
 import { TaskLink, TasksLink } from '../../components/ui/Links';
+<<<<<<< HEAD
 import { areaFilterValue, responsibleFilterValue, type TaskLinkFilters } from './dashboard-links';
 import { statusLabels, statusTone } from '../tasks/status';
 import { areaLabel } from '../../lib/labels';
+=======
+import { areaFilterValue, monthFilters, periodFilters, responsibleFilterValue, type TaskLinkFilters } from './dashboard-links';
+import { displayResponsible, formatDuration, formatPercent, periodStart, type DashboardPeriod as Period } from './dashboard-format';
+import { ProjectMemoryPanel } from './ProjectMemoryPanel';
+>>>>>>> 9c6390edb4c0782932252fa27bc56fc1c607f84e
 
 const emptyInline = 'rounded-ui-md border border-dashed border-line-strong px-4 py-3 text-ui-sm text-muted-strong';
 const panel = 'min-w-0 rounded-ui-md border border-line bg-surface px-[18px] py-4 max-[480px]:px-3 max-[480px]:py-[14px]';
@@ -21,6 +27,7 @@ const control = 'min-h-9 min-w-0 rounded-ui-sm border border-line-strong bg-surf
 const trendBar = 'block min-h-1 w-full rounded-t-[4px] bg-focus';
 const toneByStatus: Record<string, string> = { muted: 'bg-muted-strong', blue: 'bg-tone-blue', green: 'bg-tone-green', amber: 'bg-tone-amber', red: 'bg-tone-red' };
 
+<<<<<<< HEAD
 type CountItem = { key: string; label: string; count: number; projectId?: string; featureId?: string | null };
 type FeatureCount = CountItem & { projectId: string; featureId: string | null };
 type StatusInterval = { status: string; startedAt: string; endedAt: string | null; durationMs: number };
@@ -36,6 +43,16 @@ type ScheduleTask = {
   plannedStartAt: string | null;
   plannedDueAt: string | null;
   actualStatusHistory: StatusInterval[];
+=======
+type CountItem = { key: string; label: string; count: number };
+type ResponsibleMetric = CountItem & {
+  byStatus: Array<{ status: string; count: number }>;
+  completedCount: number;
+  completionRate: number | null;
+  averageDevelopmentTimeMs: number | null;
+  developmentSampleCount: number;
+  withoutDevelopmentSampleCount: number;
+>>>>>>> 9c6390edb4c0782932252fa27bc56fc1c607f84e
 };
 type DashboardTask = {
   id: string;
@@ -54,9 +71,12 @@ type DashboardSummary = {
   period: { from: string | null; to: string; basis: 'createdAt' };
   granularity: 'day' | 'week' | 'month';
   totalTasks: number;
+  completedCount: number;
+  completionRate: number | null;
   byStatus: Array<{ status: string; count: number }>;
-  byResponsible: CountItem[];
+  byResponsible: ResponsibleMetric[];
   byArea: CountItem[];
+<<<<<<< HEAD
   byFeature: FeatureCount[];
   development: { totalTimeMs: number; averageTimeMs: number | null; sampleCount: number };
   trendByPeriod: Array<{ period: string; taskCount: number; developmentSampleCount: number; averageDevelopmentTimeMs: number | null }>;
@@ -148,6 +168,34 @@ function DistributionChart({ title, items, projectId, filtersFor, onOpenProject 
   filtersFor?: (item: CountItem) => TaskLinkFilters;
   onOpenProject?: (projectId: string) => void;
 }) {
+=======
+  development: { totalTimeMs: number; averageTimeMs: number | null; sampleCount: number; withoutSampleCount: number };
+  trendByMonth: Array<{ month: string; taskCount: number; developmentSampleCount: number; averageDevelopmentTimeMs: number | null }>;
+  recentTasks: DashboardTask[];
+};
+function monthLabel(value: string) {
+  const [year, month] = value.split('-').map(Number);
+  if (!year || !month) return value;
+  return new Intl.DateTimeFormat('pt-BR', { month: 'short', year: '2-digit', timeZone: 'UTC' }).format(new Date(Date.UTC(year, month - 1, 15)));
+}
+
+function ResponsiblePerformanceTable({ items, projectId, from }: { items: ResponsibleMetric[]; projectId: string; from?: string }) {
+  if (!items.length) return <p className={emptyInline}>Nenhum responsável com tarefas neste período.</p>;
+  return <div className="mt-4 overflow-x-auto rounded-ui-sm border border-line">
+    <table className="w-full min-w-[650px] border-collapse text-left text-ui-xs">
+      <thead><tr><th className={th} scope="col">Responsável</th><th className={th} scope="col">Tarefas por status</th><th className={th} scope="col">Concluídas</th><th className={th} scope="col">Execução média</th></tr></thead>
+      <tbody>{items.map(item => <tr key={item.key || 'unassigned'} className="[&:last-child>td]:border-b-0">
+        <td className={`${cell} font-semibold`}><TasksLink projectId={projectId} filters={{ responsible: responsibleFilterValue(item.key), ...periodFilters(from) }} title={`Ver as ${item.count} tarefas de ${displayResponsible(item.key)}`} className={cellLink}>{displayResponsible(item.key)}</TasksLink><small className="mt-1 block font-normal text-muted-strong">{item.count} tarefa(s)</small></td>
+        <td className={cell}><div className="flex max-w-[410px] flex-wrap gap-1.5">{item.byStatus.filter(status => status.count > 0).map(status => <TasksLink key={status.status} projectId={projectId} filters={{ responsible: responsibleFilterValue(item.key), status: status.status, ...periodFilters(from) }} title={`Ver ${status.count} tarefa(s) de ${displayResponsible(item.key)} com status ${statusLabels[status.status] ?? status.status}`} className="rounded-ui-sm bg-canvas px-1.5 py-1 font-semibold text-ink-2 no-underline hover:bg-tone-blue-bg hover:text-tone-blue">{statusLabels[status.status] ?? status.status} · {status.count}</TasksLink>)}{!item.byStatus.some(status => status.count > 0) && <span className="text-muted-strong">Sem tarefas</span>}</div></td>
+        <td className={cell}><strong className="text-ink">{item.completedCount} · {formatPercent(item.completionRate)}</strong><small className="mt-1 block text-muted-strong">das tarefas não canceladas</small></td>
+        <td className={cell}><strong className="text-ink">{formatDuration(item.averageDevelopmentTimeMs)}</strong><small className="mt-1 block text-muted-strong">{item.developmentSampleCount} com tempo · {item.withoutDevelopmentSampleCount} sem amostra</small></td>
+      </tr>)}</tbody>
+    </table>
+  </div>;
+}
+
+function DistributionChart({ title, items, tone = 'blue', responsible = false, projectId, filtersFor }: { title: string; items: CountItem[]; tone?: string; responsible?: boolean; projectId: string; filtersFor: (item: CountItem) => TaskLinkFilters }) {
+>>>>>>> 9c6390edb4c0782932252fa27bc56fc1c607f84e
   if (!items.length) return <p className={emptyInline}>Nenhuma tarefa neste período.</p>;
   const maximum = Math.max(1, ...items.map(item => item.count));
   return <div className="grid gap-[11px]" role="list" aria-label={title}>
@@ -295,9 +343,21 @@ export function ProjectDashboardPage({ token, nonce, projectId, onSelectProject 
       </div>
     </div>
 
+<<<<<<< HEAD
     <div className="grid grid-cols-[repeat(3,minmax(0,1fr))_repeat(2,minmax(0,1.1fr))] items-end gap-2 rounded-ui-md border border-line bg-surface p-3 max-[900px]:grid-cols-3 max-[560px]:grid-cols-2">
       <div className="col-span-full flex flex-wrap gap-1.5">
         {(['30d', '90d', 'year', 'all'] as const).map(preset => <button className={`${textButton} !px-2 !py-1`} type="button" key={preset} onClick={() => setPreset(preset)}>{preset === '30d' ? '30 dias' : preset === '90d' ? '90 dias' : preset === 'year' ? 'Este ano' : 'Todo o período'}</button>)}
+=======
+    {dashboardQuery.isPending && <div className="py-2"><Skeleton rows={6} label="Carregando dashboard…" /></div>}
+    {dashboardQuery.isError && <ErrorNotice error={dashboardQuery.error} onRetry={() => void dashboardQuery.refetch()} retrying={dashboardQuery.isFetching} title="Não foi possível carregar o dashboard" />}
+    {data && <>
+      <div className="grid grid-cols-[repeat(5,minmax(0,1fr))] gap-3 max-[960px]:grid-cols-[repeat(2,minmax(0,1fr))] max-[480px]:gap-2" aria-label="Indicadores principais">
+        <TasksLink projectId={projectId} filters={inPeriod} title="Ver todas as tarefas do período" className={metric}><span className="text-ui-sm text-muted-strong">Total de tarefas</span><strong className="text-[length:clamp(20px,2vw,25px)] font-bold tracking-[-.03em] text-ink max-[480px]:text-[20px]">{data.totalTasks}</strong><small className="text-ui-xs text-muted-strong">no período selecionado</small></TasksLink>
+        <TasksLink projectId={projectId} filters={{ status: 'em_execucao', ...inPeriod }} title="Ver as tarefas em execução" className={metric}><span className="text-ui-sm text-muted-strong">Em execução</span><strong className="text-[length:clamp(20px,2vw,25px)] font-bold tracking-[-.03em] text-ink max-[480px]:text-[20px]">{counts.get('em_execucao') ?? 0}</strong><small className="text-ui-xs text-muted-strong">tarefas ativas agora</small></TasksLink>
+        <TasksLink projectId={projectId} filters={{ status: 'concluida', ...inPeriod }} title="Ver as tarefas concluídas" className={metric}><span className="text-ui-sm text-muted-strong">Concluídas</span><strong className="text-[length:clamp(20px,2vw,25px)] font-bold tracking-[-.03em] text-ink max-[480px]:text-[20px]">{counts.get('concluida') ?? 0}</strong><small className="text-ui-xs text-muted-strong">status atual</small></TasksLink>
+        <TasksLink projectId={projectId} filters={inPeriod} title="Ver as tarefas usadas para calcular a taxa de conclusão" className={metric}><span className="text-ui-sm text-muted-strong">Taxa de conclusão</span><strong className="text-[length:clamp(20px,2vw,25px)] font-bold tracking-[-.03em] text-ink max-[480px]:text-[20px]">{formatPercent(data.completionRate)}</strong><small className="text-ui-xs text-muted-strong">concluídas sobre as não canceladas</small></TasksLink>
+        <TasksLink projectId={projectId} filters={{ sort: 'updated', ...inPeriod }} title="Ver as tarefas do período, das atualizadas mais recentemente" className={metric}><span className="text-ui-sm text-muted-strong">Tempo médio em execução</span><strong className="text-[length:clamp(20px,2vw,25px)] font-bold tracking-[-.03em] text-ink max-[480px]:text-[20px]">{formatDuration(data.development.averageTimeMs)}</strong><small className="text-ui-xs text-muted-strong">{data.development.sampleCount} com tempo · {data.development.withoutSampleCount} sem amostra</small></TasksLink>
+>>>>>>> 9c6390edb4c0782932252fa27bc56fc1c607f84e
       </div>
       <label className="grid gap-[5px] text-ui-xs text-muted-strong">De<input className={control} type="date" value={range.from} max={range.to || undefined} onChange={event => setRange(current => ({ ...current, from: event.target.value }))} /></label>
       <label className="grid gap-[5px] text-ui-xs text-muted-strong">Até<input className={control} type="date" value={range.to} min={range.from || undefined} onChange={event => setRange(current => ({ ...current, to: event.target.value }))} /></label>
@@ -322,8 +382,41 @@ export function ProjectDashboardPage({ token, nonce, projectId, onSelectProject 
       </div>
 
       <div className="grid grid-cols-[repeat(2,minmax(0,1fr))] gap-[14px] max-[720px]:grid-cols-[1fr]">
+<<<<<<< HEAD
         <section className={panel} aria-labelledby="dashboard-trend-title"><div className={panelHeading}><div><h2 className={panelTitle} id="dashboard-trend-title">Tendência por {granularity === 'day' ? 'dia' : granularity === 'week' ? 'semana' : 'mês'}</h2><p className={panelSubtitle}>Tarefas criadas e duração média dos intervalos em execução.</p></div></div><TrendChart items={activeSummary.trendByPeriod} granularity={granularity} /></section>
         <section className={panel} aria-labelledby="dashboard-status-title"><div className={panelHeading}><div><h2 className={panelTitle} id="dashboard-status-title">Tarefas por status</h2><p className={panelSubtitle}>Distribuição no período selecionado.</p></div></div><DistributionChart title="Quantidade de tarefas por status" items={statusItems} projectId={view === 'project' ? projectId : undefined} filtersFor={item => ({ status: item.key, ...periodTaskFilters })} /></section>
+=======
+        <section className={panel} aria-labelledby="dashboard-status-title">
+          <div className={panelHeading}><div><h2 className={panelTitle} id="dashboard-status-title">Tarefas por status</h2><p className={panelSubtitle}>Distribuição atual</p></div></div>
+          <DistributionChart title="Quantidade de tarefas por status" items={statusItems} tone="blue" projectId={projectId} filtersFor={item => ({ status: item.key, ...inPeriod })} />
+        </section>
+        <section className={panel} aria-labelledby="dashboard-owner-title">
+          <div className={panelHeading}><div><h2 className={panelTitle} id="dashboard-owner-title">Tarefas por responsável</h2><p className={panelSubtitle}>Inclui tarefas sem responsável</p></div></div>
+          <DistributionChart title="Quantidade de tarefas por responsável" items={data.byResponsible} tone="green" responsible projectId={projectId} filtersFor={item => ({ responsible: responsibleFilterValue(item.key), ...inPeriod })} />
+          <ResponsiblePerformanceTable items={data.byResponsible} projectId={projectId} from={from} />
+        </section>
+        <section className={panel} aria-labelledby="dashboard-area-title">
+          <div className={panelHeading}><div><h2 className={panelTitle} id="dashboard-area-title">Tarefas por área</h2><p className={panelSubtitle}>Distribuição do trabalho</p></div></div>
+          <DistributionChart title="Quantidade de tarefas por área" items={areaItems} tone="amber" projectId={projectId} filtersFor={item => ({ area: areaFilterValue(item.key), ...inPeriod })} />
+        </section>
+        <section className={panel} aria-labelledby="dashboard-development-title">
+          <div className={panelHeading}><div><h2 className={panelTitle} id="dashboard-development-title">Tempo em desenvolvimento</h2><p className={panelSubtitle}>Média das tarefas criadas em cada mês</p></div></div>
+          <DevelopmentTrend items={data.trendByMonth} projectId={projectId} from={from} />
+          <p className="mt-[14px] text-ui-xs leading-normal text-muted-strong">Soma dos intervalos em “Em execução”; o período bloqueado fica fora do cálculo.</p>
+        </section>
+        <section className={`${panel} col-span-full max-[720px]:col-auto`} aria-labelledby="dashboard-recent-title">
+          <div className={panelHeading}><div><h2 className={panelTitle} id="dashboard-recent-title">Tarefas recentes</h2><p className={panelSubtitle}>Responsável, status e duração em execução</p></div><TasksLink projectId={projectId} filters={{ sort: 'created', ...inPeriod }} className={`${textButton} whitespace-nowrap no-underline`} title="Abrir a lista de tarefas, das criadas mais recentemente">Ver todas →</TasksLink></div>
+          {data.recentTasks.length ? <div className="overflow-x-auto"><table className="w-full border-collapse text-left text-ui-sm max-[480px]:min-w-[570px]">
+            <thead><tr><th className={th} scope="col">Tarefa</th><th className={th} scope="col">Responsável</th><th className={th} scope="col">Status</th><th className={th} scope="col">Desenvolvimento</th></tr></thead>
+            <tbody>{data.recentTasks.map(task => <tr className="[&:last-child>td]:border-b-0" key={task.id}>
+              <td className={`${cell} max-w-[460px] font-semibold [overflow-wrap:anywhere]`}><TaskLink taskId={task.id} name={task.name} projectId={projectId} title="Abrir a tarefa" className={cellLink}>{task.name}</TaskLink></td>
+              <td className={cell} title={task.responsible ?? undefined}><TasksLink projectId={projectId} filters={{ responsible: responsibleFilterValue(task.responsible ?? '') }} title="Ver as tarefas deste responsável" className={cellLink}>{displayResponsible(task.responsible)}</TasksLink></td>
+              <td className={cell}><TasksLink projectId={projectId} filters={{ status: task.status }} title="Ver as tarefas neste status" className={`inline-flex items-center gap-1.5 whitespace-nowrap ${cellLink}`}><span className={`size-[7px] rounded-[50%] ${dotTones[statusTone[task.status] ?? 'muted'] ?? dotTones.muted}`} aria-hidden="true" />{statusLabels[task.status] ?? task.status}</TasksLink></td>
+              <td className={cell}>{task.developmentTimeMs > 0 ? formatDuration(task.developmentTimeMs) : '—'}</td>
+            </tr>)}</tbody>
+          </table></div> : <p className={emptyInline}>Nenhuma tarefa para exibir.</p>}
+        </section>
+>>>>>>> 9c6390edb4c0782932252fa27bc56fc1c607f84e
       </div>
 
       {view === 'portfolio' && portfolio && <>
@@ -354,5 +447,6 @@ export function ProjectDashboardPage({ token, nonce, projectId, onSelectProject 
         {projectQuery.data.recentTasks.length ? <div className="overflow-x-auto"><table className="w-full min-w-[660px] border-collapse text-left text-ui-sm"><thead><tr><th className={th} scope="col">Tarefa</th><th className={th} scope="col">Feature</th><th className={th} scope="col">Responsável</th><th className={th} scope="col">Status</th><th className={th} scope="col">Desenvolvimento</th></tr></thead><tbody>{projectQuery.data.recentTasks.map(task => <tr className="[&:last-child>td]:border-b-0" key={task.id}><td className={`${cell} max-w-[300px] [overflow-wrap:anywhere]`}><TaskLink taskId={task.id} name={task.name} projectId={projectId} className="font-semibold text-tone-blue underline decoration-[#b9c1f5] underline-offset-2">{task.name}</TaskLink></td><td className={cell}>{projectQuery.data.byFeature.find(item => item.featureId === task.featureId)?.label ?? 'Sem feature'}</td><td className={cell}>{displayResponsible(task.responsible)}</td><td className={cell}>{statusName(task.status)}</td><td className={cell}>{formatDuration(task.developmentTimeMs)}</td></tr>)}</tbody></table></div> : <p className={emptyInline}>Nenhuma tarefa criada neste período.</p>}
       </section>}
     </>}
+    <ProjectMemoryPanel key={projectId} token={token} projectId={projectId} />
   </section>;
 }

@@ -148,12 +148,14 @@ test('runner prompt limits the initial context to the authorized area and reposi
   const state = {
     task: { _id: 'task-backend', area: 'backend', repositoryId: 'repo-backend', name: 'Backend task', type: 'feature', priority: 1, instructions: 'Only this task', acceptance: ['Done'] },
     repository: { id: 'repo-backend', name: 'backend-repo', url: 'file:///backend', instructions: 'Backend only' },
+    memories: { items: [{ memoryId: 'memory-1', title: 'Backend convention', category: 'convention', revision: 2, status: 'active', rank: 1, snippet: 'Use bounded context.', sources: [{ kind: 'task', id: 'source-1', title: 'Source task', revision: 1 }] }], hasMore: true, potentialConflicts: [], notice: 'Verify sources.', loadFullContentTool: 'get_project_memory', searchTool: 'search_project_memories' },
     project: { repositories: [{ name: 'frontend-repo' }] }, dependencies: [{ name: 'Frontend task', area: 'frontend' }], messages: [{ message: 'Frontend detail' }]
   };
   const context = limitedTaskContext(state);
   assert.deepEqual(context, {
     scope: { taskId: 'task-backend', area: 'backend', repositoryId: 'repo-backend' },
     task: { id: 'task-backend', name: 'Backend task', area: 'backend', type: 'feature', priority: 1, instructions: 'Only this task', acceptance: ['Done'] },
+    memories: { items: [{ memoryId: 'memory-1', title: 'Backend convention', category: 'convention', revision: 2, status: 'active', rank: 1, snippet: 'Use bounded context.', sources: [{ kind: 'task', id: 'source-1', title: 'Source task', revision: 1 }] }], hasMore: true, potentialConflicts: [], notice: 'Verify sources.', loadFullContentTool: 'get_project_memory', searchTool: 'search_project_memories' },
     repository: { id: 'repo-backend', name: 'backend-repo', url: 'file:///backend', instructions: 'Backend only' }
   });
   const prompt = runnerPrompt(state, { mode: 'execution' });
@@ -171,6 +173,8 @@ test('runner bridge exposes diagnosis broadly and recovery only to its writable 
     await readClient.connect(new StreamableHTTPClientTransport(new URL(readOnly.url), { requestInit: { headers: { authorization: `Bearer ${readOnly.token}` } } }));
     const readTools = (await readClient.listTools()).tools;
     assert.ok(readTools.some(tool => tool.name === 'diagnose_task_execution'));
+    assert.ok(readTools.some(tool => tool.name === 'search_project_memories'));
+    assert.ok(readTools.some(tool => tool.name === 'get_project_memory'));
     assert.ok(!readTools.some(tool => tool.name === 'recover_task_execution'));
     await writeClient.connect(new StreamableHTTPClientTransport(new URL(writable.url), { requestInit: { headers: { authorization: `Bearer ${writable.token}` } } }));
     const writeTools = (await writeClient.listTools()).tools;

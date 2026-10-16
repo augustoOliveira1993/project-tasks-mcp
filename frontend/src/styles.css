@@ -106,7 +106,7 @@ a { color: inherit; }
 .project-picker-trigger:focus { border-color: #929ef2; box-shadow: 0 0 0 3px #596ce31a; }
 input:focus, select:focus, textarea:focus { border-color: #929ef2; box-shadow: 0 0 0 3px #596ce31a; outline: none; }
 .project-avatar { display: grid; place-items: center; flex: 0 0 29px; width: 29px; height: 29px; border-radius: 8px; background: #e9edff; color: #4b5bcc; font: 700 12px Manrope, sans-serif; }
-.primary-nav { @apply grid gap-1; }
+.primary-nav { @apply grid gap-1; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; }
 .nav-item { @apply flex min-h-10 items-center gap-3 rounded-lg px-2.5 text-left text-xs font-semibold text-slate-600 transition-colors; border: 0; background: transparent; }
 .nav-item > span { width: 16px; color: #99a2b2; text-align: center; font-size: 15px; }
 .nav-item b { margin-left: auto; color: #909bad; font-size: 10px; }
@@ -200,7 +200,7 @@ dialog.projects-dialog::backdrop { background: #16203370; backdrop-filter: blur(
   .sidebar { position: static; width: auto; min-height: auto; padding: 12px 15px 9px; border-right: 0; border-bottom: 1px solid var(--line); }
   .brand { margin: 0 3px 12px; }
   .sidebar-label, .project-picker, .sidebar-spacer, .sidebar-footer { display: none; }
-  .primary-nav { display: flex; gap: 3px; overflow-x: auto; margin: 0 -3px; }
+  .primary-nav { display: flex; gap: 3px; overflow-x: auto; overflow-y: hidden; margin: 0 -3px; }
   .nav-item { flex: 0 0 auto; min-height: 35px; padding: 0 10px; white-space: nowrap; }
   .nav-item b, .nav-item > span { display: none; }
   .nav-section-label { display: none; }

@@ -5,7 +5,7 @@ import { allRecords, listTaskAttachments, searchTaskWorkspace } from '../../api'
 import type { Project, Task, TaskWorkspaceResult } from '../../api';
 import { Badge } from '../../components/ui/Badge';
 import { ErrorNotice } from '../../components/ui/ErrorNotice';
-import { IconCheck, IconDiff, IconFeature, IconMail, IconQuestion, IconRefresh, IconSearch } from '../../components/ui/icons';
+import { IconCheck, IconDiff, IconFeature, IconFile, IconMail, IconMessages, IconQuestion, IconRefresh, IconSearch } from '../../components/ui/icons';
 import { FeatureLink, FilterLink, TaskLink } from '../../components/ui/Links';
 import { AssigneePicker } from '../../components/ui/AssigneePicker';
 import { Person } from '../../components/ui/Person';
@@ -91,7 +91,7 @@ const flagChip = 'inline-flex items-center gap-1 rounded-full px-[7px] py-0.5 te
 const flagButton = `${flagChip} cursor-pointer hover:brightness-[.96]`;
 const priorityTone = (tone: string) => tone === 'red' ? 'bg-tone-red-bg text-tone-red' : tone === 'amber' ? 'bg-tone-amber-bg text-tone-amber' : chipSlate;
 
-function TaskContentBadges({ token, nonce, projectId, task }: { token: string; nonce: string; projectId: string; task: Task }) {
+function TaskContentBadges({ token, nonce, projectId, task, onOpenConversation }: { token: string; nonce: string; projectId: string; task: Task; onOpenConversation: () => void }) {
   const attachments = useQuery({
     queryKey: ['task-attachments', nonce, projectId, task._id],
     queryFn: () => listTaskAttachments(token, projectId, task._id),
@@ -100,10 +100,12 @@ function TaskContentBadges({ token, nonce, projectId, task }: { token: string; n
   });
   const planningCount = Math.max(0, task.markdownCount ?? 0);
   const attachmentCount = attachments.data?.length ?? 0;
-  if (!planningCount && !attachmentCount) return null;
+  const conversationCount = Math.max(0, task.workspace?.conversationCount ?? 0);
+  if (!planningCount && !attachmentCount && !conversationCount) return null;
   return <span className="inline-flex flex-none flex-wrap items-center gap-1.5" role="group" aria-label={`Conteúdo de ${task.name}`}>
     {planningCount > 0 && <span className="inline-flex items-center rounded-full bg-[#f0eaff] px-2 py-0.5 text-[10px] font-bold text-[#6944a2]" aria-label={`${planningCount} ${planningCount === 1 ? 'documento de planejamento' : 'documentos de planejamento'}`} title={`${planningCount} ${planningCount === 1 ? 'documento de planejamento' : 'documentos de planejamento'}`}>Planejamento · {planningCount}</span>}
-    {attachmentCount > 0 && <span className="inline-flex items-center rounded-full bg-[#eaf4ff] px-2 py-0.5 text-[10px] font-bold text-[#315a9a]" aria-label={`${attachmentCount} ${attachmentCount === 1 ? 'arquivo' : 'arquivos'}`} title={`${attachmentCount} ${attachmentCount === 1 ? 'arquivo' : 'arquivos'}`}>Arquivos · {attachmentCount}</span>}
+    {attachmentCount > 0 && <span className="inline-flex items-center gap-1 rounded-full bg-[#eaf4ff] px-2 py-0.5 text-[10px] font-bold text-[#315a9a]" aria-label={`${attachmentCount} ${attachmentCount === 1 ? 'arquivo' : 'arquivos'}`} title={`${attachmentCount} ${attachmentCount === 1 ? 'arquivo' : 'arquivos'}`}><IconFile size={11} />Arquivos · {attachmentCount}</span>}
+    {conversationCount > 0 && <button type="button" className="inline-flex items-center gap-1 rounded-full bg-[#edf7f1] px-2 py-0.5 text-[10px] font-bold text-[#28704b] hover:brightness-[.96] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#28704b]" aria-label={`Abrir ${conversationCount} ${conversationCount === 1 ? 'conversa' : 'conversas'} de ${task.name}`} title={`${conversationCount} ${conversationCount === 1 ? 'conversa' : 'conversas'}. Abrir tarefa`} onClick={onOpenConversation}><IconMessages size={11} />Conversas · {conversationCount}</button>}
   </span>;
 }
 
@@ -477,7 +479,7 @@ export function TaskWorkspace({ token, nonce, projectId, repositories = [], proj
           return <tr key={task._id} className={selectedIds.includes(task._id) ? rowSelected : rowIdle} data-status={task.status}>
           <td className={tdFirst}><input className={checkbox} type="checkbox" aria-label={'Selecionar ' + task.name} disabled={!selectionAllowed(task) || saving} checked={selectedIds.includes(task._id)} onChange={event => toggleSelected(task._id, event.target.checked)} /></td>
           <td className={`${tdMiddle} min-w-[300px] max-[760px]:col-[2/4]`}>
-            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1"><TaskLink taskId={task._id} name={task.name} projectId={projectId} className="block max-w-[560px] min-w-0 overflow-hidden text-left text-ui-md font-bold text-ellipsis whitespace-nowrap text-ink no-underline hover:text-tone-blue hover:underline focus-visible:rounded-[4px] focus-visible:outline-offset-[3px] max-[760px]:leading-[1.4] max-[760px]:whitespace-normal" title={task.name} onOpen={() => onOpenTask(task)} rowFocus>{task.name}</TaskLink><TaskContentBadges token={token} nonce={nonce} projectId={projectId} task={task} /></div>
+            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1"><TaskLink taskId={task._id} name={task.name} projectId={projectId} className="block max-w-[560px] min-w-0 overflow-hidden text-left text-ui-md font-bold text-ellipsis whitespace-nowrap text-ink no-underline hover:text-tone-blue hover:underline focus-visible:rounded-[4px] focus-visible:outline-offset-[3px] max-[760px]:leading-[1.4] max-[760px]:whitespace-normal" title={task.name} onOpen={() => onOpenTask(task)} rowFocus>{task.name}</TaskLink><TaskContentBadges token={token} nonce={nonce} projectId={projectId} task={task} onOpenConversation={() => onOpenTaskConversation(task)} /></div>
             <div className="mt-1.5 flex flex-wrap items-center gap-[5px]">
               <code className="inline-block rounded-[5px] bg-[#f3f4f8] px-1.5 py-px font-code text-[10px] leading-[normal] font-semibold text-muted-strong" title={task._id}>{shortId(task._id)}</code>
               <FilterLink param="area" value={task.area || noAreaFilter} projectId={projectId} className={`${chip} max-w-full ${chipLink} ${task.area ? areaChipTone(task.area) : chipSlate}`} title={task.area ? `Filtrar pela área ${areaLabel(task.area)}` : 'Filtrar tarefas sem área'} aria-label={task.area ? `Filtrar pela área ${areaLabel(task.area)}` : 'Filtrar tarefas sem área'}>{areaLabel(task.area)}</FilterLink>

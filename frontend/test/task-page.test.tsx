@@ -39,7 +39,7 @@ test('página da tarefa mostra cabeçalho, trilho vertical com contadores e card
   assert.match(html, /Voltar às tarefas/);
   assert.match(html, /Redesenhar detalhes/);
   assert.match(html, /aria-orientation="vertical"/);
-  for (const tab of ['Visão geral', 'Critérios', 'Planejamento', 'Diffs', 'Atividade', 'Arquivos', 'Conversa']) assert.match(html, new RegExp('role="tab"[^>]*>' + tab));
+  for (const tab of ['Visão geral', 'Critérios', 'Planejamento', 'Diffs', 'Atividade', 'Arquivos', 'Memórias', 'Conversa']) assert.match(html, new RegExp('role="tab"[^>]*>' + tab));
   assert.match(html, /role="tab"[^>]*>Arquivos<span class="[^"]*">3<\/span>/);
   assert.match(html, /role="tab"[^>]*>Atividade<span class="[^"]*">\d+<\/span>/);
   assert.match(html, /1 de 2 atendidos/);

@@ -12,7 +12,7 @@ export type EntityNavigation = {
   /** Aplica um filtro da fila (area, type...) e abre a lista de tarefas. */
   filterBy: (param: string, value: string) => void;
   /** Abre a lista de tarefas já com vários filtros aplicados (começa limpa). */
-  openTasks?: (filters: Record<string, string>) => void;
+  openTasks?: (filters: Record<string, string>, projectId?: string) => void;
 };
 
 export const EntityNavigationContext = createContext<EntityNavigation | null>(null);
@@ -81,5 +81,5 @@ export function FilterLink({ param, value, projectId, className = entityChip, ti
 export function TasksLink({ filters, projectId, className = entityLink, title, children }: LinkBase & { filters: Record<string, string> }) {
   const navigation = useContext(EntityNavigationContext);
   const target = projectId || navigation?.projectId || '';
-  return <a className={className} href={tasksFiltersHref(target, filters)} title={title ?? 'Ver estas tarefas na lista'} onClick={event => { if (navigation?.openTasks && plainClick(event)) { event.preventDefault(); event.stopPropagation(); navigation.openTasks(filters); } }}>{children}</a>;
+  return <a className={className} href={tasksFiltersHref(target, filters)} title={title ?? 'Ver estas tarefas na lista'} onClick={event => { if (navigation?.openTasks && plainClick(event)) { event.preventDefault(); event.stopPropagation(); navigation.openTasks(filters, target); } }}>{children}</a>;
 }

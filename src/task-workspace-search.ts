@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 export const taskFilterFields = [
   'name', 'id', 'status', 'area', 'type', 'priority', 'responsible', 'feature',
-  'createdAt', 'updatedAt', 'checked', 'unread', 'openQuestions', 'hasGitDiff'
+  'createdAt', 'updatedAt', 'checked', 'unread', 'openQuestions', 'hasGitDiff', 'hasPlanning', 'hasAttachments', 'hasConversations'
 ] as const;
 export const taskFilterOperators = [
   'contains', 'not', 'exact', 'equals', 'startsWith', 'endsWith', 'is', 'isNot', 'in', 'notIn', 'isEmpty', 'isNotEmpty',
@@ -27,7 +27,7 @@ const conditionSchema = z.object({
   const enumFields = ['status', 'area', 'type', 'feature'] as const;
   const numericFields = ['priority'] as const;
   const dateFields = ['createdAt', 'updatedAt'] as const;
-  const booleanFields = ['checked', 'unread', 'openQuestions', 'hasGitDiff'] as const;
+  const booleanFields = ['checked', 'unread', 'openQuestions', 'hasGitDiff', 'hasPlanning', 'hasAttachments', 'hasConversations'] as const;
   const allowed = new Set<TaskFilterOperator>(
     field === 'id' ? ['exact', 'equals', 'startsWith', 'isEmpty', 'isNotEmpty']
       : textFields.includes(field as typeof textFields[number]) ? ['contains', 'not', 'exact', 'equals', 'startsWith', ...(field === 'name' ? ['endsWith' as const] : []), 'isEmpty', 'isNotEmpty'] as TaskFilterOperator[]
@@ -95,7 +95,8 @@ export function compileTaskFilter(node: TaskFilterNode): Record<string, unknown>
   const { field, operator, value } = node;
   const fieldMap: Record<TaskFilterField, string> = {
     name: 'name', id: '_id', status: 'status', area: 'area', type: 'type', priority: 'priority', responsible: 'responsible', feature: 'featureId',
-    createdAt: 'createdAt', updatedAt: 'updatedAt', checked: 'checked', unread: '__workspace.unread', openQuestions: '__workspace.openQuestions', hasGitDiff: '__workspace.hasGitDiff'
+    createdAt: 'createdAt', updatedAt: 'updatedAt', checked: 'checked', unread: '__workspace.unread', openQuestions: '__workspace.openQuestions', hasGitDiff: '__workspace.hasGitDiff',
+    hasPlanning: '__workspace.hasPlanning', hasAttachments: '__workspace.hasAttachments', hasConversations: '__workspace.hasConversations'
   };
   const path = fieldMap[field];
   if (operator === 'isEmpty') return { $or: [{ [path]: { $exists: false } }, { [path]: null }, { [path]: '' }] };
@@ -126,6 +127,19 @@ export function taskFilterUsesCollaboration(node?: TaskFilterNode): boolean {
   if (!node) return false;
   if (node.kind === 'condition') return ['unread', 'openQuestions', 'hasGitDiff'].includes(node.field);
   return node.children.some(child => taskFilterUsesCollaboration(child));
+}
+
+export type TaskContentFilterField = Extract<TaskFilterField, 'hasPlanning' | 'hasAttachments' | 'hasConversations'>;
+const taskContentFilterFields = new Set<TaskContentFilterField>(['hasPlanning', 'hasAttachments', 'hasConversations']);
+export function taskFilterContentFields(node?: TaskFilterNode): TaskContentFilterField[] {
+  const fields = new Set<TaskContentFilterField>();
+  const visit = (current?: TaskFilterNode) => {
+    if (!current) return;
+    if (current.kind === 'group') { current.children.forEach(visit); return; }
+    if (taskContentFilterFields.has(current.field as TaskContentFilterField)) fields.add(current.field as TaskContentFilterField);
+  };
+  visit(node);
+  return [...fields];
 }
 
 export const quickFlagFilter = (flag?: string) => flag === 'unread' ? { '__workspace.unread': true }

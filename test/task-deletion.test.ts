@@ -14,6 +14,8 @@ import {
   MarkdownRevision,
   Operation,
   Project,
+  ProjectMemory,
+  ProjectMemoryRevision,
   Task,
   TaskDiff,
   TaskMessage
@@ -63,6 +65,7 @@ test('task cascade removes owned data and references while preserving the projec
   const diffId = id();
   const jobId = id();
   const executionId = id();
+  const memoryId = id();
   const taskEventId = id();
   const siblingEventId = id();
 
@@ -78,6 +81,8 @@ test('task cascade removes owned data and references while preserving the projec
   await TaskDiff.create({ _id: diffId, projectId, taskId, repositoryId, patch: 'diff' });
   await Execution.create({ _id: executionId, projectId, taskId, status: 'submit_task' });
   await AutomationJob.create({ _id: jobId, projectId, taskId, status: 'completed', authorizationValid: true });
+  await ProjectMemory.create({ _id: memoryId, projectId, scope: 'task', ownerTaskId: taskId, title: 'Owned memory', category: 'decision', content: 'Task owned', status: 'active', archived: false, revision: 1, sources: [{ kind: 'task', id: taskId, title: 'Delete me' }] });
+  await ProjectMemoryRevision.create({ _id: id(), projectId, memoryId, scope: 'task', ownerTaskId: taskId, revision: 1, title: 'Owned memory', category: 'decision', content: 'Task owned', status: 'active', archived: false, sources: [{ kind: 'task', id: taskId, title: 'Delete me' }] });
   await Event.create([
     { _id: taskEventId, projectId, entityId: taskId, action: 'create_task', credentialId, data: { operationId: taskOperationId, task: { _id: taskId } } },
     { _id: siblingEventId, projectId, entityId: siblingId, action: 'create_task', credentialId, data: { operationId: id(), task: { _id: siblingId } } },
@@ -109,6 +114,8 @@ test('task cascade removes owned data and references while preserving the projec
   assert.equal(await TaskDiff.countDocuments({ projectId, taskId }), 0);
   assert.equal(await Execution.countDocuments({ projectId, taskId }), 0);
   assert.equal(await AutomationJob.countDocuments({ projectId, taskId }), 0);
+  assert.equal(await ProjectMemory.countDocuments({ projectId, ownerTaskId: taskId }), 0);
+  assert.equal(await ProjectMemoryRevision.countDocuments({ projectId, memoryId }), 0);
   assert.deepEqual((await Event.find({ projectId }).select('entityId action').lean()).map(event => event.action).sort(), ['create_task', 'hard_delete_task']);
   const deliveries = await DeliveryEvent.find({ projectId }).sort({ sequence: 1 }).lean();
   assert.equal(deliveries.length, 2);

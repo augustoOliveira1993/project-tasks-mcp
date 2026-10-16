@@ -5,7 +5,7 @@ import mongoose from 'mongoose';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
 import { connect, Project, Feature, Task, TaskDependency, Execution, Event, TaskMessage,
   Conversation, ConversationMessage, ActionProposal, DeliveryEvent, TaskDiff, AutomationJob,
-  MarkdownDocument, MarkdownRevision } from '../src/db.js';
+  MarkdownDocument, MarkdownRevision, ProjectMemory, ProjectMemoryRevision } from '../src/db.js';
 import { authenticate, bootstrap, Service } from '../src/service.js';
 import { createApp } from '../src/http.js';
 import { redactExport } from '../src/services/project-export-service.js';
@@ -22,7 +22,7 @@ after(async () => { await mongoose.disconnect(); await repl?.stop(); });
 
 test('snapshot includes archived records, full histories and links beyond one page, excluding other projects and secrets', async () => {
   const projectId = randomUUID(), repositoryId = randomUUID(), taskId = randomUUID(), featureId = randomUUID();
-  const documentId = randomUUID(), conversationId = randomUUID(), executionId = randomUUID();
+  const documentId = randomUUID(), conversationId = randomUUID(), executionId = randomUUID(), memoryId = randomUUID();
   await Project.create({ _id: projectId, name: 'Exportável', accessTokenHash: 'hidden-hash', members: { admin: 'administrador' }, repositories: [{ id: repositoryId, name: 'repo', url: 'https://user:secret@example.com/repo.git' }] });
   await Feature.create({ _id: featureId, projectId, archived: true });
   await Task.insertMany(Array.from({ length: 105 }, (_, i) => ({ _id: i === 0 ? taskId : randomUUID(), projectId, featureId, repositoryId,
@@ -37,7 +37,11 @@ test('snapshot includes archived records, full histories and links beyond one pa
     [AutomationJob, { taskId, providerSessionId: 'hidden-session' }],
     [MarkdownDocument, { _id: documentId, targetId: taskId, targetKind: 'task', name: 'Documento', revision: 2 }],
     [MarkdownRevision, { documentId, revision: 1, content: 'Revisão antiga' }],
-    [MarkdownRevision, { documentId, revision: 2, content: 'Conteúdo atual' }]
+    [MarkdownRevision, { documentId, revision: 2, content: 'Conteúdo atual' }],
+    [ProjectMemory, { _id: memoryId, title: 'Decisão versionada', category: 'decision', content: 'Persistir decisões com fonte.', status: 'active', revision: 1,
+      sources: [{ kind: 'task', id: taskId, title: 'Tarefa 0', revision: 0 }] }],
+    [ProjectMemoryRevision, { _id: randomUUID(), memoryId, revision: 1, title: 'Decisão versionada', category: 'decision', content: 'Persistir decisões com fonte.', status: 'active', archived: false,
+      sources: [{ kind: 'task', id: taskId, title: 'Tarefa 0', revision: 0 }] }]
   ];
   for (const [model, fields] of records) await model.create({ _id: randomUUID(), projectId, ...fields });
   const result = await service.exportProject(await authenticate(adminToken, 'human'), projectId);
@@ -53,6 +57,8 @@ test('snapshot includes archived records, full histories and links beyond one pa
   assert.equal(data.events[0].data.evidence, 'Evidência completa');
   assert.equal(data.conversationMessages[0].conversationId, conversationId);
   assert.equal(data.markdownRevisions[0].documentId, documentId);
+  assert.equal(data.projectMemories[0].content, 'Persistir decisões com fonte.');
+  assert.equal(data.projectMemoryRevisions[0].memoryId, memoryId);
   assert.doesNotMatch(JSON.stringify(result), /hidden-|user:secret|Outro projeto/);
   assert.equal(data.project.members, undefined);
   assert.match(result.migrationInstructions, /mapa persistente/);
