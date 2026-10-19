@@ -75,7 +75,7 @@ const BRIDGE_TOOL_GUIDANCE: Record<string, string> = {
   send_conversation_message: 'Writes to the shared conversation; the server records the authenticated author and MCP client name announced at initialize. Send only message content; do not spoof or prefix authorship. It does not start or wake another Codex/Claude session.',
   create_action_proposal: 'Creates a proposal that waits for human approval and an enabled automation route.',
   set_acceptance_criterion: 'Set complete=true only after the criterion is fully met and the implementation is present and verified in the checkout; plans or partial changes are not enough. Cite the concrete file/diff and verification, or objective proof for non-code criteria. Leave pending items false; no published diff is required when the Git bridge is unavailable.',
-  set_task_status: 'Use only for valid evidence-based review transitions. It does not unblock tasks or create an execution.',
+  set_task_status: 'Use only for valid evidence-based review transitions. Keep a submitted task in review when evidence is missing; return it to pending only after a direct human request (the managed runner requires that message ID). It does not unblock tasks or create an execution.',
   update_markdown: 'Update an existing document with the revision previously read in baseRevision.',
   get_automation_status: 'Read-only job status; policy, provider, permission, and release actions remain administrative.',
   preview_task_transfer: 'Read-only preflight. Present the exact plan and wait for human confirmation before transfer_task. targetProjectId may equal projectId to change only the feature.',

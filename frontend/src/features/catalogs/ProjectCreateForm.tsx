@@ -129,11 +129,17 @@ export function ProjectCreateForm({ token, nonce, project, onSaved, notify, inDi
   }
 
   const needsNewAccessToken = visibility === 'private' && (!project || project.visibility !== 'private');
-  return <section className={inDialog ? 'min-h-0 overflow-auto px-[23px] pt-5 pb-[22px]' : 'min-w-0 rounded-xl border border-slate-200 bg-white p-[clamp(18px,3vw,32px)] shadow-sm wrap-anywhere'} aria-labelledby={inDialog ? dialogTitleId : 'create-project-title'}>
+  return <section className={inDialog ? 'min-h-0 flex-1 overflow-auto px-[23px] pt-5 pb-[22px] max-[760px]:px-4' : 'min-w-0 rounded-xl border border-slate-200 bg-white p-[clamp(18px,3vw,32px)] shadow-sm wrap-anywhere'} aria-labelledby={inDialog ? dialogTitleId : 'create-project-title'}>
     {!inDialog && <div className="mb-[11px] flex items-center justify-between gap-3.5"><div><p className="m-0 font-display text-[10px] leading-[normal] font-bold tracking-[.11em] text-[#7180d8]">PROJETO</p><h2 id="create-project-title" className="mb-1 font-display text-[14px] leading-[normal] font-bold tracking-[-.02em] text-[#273245]">Cadastrar projeto</h2></div></div>}
     {!inDialog && <p className="mb-6 text-[12px] leading-[1.5] text-muted-strong">Reúna as informações, os repositórios e as regras de trabalho do seu projeto.</p>}
-    {saveProject.isError && <div className={notice.error} role="alert">{project && errorMessage(saveProject.error).includes('Area is still used') ? 'Esta área ainda está em uso por uma ou mais tarefas. Reatribua ou arquive essas tarefas antes de removê-la.' : errorMessage(saveProject.error)}</div>}
-    <form className={inDialog ? 'grid gap-6' : 'grid gap-7'} onSubmit={submit}>
+    {saveProject.isError && <div className={notice.error} role="alert">{(() => {
+      const message = errorMessage(saveProject.error);
+      if (message.includes('Area is still used')) return 'Esta área ainda está em uso por uma ou mais tarefas. Reatribua ou arquive essas tarefas antes de removê-la.';
+      if (message.includes('Private project requires an access token')) return 'Gere ou informe um token com pelo menos 16 caracteres para tornar este projeto privado.';
+      if (message.includes('Version conflict or archived')) return 'O projeto mudou desde que você abriu esta tela. Feche e abra a edição novamente para carregar a versão atual; seus dados digitados continuam aqui.';
+      return message;
+    })()}</div>}
+    <form className={inDialog ? 'grid gap-6' : 'grid gap-7'} onSubmit={submit} aria-busy={saveProject.isPending}>
       <section className={section} aria-labelledby="project-details-title">
       <div><div><h3 id="project-details-title" className={sectionTitle}>Dados do projeto</h3><p className={sectionHelp}>Defina o objetivo e as orientações para a equipe. Todos os campos são obrigatórios.</p></div></div>
       <div className={formGrid}>
@@ -208,7 +214,7 @@ export function ProjectCreateForm({ token, nonce, project, onSaved, notify, inDi
       </div>}
       </div></div>
       </section>
-      <div className="flex flex-wrap items-center justify-between gap-4 border-t border-[#e7eaf0] pt-[22px] max-[700px]:flex-col max-[700px]:items-stretch">
+      <div className={`${inDialog ? 'sticky bottom-0 z-10 bg-white/95 py-3 backdrop-blur-sm' : 'border-t border-[#e7eaf0] pt-[22px]'} flex flex-wrap items-center justify-between gap-4 max-[700px]:flex-col max-[700px]:items-stretch`}>
       <span className="text-[12px] leading-[1.5] text-muted-strong" role="status">{repositories.length} {repositories.length === 1 ? 'repositório será vinculado ao projeto' : 'repositórios serão vinculados ao projeto'}</span>
       {inDialog && <button type="button" className={cancelButton} disabled={saveProject.isPending} onClick={onCancel}>Cancelar</button>}
       <button className={submitButton} disabled={saveProject.isPending}>{saveProject.isPending ? 'Salvando…' : project ? 'Salvar projeto' : 'Criar projeto'}</button>

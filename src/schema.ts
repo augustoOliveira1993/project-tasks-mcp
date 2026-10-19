@@ -76,7 +76,9 @@ export const kind = z.enum(['project', 'feature', 'task']);
 export const taskType = z.enum(['feature', 'fix', 'chore', 'docs', 'refactor', 'test', 'perf', 'build', 'ci', 'revert']);
 const gitBinding = z.object({ canonicalRemoteUrl: z.string().min(1).max(2048), rootCommit: z.string().regex(/^[0-9a-f]{40}$/i), boundAt: z.string().datetime().optional(), boundBy: text.optional() }).strict();
 export const repository = z.object({ id, name: text, url: z.string().url(), instructions: z.string().max(20000), git: gitBinding.optional() }).strict();
-export const projectData = z.object({ name: text, description: text, instructions: text, repositories: z.array(repository).min(1).max(100), areas: areas.default([...LEGACY_AREAS]), visibility: z.enum(['public', 'private']).default('public'), accessToken: z.string().min(16).max(512).optional() }).strict().refine(data => data.visibility !== 'private' || !!data.accessToken, 'Private project requires an access token');
+const projectDataFields = z.object({ name: text, description: text, instructions: text, repositories: z.array(repository).min(1).max(100), areas: areas.default([...LEGACY_AREAS]), visibility: z.enum(['public', 'private']).default('public'), accessToken: z.string().min(16).max(512).optional() }).strict();
+export const projectData = projectDataFields.refine(data => data.visibility !== 'private' || !!data.accessToken, 'Private project requires an access token');
+export const projectDataPatch = projectDataFields.partial();
 export const featureData = z.object({ name: text, objective: text, context: text, acceptance: z.array(text).min(1).max(100) }).strict();
 const plannedDate = z.string().datetime().nullable().optional();
 const taskDataFields = z.object({
@@ -84,7 +86,6 @@ const taskDataFields = z.object({
   area: areaName, repositoryId: id, featureId: id.nullish(), type: taskType.default('feature'), dependencies: z.array(id).max(100), responsible: text.optional(),
   plannedStartAt: plannedDate, plannedDueAt: plannedDate
 }).strict();
-<<<<<<< HEAD
 function validatePlannedDates(data: { plannedStartAt?: string | null; plannedDueAt?: string | null }, context: z.RefinementCtx) {
   if (data.plannedStartAt && data.plannedDueAt && Date.parse(data.plannedStartAt) > Date.parse(data.plannedDueAt)) {
     context.addIssue({ code: 'custom', path: ['plannedDueAt'], message: 'Planned start must not be after planned delivery' });
@@ -92,24 +93,6 @@ function validatePlannedDates(data: { plannedStartAt?: string | null; plannedDue
 }
 export const taskData = taskDataFields.superRefine(validatePlannedDates);
 export const taskDataPatch = taskDataFields.partial().superRefine(validatePlannedDates);
-=======
-const projectMemorySource = z.object({
-  kind: z.enum(['task', 'feature', 'execution', 'document', 'diff']), id,
-  revision: z.number().int().nonnegative().optional()
-}).strict().superRefine((source, context) => {
-  if (['execution', 'diff'].includes(source.kind) && source.revision !== undefined) context.addIssue({ code: 'custom', path: ['revision'], message: 'This source kind does not have numbered revisions' });
-});
-const projectMemorySources = z.array(projectMemorySource).min(1).max(20).refine(
-  sources => new Set(sources.map(source => `${source.kind}:${source.id}:${source.revision ?? ''}`)).size === sources.length,
-  'Memory source references must be unique'
-);
-const projectMemoryContent = z.string().trim().min(1).max(20000).refine(value => Buffer.byteLength(value, 'utf8') <= 40 * 1024, 'Memory content exceeds 40 KiB');
-const projectMemoryData = z.object({
-  title: z.string().trim().min(1).max(255),
-  category: z.enum(['decision', 'architecture', 'convention', 'domain_fact']),
-  content: projectMemoryContent,
-  sources: projectMemorySources
-}).strict();
 const projectMemorySource = z.object({
   kind: z.enum(['task', 'feature', 'execution', 'document', 'diff']), id,
   revision: z.number().int().nonnegative().optional()
@@ -216,11 +199,8 @@ export const tools = {
   list_project_activity: z.object({ projectId: id, taskId: id.optional(), search: z.string().trim().min(1).max(160).optional(), after: cursor.optional(), limit: z.number().int().min(1).max(100).default(25) }).strict().describe('Consulta o histórico paginado de atividades do projeto; search filtra pelo nome ou ID da tarefa.'),
   get_global_activity: z.object({ after: cursor.optional(), limit: z.number().int().min(1).max(100).default(25) }).strict().describe('Consulta atividades globais recentes; somente administradores de sistema.'),
   get_summary: z.object({ projectId: id, featureId: id.optional() }).strict(),
-<<<<<<< HEAD
   get_project_dashboard: z.object({ projectId: id, from: z.string().datetime().optional(), to: z.string().datetime().optional(), granularity: z.enum(['day', 'week', 'month']).default('month') }).strict().describe('Agrega tarefas por status, responsável, área e feature; from/to filtram pela data de criação e granularity escolhe a série temporal.'),
   get_portfolio_dashboard: z.object({ from: z.string().datetime().optional(), to: z.string().datetime().optional(), granularity: z.enum(['day', 'week', 'month']).default('month') }).strict().describe('Agrega os projetos acessíveis à identidade autenticada; retorna indicadores e séries temporais do portfólio.'),
-=======
-  get_project_dashboard: z.object({ projectId: id, from: z.string().datetime().optional() }).strict().describe('Agrega tarefas, responsáveis, áreas e duração de desenvolvimento do projeto; from filtra tarefas pela data de criação.'),
   get_global_dashboard: z.object({ from: z.string().datetime().optional() }).strict().describe('Agrega indicadores dos projetos ativos acessíveis ao usuário, com comparações por projeto e responsável; from filtra tarefas pela data de criação.'),
   get_project_area_summary: z.object({ projectId: id, featureId: id.optional() }).strict(),
   list_project_memories: z.object({ projectId: id, scope: projectMemoryScope.optional(), ownerTaskId: id.optional(), status: z.enum(['active', 'superseded']).optional(), category: z.enum(['decision', 'architecture', 'convention', 'domain_fact']).optional(), search: z.string().trim().min(1).max(160).optional(), after: cursor.optional(), limit: z.number().int().min(1).max(100).default(25) }).strict().superRefine(scopedMemoryInput).describe('Lista metadados paginados. scope=project lista memórias compartilhadas; scope=task exige ownerTaskId e lista somente memórias dessa tarefa. Fonte task não significa ownership task. Conteúdo completo é carregado com get_project_memory.'),
@@ -265,7 +245,7 @@ export const tools = {
   claim_task: z.object({ ...op, projectId: id, taskId: id, version: z.number().int().nonnegative(), agent: text }).strict(),
   recover_task_execution: z.object({ ...op, projectId: id, taskId: id, version: z.number().int().nonnegative(), reason: text.describe('Motivo conciso para reconciliar o estado da execução. Não inclua segredos.') }).strict().describe('Recupera o estado de execução da tarefa sem receber executionId do cliente; preserve execuções válidas e recuse estados ambíguos ou de outro responsável.'),
   set_acceptance_criterion: z.object({ ...target, criterionIndex: z.number().int().nonnegative().describe('Índice zero-based do item em get_task_context.task.acceptance; não use a posição de um texto editado.'), complete: z.boolean().describe('true somente quando o critério estiver integralmente atendido e a implementação correspondente já estiver no checkout e verificada; plano, intenção ou alteração parcial não bastam. Use false enquanto pendente/parcial ou se a evidência for invalidada. Rótulos ou emojis no texto não alteram acceptanceProgress.'), evidence: text.describe('Evidência objetiva e concisa; para implementação, cite o arquivo/diff concreto e a verificação realizada; para critério sem código, cite a comprovação correspondente.') }).strict(),
-  set_task_status: z.object({ ...op, projectId: id, taskId: id, version: z.number().int().nonnegative(), status: z.enum(['pendente', 'em_revisao', 'concluida', 'cancelada']), reason: text }).strict(),
+  set_task_status: z.object({ ...op, projectId: id, taskId: id, version: z.number().int().nonnegative(), status: z.enum(['pendente', 'em_revisao', 'concluida', 'cancelada']), reason: text, humanRequestMessageId: id.optional().describe('Mensagem direta de uma pessoa que pediu explicitamente o retorno para pendente; exigida no runner.') }).strict(),
   heartbeat_task: z.object(target).strict(),
   record_progress: z.object({ ...target, message: text }).strict(),
   block_task: z.object({ ...target, reason: text }).strict(),

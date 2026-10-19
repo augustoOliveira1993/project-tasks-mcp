@@ -9,7 +9,8 @@ import { EventHub, readEvents } from './events.js';
 import { logger } from './logger.js';
 import { validateTaskDependencyGraph } from './services/task-dependency-service.js';
 import { getTaskContext } from './services/task-context-service.js';
-import { getGlobalDashboard, getProjectDashboard } from './services/project-dashboard-service.js';
+import { getGlobalDashboard } from './services/global-dashboard-service.js';
+import { getPortfolioDashboard, getProjectDashboard } from './services/project-dashboard-service.js';
 import { Automation } from './services/automation-service.js';
 import { taskMessageAuthorMetadata } from './services/task-message-author.js';
 import { deleteProjectCascade, ProjectDeletionConflict } from './services/project-deletion-service.js';
@@ -21,7 +22,7 @@ import { importProject, ProjectImportError } from './services/project-import-ser
 import { eventOrigin } from './event-origin.js';
 import { areasForProject } from './area-catalog.js';
 import { normalizeGitRemote } from './git-remote.js';
-import { tools, adminSchema, approveActionProposalSchema, approveTasksSchema, changeTaskStatusSchema, setTaskAcceptanceCriterionSchema, setTaskCheckedSchema, projectData, featureData, taskDataPatch, states, id as idSchema, userId as userIdSchema } from './schema.js';
+import { tools, adminSchema, approveActionProposalSchema, approveTasksSchema, changeTaskStatusSchema, setTaskAcceptanceCriterionSchema, setTaskCheckedSchema, projectDataPatch, featureData, taskDataPatch, states, id as idSchema, userId as userIdSchema } from './schema.js';
 import { taskWorkspaceSearch } from './schema.js';
 import { compileTaskFilter, quickFlagFilter, taskFilterContentFields, taskFilterSorts, taskFilterUsesCollaboration, type TaskContentFilterField, type TaskFilterNode } from './task-workspace-search.js';
 
@@ -825,18 +826,18 @@ export class Service {
     const leaseActive = !!task.leaseUntil && task.leaseUntil > now;
     const reason = redactActivityDetail(String(a.reason)).slice(0, 500);
     const saveTask = async () => { task.version! += 1; await task.save({ session: s }); };
-    const releaseToPending = async () => {
-      await Execution.updateMany({ projectId: a.projectId, taskId: task._id, status: 'em_execucao' }, { $set: { status: 'expired', endedAt: now }, $push: { impediments: reason } }, { session: s });
+    const releaseToBlocked = async () => {
+      await Execution.updateMany({ projectId: a.projectId, taskId: task._id, status: 'em_execucao' }, { $set: { status: 'bloqueada', endedAt: now }, $push: { impediments: reason } }, { session: s });
       await AutomationJob.updateMany({ projectId: a.projectId, taskId: task._id, status: { $in: activeStatuses } }, { $set: { status: 'failed', authorizationValid: false, error: reason }, $inc: { version: 1 } }, { session: s });
-      task.status = 'pendente'; task.executionId = undefined; task.leaseUntil = undefined; task.responsible = undefined;
+      task.status = 'bloqueada'; task.leaseUntil = undefined;
       await saveTask();
-      return { action: 'released', executionId: null, nextAction: 'Call claim_task using the returned task version.' };
+      return { action: 'blocked', executionId: oldExecutionId, nextAction: 'The task remains blocked; return it to pending only after an explicit request.' };
     };
-    if (job && !job.authorizationValid) return { ...(await releaseToPending()), oldExecutionId };
+    if (job && !job.authorizationValid) return { ...(await releaseToBlocked()), oldExecutionId };
 
     if (execution) {
       const runnerMissing = !!execution.managedJobId && !job;
-      if ((!leaseActive || runnerMissing) && !job) return { ...(await releaseToPending()), oldExecutionId };
+      if ((!leaseActive || runnerMissing) && !job) return { ...(await releaseToBlocked()), oldExecutionId };
       let canonicalId = String(execution._id);
       let action: string = 'resumed';
       if (!idSchema.safeParse(canonicalId).success) {
@@ -868,7 +869,7 @@ export class Service {
       if (job) await AutomationJob.updateOne({ _id: job._id, runnerId: job.runnerId, credentialId: job.credentialId }, { $set: { executionId }, $inc: { version: 1 } }, { session: s });
       return { action: 'reattached', oldExecutionId, executionId, nextAction: 'Continue the existing authorized execution using the returned executionId.' };
     }
-    return { ...(await releaseToPending()), oldExecutionId };
+    return { ...(await releaseToBlocked()), oldExecutionId };
   }
   async call(actor: Actor, name: string, input: unknown): Promise<any> {
     const conversationTools = new Set(['create_conversation', 'open_task_conversation', 'update_conversation_title', 'link_conversation_task', 'delete_conversation', 'send_conversation_message', 'send_collaboration_message', 'mark_conversation_read', 'list_conversation_types', 'get_conversation_type', 'create_conversation_type', 'update_conversation_type', 'duplicate_conversation_type', 'archive_conversation_type', 'set_conversation_type']);
@@ -1012,6 +1013,7 @@ export class Service {
         const doc = await models[a.kind].findOne(filter).session(s);
         requireThat(doc && doc.version === a.version && !doc.archived, 'Version conflict or archived');
         if (a.kind === 'project') await this.access(actor, a.projectId, true, true, s);
+        let taskBeforeEdit: any;
         if (name === 'archive_record') {
           if (a.kind === 'task') {
             requireThat(['concluida', 'cancelada'].includes(doc.status), 'Only terminal tasks can be archived');
@@ -1019,7 +1021,7 @@ export class Service {
           } else requireThat(!await Task.exists({ projectId: a.projectId, ...(a.kind === 'feature' ? { featureId: a.id } : {}), status: { $nin: ['concluida', 'cancelada'] } }).session(s), 'Active tasks prevent archival');
           doc.archived = true;
         } else {
-          const editSchemas = { project: projectData.partial(), feature: featureData.partial(), task: taskDataPatch };
+          const editSchemas = { project: projectDataPatch, feature: featureData.partial(), task: taskDataPatch };
           const data = editSchemas[a.kind as 'project' | 'feature' | 'task'].parse(a.data);
           if (a.kind === 'task' && 'acceptance' in data && data.acceptance) (data as any).acceptanceProgress = data.acceptance.map(() => false);
           if (a.kind === 'project') {
@@ -1029,7 +1031,7 @@ export class Service {
             if (projectData.visibility === 'public') projectData.accessTokenHash = undefined;
           }
           if (a.kind === 'task') {
-            const current = plain(doc) as any;
+            const current = taskBeforeEdit = plain(doc) as any;
             const plannedStartAt = 'plannedStartAt' in data ? data.plannedStartAt : current.plannedStartAt;
             const plannedDueAt = 'plannedDueAt' in data ? data.plannedDueAt : current.plannedDueAt;
             requireThat(!plannedStartAt || !plannedDueAt || new Date(plannedStartAt) <= new Date(plannedDueAt), 'Planned start must not be after planned delivery', 400);
@@ -1045,8 +1047,11 @@ export class Service {
         }
         doc.version += 1; await doc.save({ session: s });
         if (name === 'edit_record') {
-          const affected = a.kind === 'task' ? [a.id] : (await Task.find({ projectId: a.projectId, ...(a.kind === 'feature' ? { featureId: a.id } : {}) }).select('_id').session(s)).map(t => t._id);
-          await AutomationJob.updateMany({ projectId: a.projectId, taskId: { $in: affected } }, { $set: { authorizationValid: false }, $inc: { version: 1 } }, { session: s });
+          if (a.kind === 'task') await this.automation.afterTaskEdit(actor, doc, taskBeforeEdit, s);
+          else {
+            const affected = (await Task.find({ projectId: a.projectId, ...(a.kind === 'feature' ? { featureId: a.id } : {}) }).select('_id').session(s)).map(t => t._id);
+            await AutomationJob.updateMany({ projectId: a.projectId, taskId: { $in: affected } }, { $set: { authorizationValid: false }, $inc: { version: 1 } }, { session: s });
+          }
         }
         await this.event(s, actor, name, a.projectId, a.id, doc); return doc;
       }
@@ -2127,10 +2132,10 @@ export class Service {
   async expire() {
     const expired = await Task.find({ status: 'em_execucao', leaseUntil: { $lte: new Date() } }).select('_id').limit(100).lean();
     for (const row of expired) await mongoose.connection.transaction(async s => {
-      const t = await Task.findOneAndUpdate({ _id: row._id, status: 'em_execucao', leaseUntil: { $lte: new Date() } }, { $set: { status: 'pendente' }, $unset: { leaseUntil: 1 }, $inc: { version: 1 } }, { returnDocument: 'after', session: s });
+      const t = await Task.findOneAndUpdate({ _id: row._id, status: 'em_execucao', leaseUntil: { $lte: new Date() } }, { $set: { status: 'bloqueada' }, $unset: { leaseUntil: 1 }, $inc: { version: 1 } }, { returnDocument: 'after', session: s });
       if (!t) return;
-      await Execution.updateOne({ _id: t.executionId }, { $set: { status: 'expired', endedAt: new Date() }, $push: { impediments: 'Execution lease expired; task returned to pending' } }, { session: s });
-      await this.event(s, { id: 'system', userId: 'system', scope: 'system', systemAdmin: false }, 'expired', t.projectId!, t._id!, { executionId: t.executionId });
+      await Execution.updateOne({ _id: t.executionId }, { $set: { status: 'bloqueada', endedAt: new Date() }, $push: { impediments: 'Execution lease expired; task blocked pending an explicit human decision' } }, { session: s });
+      await this.event(s, { id: 'system', userId: 'system', scope: 'system', systemAdmin: false }, 'expired', t.projectId!, t._id!, { executionId: t.executionId, taskStatus: t.status });
     });
   }
 }

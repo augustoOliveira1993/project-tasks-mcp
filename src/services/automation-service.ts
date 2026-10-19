@@ -36,6 +36,20 @@ export class Automation {
     const content = [task.name, task.instructions, task.acceptance, task.priority, task.area, task.type, task.repositoryId, task.featureId, task.dependencies, project?.instructions, project?.repositories.find(r => r.id === task.repositoryId), feature?.version, docs];
     return createHash('sha256').update(JSON.stringify(content)).digest('hex');
   }
+  async afterTaskEdit(actor: Actor, task: any, previous: any, session: ClientSession) {
+    const currentJobId = actor.jobId;
+    await AutomationJob.updateMany({ projectId: task.projectId, taskId: task._id, ...(currentJobId ? { _id: { $ne: currentJobId } } : {}) }, { $set: { authorizationValid: false }, $inc: { version: 1 } }, { session });
+    if (!currentJobId) return;
+    const job = await AutomationJob.findOne({ _id: currentJobId, projectId: task.projectId, taskId: task._id, runnerId: actor.runnerId, credentialId: actor.id }).session(session);
+    if (!job) return;
+    const dependenciesChanged = JSON.stringify(task.dependencies ?? []) !== JSON.stringify(previous.dependencies ?? []);
+    const dependenciesReady = !dependenciesChanged || await Task.countDocuments({ _id: { $in: task.dependencies ?? [] }, projectId: task.projectId, status: 'concluida' }).session(session) === new Set(task.dependencies ?? []).size;
+    const scopeUnchanged = task.area === previous.area && task.repositoryId === previous.repositoryId && dependenciesReady;
+    job.authorizationValid = scopeUnchanged;
+    if (scopeUnchanged) job.fingerprint = await this.fingerprint(task, session);
+    job.version!++;
+    await job.save({ session });
+  }
   async status(actor: Actor, a: any) {
     const project = await this.service.access(actor, a.projectId);
     const jobs = await AutomationJob.find({ projectId: a.projectId, ...(a.after ? { _id: { $gt: a.after } } : {}) }).sort({ _id: 1 }).limit(a.limit + 1).lean();
@@ -130,16 +144,24 @@ export class Automation {
   }
   async guard(actor: Actor, name: string, a: any, s: ClientSession) {
     if (actor.jobId) {
-      const postSubmissionApproval = name === 'set_task_status' && a.status === 'concluida';
-      const job = await this.owned(actor, { ...a, jobId: actor.jobId, runnerId: actor.runnerId }, s, postSubmissionApproval);
+      const postSubmissionStatusChange = name === 'set_task_status' && ['concluida', 'pendente'].includes(a.status);
+      const taskId = a.taskId ?? (name === 'edit_record' && a.kind === 'task' ? a.id : undefined);
+      const job = await this.owned(actor, { ...a, taskId, jobId: actor.jobId, runnerId: actor.runnerId }, s, postSubmissionStatusChange);
       const consultationReply = name === 'send_collaboration_message' && job.mode === 'consultation';
-      ensure((['claim_task', 'heartbeat_task', 'record_progress', 'set_acceptance_criterion', 'block_task', 'submit_task', 'recover_task_execution', 'send_task_message'].includes(name) || name === 'send_collaboration_message' && ['work', 'consultation'].includes(job.mode) || name === 'send_conversation_message' && job.mode === 'work' || postSubmissionApproval) && job.taskId === a.taskId, 'Operation outside authorized job', 403);
+      const taskEdit = name === 'edit_record' && a.kind === 'task';
+      ensure((['claim_task', 'heartbeat_task', 'record_progress', 'set_acceptance_criterion', 'block_task', 'submit_task', 'recover_task_execution', 'send_task_message'].includes(name) || taskEdit || name === 'send_collaboration_message' && ['work', 'consultation'].includes(job.mode) || name === 'send_conversation_message' && job.mode === 'work' || postSubmissionStatusChange) && job.taskId === taskId, 'Operation outside authorized job', 403);
       ensure(job.mode === 'work' || consultationReply, 'Consultation is read-only', 403);
       const policy = await AutomationPolicy.findById(a.projectId).session(s);
-      const task = await Task.findById(a.taskId).session(s);
+      const task = await Task.findById(taskId).session(s);
       ensure(policy?.enabled && job.authorizationValid && task && job.fingerprint === await this.fingerprint(task, s), 'Automation suspended or task scope changed');
       ensure(job.status !== 'waiting_human' || name === 'heartbeat_task', 'Human permission pending');
-      if (postSubmissionApproval) ensure(job.status === 'completed' && task.status === 'em_revisao', 'Only a submitted task can be approved by its runner');
+      if (postSubmissionStatusChange) {
+        ensure(job.status === 'completed' && task.status === 'em_revisao', 'Only a submitted task can have its final status changed by its runner');
+        if (a.status === 'pendente') {
+          const message = a.humanRequestMessageId && job.conversationId ? await ConversationMessage.findOne({ _id: a.humanRequestMessageId, projectId: a.projectId, conversationId: job.conversationId, authorType: 'human' }).select('_id').session(s).lean() : null;
+          ensure(message, 'Returning a submitted task to pending requires a direct human request in its authorized conversation', 403);
+        }
+      }
     } else if (a.taskId || a.targetId) {
       const task = await Task.findById(a.taskId ?? a.targetId).session(s);
       if (task?.executionId && task.status === 'em_execucao') {
@@ -306,9 +328,9 @@ export class Automation {
         ensure(a.outcome !== 'completed' || task?.status === 'em_revisao' || task?.status === 'concluida' || job.mode === 'consultation', 'Submit task before completing work');
         job.status = a.outcome; job.error = a.error;
         if (task?.status === 'em_execucao' && task.executionId === job.executionId) {
-          const explicitlyBlocked = a.outcome === 'blocked';
-          task.status = explicitlyBlocked ? 'bloqueada' : 'pendente'; task.leaseUntil = undefined; task.version!++; await task.save({ session: s });
-          await Execution.updateOne({ _id: job.executionId }, { $set: { status: explicitlyBlocked ? 'bloqueada' : 'failed', endedAt: new Date() }, $push: { impediments: a.error ?? (explicitlyBlocked ? 'Runner requested a block' : 'Runner ended; task returned to pending') } }, { session: s });
+          const reason = a.error ?? (a.outcome === 'blocked' ? 'Runner requested a block' : 'Runner ended without submitting; human decision required before returning to pending');
+          task.status = 'bloqueada'; task.leaseUntil = undefined; task.version!++; await task.save({ session: s });
+          await Execution.updateOne({ _id: job.executionId }, { $set: { status: 'bloqueada', endedAt: new Date() }, $push: { impediments: reason } }, { session: s });
         }
       }
       job.version!++; await job.save({ session: s });
@@ -323,9 +345,9 @@ export class Automation {
       try { await session.withTransaction(async () => {
         const job = await AutomationJob.findOne({ _id: row._id, status: { $in: active } }).session(session);
         if (!job || job.reservationUntil! > new Date() && job.startedAt! > new Date(Date.now() - 30 * 60000)) return;
-        job.status = 'failed'; job.error = 'Runner reservation/budget expired; task returned to pending'; job.version!++; await job.save({ session });
+        job.status = 'failed'; job.authorizationValid = false; job.error = 'Runner reservation/budget expired; task blocked for explicit human decision'; job.version!++; await job.save({ session });
         const task = job.executionId ? await Task.findOne({ _id: job.taskId, executionId: job.executionId, status: 'em_execucao' }).session(session) : null;
-        if (task) { task.status = 'pendente'; task.leaseUntil = undefined; task.version!++; await task.save({ session }); await Execution.updateOne({ _id: job.executionId }, { $set: { status: 'expired', endedAt: new Date() }, $push: { impediments: job.error } }, { session }); }
+        if (task) { task.status = 'bloqueada'; task.leaseUntil = undefined; task.version!++; await task.save({ session }); await Execution.updateOne({ _id: job.executionId }, { $set: { status: 'bloqueada', endedAt: new Date() }, $push: { impediments: job.error } }, { session }); }
         await this.service.event(session, { id: 'system', userId: 'system', scope: 'system', systemAdmin: false }, 'automation_expired', job.projectId!, job._id!, { taskId: job.taskId });
       }); } finally { await session.endSession(); }
     }
