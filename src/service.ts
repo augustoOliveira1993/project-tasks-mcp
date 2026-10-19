@@ -1484,7 +1484,7 @@ export class Service {
   }
   private async read(actor: Actor, name: string, a: any) {
     if (a.projectId) await this.access(actor, a.projectId);
-    else requireThat((name === 'list_records' && a.kind === 'project') || name === 'resolve_project_context' || name === 'resolve_task_context' || name === 'get_global_activity' || name === 'get_global_dashboard', 'Project required', 400);
+    else requireThat((name === 'list_records' && a.kind === 'project') || name === 'resolve_project_context' || name === 'resolve_task_context' || name === 'get_global_activity' || name === 'get_global_dashboard' || name === 'get_portfolio_dashboard', 'Project required', 400);
     if (name === 'preview_task_transfer') {
       const plan = await this.taskTransferPlan(actor, a);
       const { internal: _internal, ...preview } = plan;
