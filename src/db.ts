@@ -61,11 +61,13 @@ function restoreTextIndexOptions(index: StoredTextIndex) {
   };
 }
 
-function restoreTextIndexKeys(index: StoredTextIndex) {
-  return {
-    ...Object.fromEntries(textIndexPrefix(index)),
-    ...Object.fromEntries(Object.keys(textIndexWeights(index)).map(field => [field, 'text']))
-  };
+function restoreTextIndexKeys(index: StoredTextIndex): Record<string, 1 | -1 | 'text'> {
+  const prefixKeys = textIndexPrefix(index).map(([field, direction]): [string, 1 | -1] => {
+    if (direction !== 1 && direction !== -1) throw new Error('Unsupported task text index prefix direction.');
+    return [field, direction];
+  });
+  const textKeys = Object.keys(textIndexWeights(index)).map((field): [string, 'text'] => [field, 'text']);
+  return Object.fromEntries([...prefixKeys, ...textKeys]);
 }
 
 export async function migrateTaskTextIndex(target: 'expanded' | 'legacy' = 'expanded') {
