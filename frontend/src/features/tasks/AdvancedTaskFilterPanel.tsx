@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import { defaultCondition, filterFields, operatorLabels, operatorsForField, type FilterCondition, type FilterField, type FilterGroup, type FilterNode } from './advanced-filter';
 import { buttonBase, buttonPrimary, buttonSecondarySmall } from '../../components/ui/classes';
@@ -9,47 +9,58 @@ const quietButton = `${buttonBase} min-h-[29px] border-transparent bg-transparen
 const operatorsWithoutValue = new Set(['isEmpty', 'isNotEmpty']);
 
 type Option = { value: string; label: string };
+const booleanOptions: Option[] = [{ value: 'true', label: 'Sim' }, { value: 'false', label: 'Não' }];
 
 function normalizeOptionSearch(value: string) {
   return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('pt-BR');
 }
 
-function MultiSelectValuePicker({ options, value, ariaLabel, onChange }: {
-  options: Option[]; value: unknown; ariaLabel: string; onChange: (value: string[]) => void;
+export function OptionValuePicker({ options, value, ariaLabel, multiple, booleanValue = false, emptyLabel = 'Selecione…', emptyValue = '', className = 'grid gap-1.5', controlClassName = controlClass, onChange }: {
+  options: Option[]; value: unknown; ariaLabel: string; multiple: boolean; booleanValue?: boolean; emptyLabel?: string; emptyValue?: string;
+  className?: string; controlClassName?: string; onChange: (value: string | string[] | boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const panelId = useId();
-  const selectedValues = Array.isArray(value) ? value.map(String) : [];
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const selectedValues = multiple
+    ? Array.isArray(value) ? value.map(String) : []
+    : value === undefined || value === null || value === emptyValue ? [] : [String(value)];
   const selectedOptions = selectedValues.map(selected => options.find(option => option.value === selected) ?? { value: selected, label: selected });
   const normalizedSearch = normalizeOptionSearch(search.trim());
   const filteredOptions = options.filter(option => normalizeOptionSearch(`${option.label} ${option.value}`).includes(normalizedSearch));
-  const close = () => { setOpen(false); setSearch(''); };
-  function toggleValue(selected: string) {
-    onChange(selectedValues.includes(selected) ? selectedValues.filter(value => value !== selected) : [...selectedValues, selected]);
+  const close = () => { setOpen(false); setSearch(''); triggerRef.current?.focus(); };
+  function selectValue(selected: string) {
+    if (multiple) {
+      onChange(selectedValues.includes(selected) ? selectedValues.filter(value => value !== selected) : [...selectedValues, selected]);
+      return;
+    }
+    onChange(booleanValue ? selected === 'true' : selected);
+    close();
   }
 
-  return <div className="grid gap-1.5" onKeyDown={event => {
+  return <div className={className} onKeyDown={event => {
     if (event.key === 'Escape' && open) { event.preventDefault(); event.stopPropagation(); close(); }
   }}>
-    <div className="flex flex-wrap gap-1.5" aria-label={`${ariaLabel} selecionados`}>
+    {multiple && <div className="flex flex-wrap gap-1.5" aria-label={`${ariaLabel} selecionados`}>
       {selectedOptions.length ? selectedOptions.map(option => <span key={option.value} className="inline-flex max-w-full items-center gap-1 rounded-full border border-indigo-100 bg-indigo-50 py-0.5 pr-1 pl-2 text-[10px] font-medium text-indigo-800">
         <span className="max-w-[260px] truncate" title={option.label}>{option.label}</span>
-        <button type="button" className="grid size-5 shrink-0 place-items-center rounded-full text-indigo-700 hover:bg-indigo-100 focus-visible:outline-2 focus-visible:outline-indigo-500" aria-label={`Remover ${option.label}`} onClick={() => toggleValue(option.value)}>×</button>
+        <button type="button" className="grid size-5 shrink-0 place-items-center rounded-full text-indigo-700 hover:bg-indigo-100 focus-visible:outline-2 focus-visible:outline-indigo-500" aria-label={`Remover ${option.label}`} onClick={() => selectValue(option.value)}>×</button>
       </span>) : <span className="text-[10px] font-normal text-slate-400">Nenhuma opção selecionada</span>}
-    </div>
+    </div>}
     <div className="flex flex-wrap items-center gap-2">
-      <button type="button" className={`${controlClass} inline-flex items-center justify-between gap-2 text-left`} aria-label={`${open ? 'Fechar' : 'Selecionar'} valores de ${ariaLabel}`} aria-expanded={open} aria-controls={panelId} onClick={() => open ? close() : setOpen(true)}>
-        <span>{open ? 'Fechar opções' : 'Selecionar opções'}</span>
-        {selectedValues.length > 0 && <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-semibold text-slate-600">{selectedValues.length} {selectedValues.length === 1 ? 'opção selecionada' : 'opções selecionadas'}</span>}
+      <button ref={triggerRef} type="button" className={`${controlClassName} inline-flex w-full items-center justify-between gap-2 text-left`} aria-label={`${open ? 'Fechar' : 'Selecionar'} valores de ${ariaLabel}`} aria-expanded={open} aria-controls={panelId} onClick={() => open ? close() : setOpen(true)}>
+        <span className="min-w-0 truncate">{open ? 'Fechar opções' : multiple ? 'Selecionar opções' : selectedOptions[0]?.label ?? emptyLabel}</span>
+        {multiple && selectedValues.length > 0 && <span className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-semibold text-slate-600">{selectedValues.length} {selectedValues.length === 1 ? 'opção selecionada' : 'opções selecionadas'}</span>}
+        <span aria-hidden="true" className="shrink-0 text-slate-400">{open ? '⌃' : '⌄'}</span>
       </button>
-      {selectedValues.length > 0 && <button type="button" className={quietButton} onClick={() => onChange([])}>Limpar seleção</button>}
+      {selectedValues.length > 0 && !booleanValue && <button type="button" className={quietButton} onClick={() => onChange(multiple ? [] : emptyValue)}>Limpar seleção</button>}
     </div>
     {open && <div id={panelId} className="grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-2">
       <input className={controlClass} type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Buscar opções…" aria-label={`Buscar opções de ${ariaLabel}`} autoComplete="off" autoFocus />
       {filteredOptions.length ? <div className="grid max-h-44 gap-0.5 overflow-y-auto" role="group" aria-label={`Opções de ${ariaLabel}`}>
-        {filteredOptions.map(option => <label key={option.value} className="flex min-h-9 cursor-pointer items-start gap-2 rounded-md px-2 py-2 text-[11px] font-normal text-slate-700 hover:bg-white">
-          <input className="mt-0.5 size-3.5 shrink-0 accent-indigo-600" type="checkbox" checked={selectedValues.includes(option.value)} onChange={() => toggleValue(option.value)} />
+        {filteredOptions.map(option => <label key={option.value} className={`flex min-h-9 cursor-pointer items-start gap-2 rounded-md px-2 py-2 text-[11px] font-normal hover:bg-white ${selectedValues.includes(option.value) ? 'bg-white text-indigo-800' : 'text-slate-700'}`}>
+          <input className="mt-0.5 size-3.5 shrink-0 accent-indigo-600" type={multiple ? 'checkbox' : 'radio'} name={multiple ? undefined : panelId} checked={selectedValues.includes(option.value)} onChange={() => selectValue(option.value)} />
           <span className="min-w-0 break-words">{option.label}</span>
         </label>)}
       </div> : <p className="m-0 px-2 py-3 text-center text-[10px] text-slate-500">Nenhuma opção encontrada.</p>}
@@ -135,10 +146,10 @@ function ConditionEditor({ condition, options, onChange, onRemove }: {
   const noValue = operatorsWithoutValue.has(condition.operator);
   const range = condition.operator === 'between';
   const multiSelect = field.type === 'enum' && values.length > 0 && ['in', 'notIn'].includes(condition.operator);
+  const optionPicker = field.type === 'boolean' || (field.type === 'enum' && values.length > 0);
   const renderValue = (value: unknown, set: (value: unknown) => void, aria: string) => {
-    if (field.type === 'boolean') return <select className={controlClass} aria-label={aria} value={String(value ?? true)} onChange={event => set(event.target.value === 'true')}><option value="true">Sim</option><option value="false">Não</option></select>;
-    if (multiSelect) return <MultiSelectValuePicker key={condition.field} options={values} value={value} ariaLabel={aria} onChange={set} />;
-    if (field.type === 'enum' && values.length) return <select className={controlClass} aria-label={aria} value={String(value ?? '')} onChange={event => set(event.target.value)}><option value="">Selecione…</option>{values.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select>;
+    if (field.type === 'boolean') return <OptionValuePicker key={condition.field} options={booleanOptions} value={value ?? true} ariaLabel={aria} multiple={false} booleanValue onChange={set} />;
+    if (field.type === 'enum' && values.length) return <OptionValuePicker key={`${condition.field}-${multiSelect ? 'multiple' : 'single'}`} options={values} value={value} ariaLabel={aria} multiple={multiSelect} onChange={set} />;
     if (field.type === 'date') return <input className={controlClass} aria-label={aria} type="date" value={String(value ?? '')} onChange={event => set(event.target.value)} />;
     if (field.type === 'number') return <input className={controlClass} aria-label={aria} type="number" min="0" max="5" step="1" value={String(value ?? '')} onChange={event => set(event.target.value === '' ? '' : Number(event.target.value))} />;
     return <input className={controlClass} aria-label={aria} value={String(value ?? '')} placeholder={condition.field === 'id' ? 'ID ou prefixo' : 'Digite um valor'} onChange={event => set(event.target.value)} />;
@@ -150,7 +161,7 @@ function ConditionEditor({ condition, options, onChange, onRemove }: {
       <button type="button" className={`${quietButton} self-end max-[600px]:justify-self-end`} onClick={onRemove} aria-label="Remover condição">Remover</button>
     </div>
     {!noValue && <div className={`grid gap-2 ${range ? 'grid-cols-2' : 'grid-cols-1'}`}>
-      {multiSelect
+      {optionPicker
         ? <div className={fieldClass}><span>Valor</span>{renderValue(condition.value, next => onChange(current => ({ ...current, value: next as FilterCondition['value'] })), `filtro ${field.label}`)}</div>
         : <label className={fieldClass}>{range ? (field.type === 'number' ? 'Mínimo' : 'De') : 'Valor'}{renderValue(range ? (Array.isArray(condition.value) ? condition.value[0] : '') : condition.value, next => range ? setRangePart(0, next) : onChange(current => ({ ...current, value: next as FilterCondition['value'] })), range ? 'Valor mínimo/inicial' : 'Valor do filtro')}</label>}
       {range && <label className={fieldClass}>{field.type === 'number' ? 'Máximo' : 'Até'}{renderValue(Array.isArray(condition.value) ? condition.value[1] : '', next => setRangePart(1, next), 'Valor máximo/final')}</label>}

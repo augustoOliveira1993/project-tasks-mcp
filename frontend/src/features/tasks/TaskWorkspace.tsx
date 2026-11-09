@@ -24,7 +24,7 @@ import { noAreaFilter, noResponsibleFilter } from './task-filters';
 import { getSelectedVisibleItems } from './task-pagination';
 import { readTaskQueryState, syncTaskQueryState, taskTypes, type TaskQueryState } from './task-query-params';
 import { sortLabels } from './task-sort';
-import { AdvancedTaskFilterPanel } from './AdvancedTaskFilterPanel';
+import { AdvancedTaskFilterPanel, OptionValuePicker } from './AdvancedTaskFilterPanel';
 import { emptyFilterGroup, expressionHasRules, expressionIsReady, type FilterField, type FilterGroup } from './advanced-filter';
 import { builtInViews, countAdvancedFilters, loadMyEmail, loadSavedViews, matchesView, mineView, snapshotView, storeMyEmail, storeSavedViews, viewPatch, type TaskView } from './task-views';
 
@@ -394,10 +394,24 @@ export function TaskWorkspace({ token, nonce, projectId, repositories = [], proj
     feature: (featuresQuery.data ?? []).map(feature => ({ value: feature._id, label: feature.name }))
   };
 
+  const quickResponsibleOptions = [
+    { value: noResponsibleFilter, label: 'Sem responsável' },
+    ...(state.responsible && state.responsible !== noResponsibleFilter && !responsibleOptions.some(item => item.email === state.responsible)
+      ? [{ value: state.responsible, label: state.responsible }] : []),
+    ...responsibleOptions.map(item => ({ value: item.email, label: `${item.email}${item.kind === 'agente' ? ' (agente)' : ''}` }))
+  ];
+  const quickFeatureOptions = [
+    ...(state.featureId && !featureNames.has(state.featureId) ? [{ value: state.featureId, label: `Feature ${shortId(state.featureId)}` }] : []),
+    ...(featuresQuery.data ?? []).map(feature => ({ value: feature._id, label: feature.name }))
+  ];
+  const quickAreaOptions = [
+    ...(state.area === noAreaFilter ? [{ value: noAreaFilter, label: 'Sem área' }] : []),
+    ...(advancedOptions.area ?? [])
+  ];
   const legacyQuickFilters = <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-    <label className={advancedLabel}>Prioridade<select className={advancedControl} aria-label="Filtrar por prioridade" value={state.priority} onChange={event => patch({ priority: event.target.value })}><option value="">Todas</option>{filterOptions.priority.map(({ value }) => <option value={value} key={value}>{priorityInfo(Number(value)).text}</option>)}</select></label>
-    <label className={advancedLabel}>Responsável<select className={advancedControl} aria-label="Filtrar por responsável" value={state.responsible} onChange={event => patch({ responsible: event.target.value })}><option value="">Todos</option><option value={noResponsibleFilter}>Sem responsável</option>{state.responsible && state.responsible !== noResponsibleFilter && !responsibleOptions.some(item => item.email === state.responsible) && <option value={state.responsible}>{state.responsible}</option>}{responsibleOptions.map(item => <option value={item.email} key={item.email}>{item.email}{item.kind === 'agente' ? ' (agente)' : ''}</option>)}</select></label>
-    <label className={advancedLabel}>Feature<select className={advancedControl} aria-label="Filtrar por feature" value={state.featureId} onChange={event => patch({ featureId: event.target.value })}><option value="">Todas</option>{state.featureId && !featureNames.has(state.featureId) && <option value={state.featureId}>{`Feature ${shortId(state.featureId)}`}</option>}{(featuresQuery.data ?? []).map(feature => <option value={feature._id} key={feature._id}>{feature.name}</option>)}</select></label>
+    <div className={advancedLabel}><span>Prioridade</span><OptionValuePicker options={advancedOptions.priority ?? []} value={state.priority} ariaLabel="prioridade" emptyLabel="Todas" multiple={false} onChange={value => patch({ priority: typeof value === 'string' ? value : '' })} /></div>
+    <div className={advancedLabel}><span>Responsável</span><OptionValuePicker options={quickResponsibleOptions} value={state.responsible} ariaLabel="responsável" emptyLabel="Todos" multiple={false} onChange={value => patch({ responsible: typeof value === 'string' ? value : '' })} /></div>
+    <div className={advancedLabel}><span>Feature</span><OptionValuePicker options={quickFeatureOptions} value={state.featureId} ariaLabel="feature" emptyLabel="Todas" multiple={false} onChange={value => patch({ featureId: typeof value === 'string' ? value : '' })} /></div>
     <label className={advancedLabel}>Criada de<input className={advancedControl} type="date" value={state.createdAfter} onChange={event => patch({ createdAfter: event.target.value })} /></label>
     <label className={advancedLabel}>Criada até<input className={advancedControl} type="date" value={state.createdBefore} onChange={event => patch({ createdBefore: event.target.value })} /></label>
     <label className={advancedLabel}>Atualizada de<input className={advancedControl} type="date" value={state.updatedAfter} onChange={event => patch({ updatedAfter: event.target.value })} /></label>
@@ -455,9 +469,9 @@ export function TaskWorkspace({ token, nonce, projectId, repositories = [], proj
 
       <div className="flex flex-wrap items-center gap-2 px-5 pb-3.5 max-[760px]:grid max-[760px]:grid-cols-[1fr_1fr] max-[760px]:px-3.5 max-[760px]:pb-3">
         <label className="flex h-[34px] min-w-[260px] flex-1 items-center gap-2 rounded-[7px] border border-[#e3e7ef] px-2.5 text-[#9ba5b4] focus-within:border-[#929ef2] focus-within:shadow-[0_0_0_3px_#596ce31a] max-[760px]:col-[1/-1] max-[760px]:min-w-0"><span className="grid place-items-center text-[17px]" aria-hidden="true"><IconSearch size={15} /></span><input ref={searchRef} className="w-full min-w-0 border-0 text-ui-sm text-[#394558] shadow-none outline-0" value={searchDraft} onChange={event => setSearchDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Escape') { if (searchDraft) { setSearchDraft(''); patch({ search: '' }); } else event.currentTarget.blur(); } }} placeholder="Buscar em todo o conteúdo textual das tarefas" aria-label="Buscar em todo o conteúdo textual das tarefas" aria-keyshortcuts="/" /><kbd className={kbd} aria-hidden="true">/</kbd></label>
-        <select className={filterSelect} aria-label="Filtrar por status" value={state.status} onChange={event => patch({ status: event.target.value })}><option value="todos">Todos os status</option>{filterOptions.status.map(({ value }) => <option key={value} value={value}>{statusLabels[value] ?? value}</option>)}</select>
-        <select className={filterSelect} aria-label="Filtrar por área" value={state.area} onChange={event => patch({ area: event.target.value })}><option value="todos">Todas as áreas</option>{state.area === noAreaFilter && <option value={noAreaFilter}>Sem área</option>}{filterOptions.area.map(({ value }) => <option key={value} value={value}>{areaLabel(value)}</option>)}</select>
-        <select className={filterSelect} aria-label="Filtrar por tipo" value={state.type} onChange={event => patch({ type: event.target.value })}><option value="todos">Todos os tipos</option>{filterOptions.type.map(({ value }) => <option value={value} key={value}>{typeLabel(value)}</option>)}</select>
+        <OptionValuePicker className="min-w-[130px] max-[760px]:w-full" controlClassName={filterSelect} options={advancedOptions.status ?? []} value={state.status} ariaLabel="status" emptyLabel="Todos os status" emptyValue="todos" multiple={false} onChange={value => patch({ status: typeof value === 'string' ? value : 'todos' })} />
+        <OptionValuePicker className="min-w-[130px] max-[760px]:w-full" controlClassName={filterSelect} options={quickAreaOptions} value={state.area} ariaLabel="área" emptyLabel="Todas as áreas" emptyValue="todos" multiple={false} onChange={value => patch({ area: typeof value === 'string' ? value : 'todos' })} />
+        <OptionValuePicker className="min-w-[130px] max-[760px]:w-full" controlClassName={filterSelect} options={advancedOptions.type ?? []} value={state.type} ariaLabel="tipo" emptyLabel="Todos os tipos" emptyValue="todos" multiple={false} onChange={value => patch({ type: typeof value === 'string' ? value : 'todos' })} />
         <select className={filterSelect} aria-label="Ordenar tarefas" value={state.sort} onChange={event => patch({ sort: event.target.value })}>{Object.entries(sortLabels).map(([value, label]) => <option value={value} key={value}>Ordem: {label}</option>)}</select>
         <button type="button" className={`${buttonGhost} gap-1.5`} onClick={() => { setFilterDraft(state.expression); setAdvancedOpen(true); }} aria-expanded={advancedOpen} aria-label={advancedFilterCount ? `Mais filtros, ${advancedFilterCount} filtro(s) avançado(s) aplicado(s)` : 'Mais filtros'} title={advancedFilterCount ? `${advancedFilterCount} filtro(s) avançado(s) aplicado(s). Clique para revisar.` : 'Abrir filtros avançados'}>＋ Mais filtros{advancedFilterCount > 0 && <span className="inline-grid size-[18px] place-items-center rounded-full bg-tone-blue-bg px-1 text-[10px] leading-none font-bold text-tone-blue" aria-hidden="true">{advancedFilterCount}</span>}</button>
       </div>
