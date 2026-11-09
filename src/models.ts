@@ -15,6 +15,12 @@ export const Feature = mongoose.model('Feature', new Schema({ ...base, projectId
 export const Task = mongoose.model('Task', new Schema({ ...base, projectId: { type: String, index: true }, featureId: String, name: String,
   instructions: String, acceptance: [String], acceptanceProgress: { type: [Boolean], default: [] }, priority: Number, area: String, type: { type: String, default: 'feature' }, repositoryId: String, dependencies: [String],
   status: { type: String, default: 'pendente' }, executionId: String, responsible: String, plannedStartAt: Date, plannedDueAt: Date, leaseUntil: Date, checked: { type: Boolean, default: false }, checkedBy: String, checkedAt: Date }, options));
+// Keep acceptance as the only array field; dependencies is also an array and cannot share a compound multikey index.
+export const TASK_SEARCH_TEXT_INDEX_KEYS = {
+  projectId: 1, archived: 1, name: 'text', instructions: 'text', acceptance: 'text', responsible: 'text',
+  status: 'text', area: 'text', type: 'text', featureId: 'text', repositoryId: 'text', executionId: 'text', checkedBy: 'text'
+} as const;
+export const TASK_SEARCH_TEXT_INDEX_OPTIONS = { name: 'task_workspace_text', default_language: 'portuguese' } as const;
 Task.schema.index({ projectId: 1, status: 1, _id: 1 });
 Task.schema.index({ projectId: 1, archived: 1, createdAt: 1, _id: 1 });
 Task.schema.index({ projectId: 1, archived: 1, status: 1, createdAt: 1, _id: 1 });
@@ -24,7 +30,7 @@ Task.schema.index({ projectId: 1, archived: 1, checked: 1, status: 1 });
 Task.schema.index({ projectId: 1, archived: 1, name: 1, _id: 1 });
 Task.schema.index({ projectId: 1, archived: 1, responsible: 1, _id: 1 });
 Task.schema.index({ projectId: 1, archived: 1, name: 1, _id: 1 }, { name: 'task_project_name_pt', collation: { locale: 'pt', strength: 1 } });
-Task.schema.index({ projectId: 1, archived: 1, name: 'text', responsible: 'text' });
+Task.schema.index({ ...TASK_SEARCH_TEXT_INDEX_KEYS }, { ...TASK_SEARCH_TEXT_INDEX_OPTIONS });
 Task.schema.index({ projectId: 1, featureId: 1, archived: 1, createdAt: 1, _id: 1 });
 Task.schema.index({ projectId: 1, dependencies: 1, status: 1 });
 Feature.schema.index({ projectId: 1, archived: 1, createdAt: 1, _id: 1 });

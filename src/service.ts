@@ -1233,8 +1233,13 @@ export class Service {
     const search = String(quick.search ?? '').trim();
     if (search) {
       const words = search.match(/[\p{L}\p{N}_@.+-]+/gu) ?? [];
-      if (/^[a-f\d-]{8,}$/i.test(search)) baseMatch._id = prefix(search);
-      else if (words.length) baseMatch.$text = { $search: words.join(' ') };
+      if (/^[a-f\d-]{8,}$/i.test(search)) {
+        const idPrefix = prefix(search);
+        baseMatch.$or = [
+          { _id: idPrefix }, { featureId: idPrefix }, { repositoryId: idPrefix },
+          { executionId: idPrefix }, { dependencies: idPrefix }
+        ];
+      } else if (words.length) baseMatch.$text = { $search: words.join(' ') };
     }
     const quickParts: any[] = [];
     if (quick.status && quick.status !== 'todos') quickParts.push({ status: quick.status });

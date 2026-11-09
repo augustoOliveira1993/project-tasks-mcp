@@ -20,9 +20,9 @@ export const filterFields: Array<{ value: FilterField; label: string; type: 'tex
 
 export const operatorsForField: Record<FilterField, FilterOperator[]> = {
   name: ['contains', 'not', 'exact', 'startsWith', 'endsWith', 'isEmpty', 'isNotEmpty'], id: ['exact', 'startsWith', 'isEmpty', 'isNotEmpty'],
-  status: ['is', 'isNot', 'in', 'notIn'], area: ['is', 'isNot', 'in', 'notIn', 'isEmpty', 'isNotEmpty'],
-  type: ['is', 'isNot', 'in', 'notIn'], priority: ['is', 'isNot', 'gt', 'gte', 'lt', 'lte', 'between'],
-  responsible: ['is', 'isNot', 'in', 'notIn', 'isEmpty', 'isNotEmpty'], feature: ['is', 'isNot', 'in', 'notIn', 'isEmpty', 'isNotEmpty'],
+  status: ['in', 'is', 'isNot', 'notIn'], area: ['in', 'is', 'isNot', 'notIn', 'isEmpty', 'isNotEmpty'],
+  type: ['in', 'is', 'isNot', 'notIn'], priority: ['is', 'isNot', 'gt', 'gte', 'lt', 'lte', 'between'],
+  responsible: ['in', 'is', 'isNot', 'notIn', 'isEmpty', 'isNotEmpty'], feature: ['in', 'is', 'isNot', 'notIn', 'isEmpty', 'isNotEmpty'],
   createdAt: ['on', 'before', 'after', 'between'], updatedAt: ['on', 'before', 'after', 'between'],
   checked: ['is'], unread: ['is'], openQuestions: ['is'], hasGitDiff: ['is'], hasPlanning: ['is'], hasAttachments: ['is'], hasConversations: ['is']
 };

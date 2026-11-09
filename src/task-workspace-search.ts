@@ -76,7 +76,7 @@ export const taskFilterExpressionSchema = filterNode.superRefine((node, context)
 export const taskWorkspaceSearchSchema = z.object({
   projectId: z.string().uuid(),
   quick: z.object({
-    search: z.string().trim().max(160).optional(), status: z.string().max(80).optional(), area: z.string().max(80).optional(),
+    search: z.string().trim().max(160).optional().describe('Busca livre nos campos textuais e metadados da tarefa; identificadores aceitam busca por prefixo.'), status: z.string().max(80).optional(), area: z.string().max(80).optional(),
     type: z.string().max(80).optional(), priority: z.number().int().min(0).max(5).optional(), responsible: z.string().max(320).optional(),
     featureId: z.string().uuid().optional(), createdAfter: z.string().refine(isoDate, 'Invalid date').optional(),
     createdBefore: z.string().refine(isoDate, 'Invalid date').optional(), updatedAfter: z.string().refine(isoDate, 'Invalid date').optional(),

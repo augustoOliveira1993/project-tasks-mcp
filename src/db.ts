@@ -2,23 +2,107 @@ import mongoose from 'mongoose';
 import {
   ActionProposal, AutomationJob, AutomationPolicy, Bootstrap, Conversation, ConversationMessage, ConversationRead, ConversationType, Credential,
   DeliveryEvent, DeliveryRead, Event, Execution, Feature, MarkdownDocument, MarkdownRevision, Operation,
-  Project, ProjectMemory, ProjectMemoryProposal, ProjectMemoryRevision, Runner, Task, TaskDependency, TaskDiff, TaskMessage, TaskRead
+  Project, ProjectMemory, ProjectMemoryProposal, ProjectMemoryRevision, Runner, Task, TaskDependency, TaskDiff, TaskMessage, TaskRead,
+  TASK_SEARCH_TEXT_INDEX_KEYS, TASK_SEARCH_TEXT_INDEX_OPTIONS
 } from './models.js';
 
 export * from './models.js';
 
-async function migrateLegacyTaskTextIndex() {
+type StoredTextIndex = {
+  name?: string;
+  key: Record<string, unknown>;
+  weights?: Record<string, number>;
+  default_language?: string;
+  language_override?: string;
+};
+
+const legacyTaskTextIndexKeys = { projectId: 1, archived: 1, name: 'text', responsible: 'text' } as const;
+const nameOnlyTaskTextIndexKeys = { name: 'text' } as const;
+
+function textIndexWeights(index: StoredTextIndex) {
+  return index.weights ?? Object.fromEntries(Object.entries(index.key).filter(([, value]) => value === 'text').map(([key]) => [key, 1]));
+}
+
+function textIndexPrefix(index: StoredTextIndex) {
+  return Object.entries(index.key).filter(([key, value]) => key !== '_fts' && key !== '_ftsx' && value !== 'text');
+}
+
+function sameEntries(left: Readonly<Record<string, unknown>>, right: Readonly<Record<string, unknown>>) {
+  const sorted = (value: Record<string, unknown>) => Object.entries(value).sort(([a], [b]) => a.localeCompare(b));
+  return JSON.stringify(sorted(left)) === JSON.stringify(sorted(right));
+}
+
+function hasKeys(index: StoredTextIndex, keys: Readonly<Record<string, unknown>>) {
+  const expectedWeights = Object.fromEntries(Object.entries(keys).filter(([, value]) => value === 'text').map(([key]) => [key, 1]));
+  const expectedPrefix = Object.fromEntries(Object.entries(keys).filter(([, value]) => value !== 'text'));
+  return sameEntries(textIndexWeights(index), expectedWeights) && sameEntries(Object.fromEntries(textIndexPrefix(index)), expectedPrefix);
+}
+
+function isTaskTextIndex(index: StoredTextIndex) {
+  return index.weights !== undefined || Object.values(index.key).includes('text');
+}
+
+function isKnownTaskTextIndex(index: StoredTextIndex) {
+  return hasKeys(index, nameOnlyTaskTextIndexKeys) || hasKeys(index, legacyTaskTextIndexKeys) || hasKeys(index, TASK_SEARCH_TEXT_INDEX_KEYS);
+}
+
+function isExpandedTaskTextIndex(index: StoredTextIndex) {
+  return hasKeys(index, TASK_SEARCH_TEXT_INDEX_KEYS) &&
+    index.default_language === TASK_SEARCH_TEXT_INDEX_OPTIONS.default_language &&
+    index.name === TASK_SEARCH_TEXT_INDEX_OPTIONS.name;
+}
+
+function restoreTextIndexOptions(index: StoredTextIndex) {
+  return {
+    ...(index.name ? { name: index.name } : {}),
+    ...(index.default_language ? { default_language: index.default_language } : {}),
+    ...(index.language_override ? { language_override: index.language_override } : {}),
+    ...(index.weights ? { weights: index.weights } : {})
+  };
+}
+
+function restoreTextIndexKeys(index: StoredTextIndex) {
+  return {
+    ...Object.fromEntries(textIndexPrefix(index)),
+    ...Object.fromEntries(Object.keys(textIndexWeights(index)).map(field => [field, 'text']))
+  };
+}
+
+export async function migrateTaskTextIndex(target: 'expanded' | 'legacy' = 'expanded') {
   const db = mongoose.connection.db!;
   const collectionName = Task.collection.collectionName;
   const exists = await db.listCollections({ name: collectionName }, { nameOnly: true }).hasNext();
   if (!exists) return;
   const collection = db.collection(collectionName);
-  const indexes = await collection.listIndexes().toArray();
-  const legacyIndex = indexes.find(index => {
-    const weights = (index as typeof index & { weights?: Record<string, number> }).weights;
-    return index.name === 'name_text' && weights !== undefined && Object.keys(weights).length === 1 && weights.name === 1;
-  });
-  if (legacyIndex?.name) await collection.dropIndex(legacyIndex.name);
+  const indexes = await collection.listIndexes().toArray() as StoredTextIndex[];
+  const textIndexes = indexes.filter(isTaskTextIndex);
+  if (!textIndexes.length) {
+    if (target === 'expanded') await collection.createIndex({ ...TASK_SEARCH_TEXT_INDEX_KEYS }, { ...TASK_SEARCH_TEXT_INDEX_OPTIONS });
+    else await collection.createIndex(legacyTaskTextIndexKeys);
+    return;
+  }
+  const targetIsCurrent = target === 'expanded'
+    ? textIndexes.length === 1 && isExpandedTaskTextIndex(textIndexes[0])
+    : textIndexes.length === 1 && hasKeys(textIndexes[0], legacyTaskTextIndexKeys) && (textIndexes[0].default_language ?? 'english') === 'english';
+  if (targetIsCurrent) return;
+  if (!textIndexes.every(isKnownTaskTextIndex)) throw new Error('Task collection has an unrecognized text index; refusing to replace it.');
+
+  try {
+    for (const index of textIndexes) if (index.name) await collection.dropIndex(index.name);
+    if (target === 'expanded') await collection.createIndex({ ...TASK_SEARCH_TEXT_INDEX_KEYS }, { ...TASK_SEARCH_TEXT_INDEX_OPTIONS });
+    else await collection.createIndex(legacyTaskTextIndexKeys);
+  } catch (error) {
+    const rollbackErrors: unknown[] = [];
+    for (const index of textIndexes) {
+      try {
+        await collection.createIndex(restoreTextIndexKeys(index), restoreTextIndexOptions(index));
+      } catch (rollbackError) {
+        rollbackErrors.push(rollbackError);
+      }
+    }
+    if (rollbackErrors.length) throw new AggregateError([error, ...rollbackErrors], 'Task text index migration failed and rollback could not restore every previous index.');
+    throw error;
+  }
 }
 
 async function migrateProjectMemoryTextIndex() {
@@ -51,7 +135,7 @@ export async function connect(uri: string) {
   // ProjectMemory disables automatic index creation so its legacy text index can
   // be migrated before Mongoose tries to create the schema's new text index.
   await ProjectMemory.init();
-  await migrateLegacyTaskTextIndex();
+  await migrateTaskTextIndex();
   await migrateProjectMemoryTextIndex();
   await migrateProjectMemoryScopes();
   await ProjectMemory.createIndexes();
