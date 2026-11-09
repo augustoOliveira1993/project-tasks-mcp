@@ -175,12 +175,6 @@ export function TaskWorkspace({ token, nonce, projectId, repositories = [], proj
     return [...known.values()].sort((a, b) => a.email.localeCompare(b.email, 'pt-BR'));
   }, [assigneesQuery.data, tasks]);
   const featureNames = useMemo(() => new Map((featuresQuery.data ?? []).map(feature => [feature._id, feature.name])), [featuresQuery.data]);
-  const filterOptions = useMemo(() => ({
-    status: Object.keys(statusLabels).map(value => ({ value, count: 0 })),
-    area: projectAreas.map(value => ({ value, count: 0 })),
-    type: taskTypes.map(value => ({ value, count: 0 })),
-    priority: [0, 1, 2, 3, 4, 5].map(value => ({ value: String(value), count: 0 }))
-  }), [projectAreas]);
   const visibleTasks = tasks;
   const filteredCount = workspaceResult?.total ?? 0;
   const currentPage = state.page;
