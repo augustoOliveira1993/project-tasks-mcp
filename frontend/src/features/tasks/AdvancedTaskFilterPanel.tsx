@@ -24,7 +24,7 @@ export function OptionValuePicker({ options, value, ariaLabel, multiple, boolean
   const panelId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const selectedValues = multiple
-    ? Array.isArray(value) ? value.map(String) : []
+    ? Array.isArray(value) ? value.map(String) : value === undefined || value === null || value === emptyValue ? [] : [String(value)]
     : value === undefined || value === null || value === emptyValue ? [] : [String(value)];
   const selectedOptions = selectedValues.map(selected => options.find(option => option.value === selected) ?? { value: selected, label: selected });
   const normalizedSearch = normalizeOptionSearch(search.trim());
@@ -131,10 +131,14 @@ function ConditionEditor({ condition, options, onChange, onRemove }: {
   const values = options[condition.field] ?? [];
   function changeField(next: FilterField) { const nextCondition = defaultCondition(next); onChange(() => nextCondition); }
   function setOperator(next: FilterCondition['operator']) {
-    onChange(current => ({ ...current, operator: next,
-      ...(operatorsWithoutValue.has(next) ? { value: undefined }
-        : { value: next === 'between' ? ['', ''] : (next === 'in' || next === 'notIn') ? (Array.isArray(current.value) ? current.value : []) : Array.isArray(current.value) ? '' : current.value ?? '' })
-    }));
+    onChange(current => {
+      const value = operatorsWithoutValue.has(next) ? undefined
+        : next === 'between' ? ['', '']
+          : next === 'in' || next === 'notIn'
+            ? Array.isArray(current.value) ? current.value : current.value === undefined || current.value === '' ? [] : [String(current.value)]
+            : Array.isArray(current.value) ? current.value[0] ?? '' : current.value ?? '';
+      return { ...current, operator: next, value };
+    });
   }
   function setRangePart(index: number, next: unknown) {
     onChange(current => {
@@ -145,11 +149,16 @@ function ConditionEditor({ condition, options, onChange, onRemove }: {
   }
   const noValue = operatorsWithoutValue.has(condition.operator);
   const range = condition.operator === 'between';
-  const multiSelect = field.type === 'enum' && values.length > 0 && ['in', 'notIn'].includes(condition.operator);
+  const multiSelect = field.type === 'enum' && values.length > 0;
   const optionPicker = field.type === 'boolean' || (field.type === 'enum' && values.length > 0);
   const renderValue = (value: unknown, set: (value: unknown) => void, aria: string) => {
     if (field.type === 'boolean') return <OptionValuePicker key={condition.field} options={booleanOptions} value={value ?? true} ariaLabel={aria} multiple={false} booleanValue onChange={set} />;
-    if (field.type === 'enum' && values.length) return <OptionValuePicker key={`${condition.field}-${multiSelect ? 'multiple' : 'single'}`} options={values} value={value} ariaLabel={aria} multiple={multiSelect} onChange={set} />;
+    if (field.type === 'enum' && values.length) return <OptionValuePicker key={condition.field} options={values} value={value} ariaLabel={aria} multiple={multiSelect} onChange={next => onChange(current => {
+      if (!Array.isArray(next)) return { ...current, value: next as FilterCondition['value'] };
+      if (current.operator !== 'is' && current.operator !== 'isNot') return { ...current, value: next };
+      if (next.length <= 1) return { ...current, value: next[0] ?? '' };
+      return { ...current, operator: current.operator === 'isNot' ? 'notIn' : 'in', value: next };
+    })} />;
     if (field.type === 'date') return <input className={controlClass} aria-label={aria} type="date" value={String(value ?? '')} onChange={event => set(event.target.value)} />;
     if (field.type === 'number') return <input className={controlClass} aria-label={aria} type="number" min="0" max="5" step="1" value={String(value ?? '')} onChange={event => set(event.target.value === '' ? '' : Number(event.target.value))} />;
     return <input className={controlClass} aria-label={aria} value={String(value ?? '')} placeholder={condition.field === 'id' ? 'ID ou prefixo' : 'Digite um valor'} onChange={event => set(event.target.value)} />;
