@@ -2,7 +2,7 @@ import mongoose, { type ClientSession, type Model } from 'mongoose';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { ActionProposal, AutomationPolicy, Project, Feature, Task, Execution, Event, TaskMessage, Conversation, ConversationMessage, ConversationRead, DeliveryEvent, DeliveryRead, TaskRead, TaskDiff, AutomationJob, MarkdownDocument, MarkdownRevision, Operation, Credential, Bootstrap } from './db.js';
+import { ActionProposal, AutomationPolicy, Project, Feature, Task, Execution, Event, TaskMessage, Conversation, ConversationMessage, ConversationRead, DeliveryEvent, DeliveryRead, TaskRead, TaskDiff, AutomationJob, MarkdownDocument, MarkdownRevision, Operation, Credential, Bootstrap, TASK_SEARCH_TEXT_INDEX_KEYS } from './db.js';
 import type { TaskContextDto } from './contracts.js';
 import { pageByCreatedAt, pageByDate, PageCursorError } from './pagination.js';
 import { EventHub, readEvents } from './events.js';
@@ -32,6 +32,9 @@ export const TASK_ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024;
 export const TASK_ATTACHMENT_MCP_REQUEST_BYTES = Math.ceil(TASK_ATTACHMENT_MAX_BYTES / 3) * 4 + 16 * 1024;
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const plain = (value: unknown) => JSON.parse(JSON.stringify(value));
+const taskSearchPrefixFields = Object.entries(TASK_SEARCH_TEXT_INDEX_KEYS)
+  .filter(([, direction]) => direction === 'text')
+  .map(([field]) => field);
 const projectDto = (project: any) => ({
   _id: project._id, version: project.version, archived: project.archived, name: project.name,
   description: project.description, instructions: project.instructions, visibility: project.visibility,
@@ -1229,8 +1232,10 @@ export class Service {
     if (quick.updatedAfter && quick.updatedBefore) requireThat(quick.updatedAfter <= quick.updatedBefore, 'Invalid update date range', 400);
 
     const baseMatch: any = { projectId: a.projectId, archived: false };
-    const prefix = (value: string) => new RegExp(`^${value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i');
+    const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const prefix = (value: string) => new RegExp(`^${escapeRegex(value)}`, 'i');
     const search = String(quick.search ?? '').trim();
+    let prefixSearchTerm: string | undefined;
     if (search) {
       const words = search.match(/[\p{L}\p{N}_@.+-]+/gu) ?? [];
       if (/^[a-f\d-]{8,}$/i.test(search)) {
@@ -1239,7 +1244,10 @@ export class Service {
           { _id: idPrefix }, { featureId: idPrefix }, { repositoryId: idPrefix },
           { executionId: idPrefix }, { dependencies: idPrefix }
         ];
-      } else if (words.length) baseMatch.$text = { $search: words.join(' ') };
+      } else if (words.length) {
+        baseMatch.$text = { $search: words.join(' ') };
+        if (words.length === 1 && Array.from(words[0]).length >= 3) prefixSearchTerm = words[0];
+      }
     }
     const quickParts: any[] = [];
     if (quick.status && quick.status !== 'todos') quickParts.push({ status: quick.status });
@@ -1259,6 +1267,20 @@ export class Service {
 
     const needsWorkspace = Boolean(quick.flag) || taskFilterUsesCollaboration(a.expression);
     const pipeline: any[] = [{ $match: baseMatch }];
+    if (prefixSearchTerm) {
+      // MongoDB $text only matches whole stemmed tokens; union prefix matches because $text cannot be placed in $or.
+      const pattern = `\\b${escapeRegex(prefixSearchTerm)}`;
+      pipeline.push({
+        $unionWith: {
+          coll: Task.collection.name,
+          pipeline: [{ $match: {
+            projectId: a.projectId, archived: false,
+            $or: taskSearchPrefixFields.map(field => ({ [field]: { $regex: pattern, $options: 'i' } }))
+          } }]
+        }
+      });
+      pipeline.push({ $group: { _id: '$_id', task: { $first: '$$ROOT' } } }, { $replaceRoot: { newRoot: '$task' } });
+    }
     if (quickParts.length) pipeline.push({ $match: { $and: quickParts } });
     const readBaseline = needsWorkspace ? await this.taskReadBaseline(a.projectId, actor.userId, undefined, true) : 0;
     if (needsWorkspace) pipeline.push(...this.taskWorkspaceFlagStages(actor, a.projectId, readBaseline));
