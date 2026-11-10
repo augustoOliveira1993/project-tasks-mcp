@@ -29,7 +29,7 @@ Reinicie Codex. Essa configuração é global para Codex CLI, IDE e aplicativo d
 
 ## Claude Code
 
-Em Ubuntu/Linux, para configurar Codex, Claude Code ou ambos sem clonar o repositório do MCP, use o instalador independente `scripts/install-project-tasks-mcp.sh`. Ele pede URL, e-mail e clientes; cria backup antes de alterar o TOML do Codex, substitui a entrada `project_tasks` do Claude no escopo do usuário e instala a skill global selecionada. Requer Bash, Python 3 e acesso à internet para buscar a skill; para Claude, também requer o comando `claude` instalado. Execute com `bash scripts/install-project-tasks-mcp.sh`. Para baixar somente o script de uma versão já publicada no GitHub:
+Em Ubuntu/Linux, para configurar Codex, Claude Code ou ambos sem clonar o repositório do MCP, use o instalador independente `scripts/install-project-tasks-mcp.sh`. Ele pede URL, e-mail e clientes; cria backup antes de alterar o TOML do Codex, substitui a entrada `project_tasks` do Claude no escopo do usuário e instala/atualiza as skills globais `project-tasks-mcp` e `speckit-auto`. Requer Bash, Python 3 e acesso à internet para buscar as skills; para Claude, também requer o comando `claude` instalado. Execute com `bash scripts/install-project-tasks-mcp.sh`. Para baixar somente o script de uma versão já publicada no GitHub:
 
 ```bash
 curl -fsSLo install-project-tasks-mcp.sh https://raw.githubusercontent.com/augustoOliveira1993/project-tasks-mcp/main/scripts/install-project-tasks-mcp.sh
@@ -54,7 +54,7 @@ claude mcp get project_tasks
 claude
 ```
 
-No Codex, invoque `$project-tasks-mcp`; no Claude Code, invoque `/project-tasks-mcp`. Em qualquer cliente que exponha prompts MCP, também pode usar `iniciar_trabalho`. Esse prompt vem do servidor: ele aparece depois que a instância MCP foi atualizada e o cliente reiniciado.
+No Codex, invoque `$project-tasks-mcp` ou `$speckit-auto`; no Claude Code, invoque `/project-tasks-mcp` ou `/speckit-auto`. A skill `speckit-auto` fica em `~/.agents/skills/speckit-auto/SKILL.md` para Codex e `~/.claude/skills/speckit-auto/SKILL.md` para Claude Code. Specs, planos, contratos e checklists são documentos da feature no banco do MCP, não arquivos `specs/` no checkout. Antes de criar tasks, os documentos SDD aplicáveis já devem estar salvos na feature; após cada criação, o fluxo envia `sdd-context.md` com `upload_task_attachment`, que aparece na aba **Arquivos**. Se o upload falhar, a skill registra sincronização parcial e retoma a task existente sem duplicá-la. Em qualquer cliente que exponha prompts MCP, também pode usar `iniciar_trabalho`. Esse prompt vem do servidor: ele aparece depois que a instância MCP foi atualizada e o cliente reiniciado.
 
 ## Identidade e revisão
 
@@ -62,7 +62,7 @@ O e-mail é registrado em eventos e execuções sem token de agente. A aprovaç�
 
 ## Bridge Git no instalador Windows
 
-No Windows, emita uma credencial `agent` individual no servidor para cada máquina e execute `scripts/install-project-tasks-mcp.ps1`. O instalador configura MCP e instala a skill global para os clientes selecionados. A bridge Git vem habilitada por padrão; pressione Enter para instalar ou responda `n` para ignorá-la. O instalador recebe o token de forma oculta e o protege com DPAPI em `%LOCALAPPDATA%\ProjectTasks\bridge-token.dpapi`. Claude Code e Codex podem compartilhar o token na mesma máquina; em outra, emita outro token. Em nova execução, o instalador oferece reutilizar o token protegido local. Nunca coloque o token em arquivos do repositório ou no `config.toml`.
+No Windows, emita uma credencial `agent` individual no servidor para cada máquina e execute `scripts/install-project-tasks-mcp.ps1`. O instalador configura MCP e instala/atualiza as skills globais `project-tasks-mcp` e `speckit-auto` para os clientes selecionados. A bridge Git vem habilitada por padrão; pressione Enter para instalar ou responda `n` para ignorá-la. O instalador recebe o token de forma oculta e o protege com DPAPI em `%LOCALAPPDATA%\ProjectTasks\bridge-token.dpapi`. Claude Code e Codex podem compartilhar o token na mesma máquina; em outra, emita outro token. Em nova execução, o instalador oferece reutilizar o token protegido local. Nunca coloque o token em arquivos do repositório ou no `config.toml`.
 
 A bridge recebe `PTM_SERVICE_URL` e o launcher local recupera o token protegido apenas no processo. Abra o chat no checkout que deseja identificar e chame `status` primeiro. A bridge lê os dados do Git local automaticamente; não é necessário copiar URL, branch ou commit para o chat. No Claude Code, ela usa `CLAUDE_PROJECT_DIR`; no Codex, o instalador omite `cwd` fixo e o launcher captura o diretório recebido antes de entrar no checkout do MCP. Reinstalar somente o MCP HTTP preserva a entrada `project_tasks_git`; escolha reinstalar a bridge para substituir sua configuração.
 

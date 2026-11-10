@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { allRecords, operationId, request } from '../../api';
+import { allRecords, operationId, query, request } from '../../api';
 import { errorMessage, formatDate } from '../../lib/format';
 import { MarkdownView } from '../../components/ui/MarkdownView';
 import { CreateFeatureDialog } from '../tasks/CreateFeatureDialog';
@@ -11,7 +11,8 @@ import {
   screenAction, screenDescription, screenHeading, screenTitle, sectionDescription, sectionHeading, sectionTitle, table, tableCard, tableScroll, tdCell, textButtonNowrap, thCell
 } from './catalogClasses';
 
-type FeatureRecord = { _id: string; version: number; name: string; objective: string; context: string; acceptance: string[]; archived?: boolean; updatedAt?: string };
+type FeatureRecord = { _id: string; version: number; name: string; objective: string; context: string; acceptance: string[]; archived?: boolean; updatedAt?: string; markdownCount?: number };
+type FeatureMarkdown = { _id: string; name: string; summary: string; revision: number };
 
 export function FeaturesCatalog({ token, nonce, projectId, notify, onChanged }: {
   token: string; nonce: string; projectId: string; notify: (message: string, kind?: string) => void; onChanged: () => void;
@@ -39,14 +40,68 @@ export function FeaturesCatalog({ token, nonce, projectId, notify, onChanged }: 
   return <section className={screen}>
     <div className={screenHeading}><div><h2 className={screenTitle}>Features</h2><p className={screenDescription}>Organize tarefas por objetivo dentro do projeto selecionado.</p></div><button className={`${buttonPrimary} ${screenAction}`} type="button" disabled={!projectId} onClick={() => setCreating(true)}>Nova feature</button></div>
     {!projectId ? <p className={notice.info}>Selecione um projeto para consultar as features.</p> : features.isPending ? <div className={loading}>Carregando features…</div> : features.isError ? <p className={notice.error} role="alert">{errorMessage(features.error)}</p> : <section className={tableCard}><div className={sectionHeading}><div><h3 className={sectionTitle}>Features cadastradas</h3><p className={sectionDescription}>{features.data?.length ?? 0} feature(s)</p></div></div>
-      {features.data?.length ? <div className={tableScroll}><table className={table}><thead><tr><th className={thCell}>Feature</th><th className={thCell}>Critérios</th><th className={thCell}>Atualizada</th><th className={thCell}>Ações</th></tr></thead><tbody>
-        {features.data.map(feature => <tr key={feature._id} className={rowHover}><td className={tdCell}><strong className={cellStrong}>{feature.name}</strong><small className={rowId}>{feature._id}</small></td><td className={tdCell}>{feature.acceptance?.length ?? 0}</td><td className={tdCell}>{formatDate(feature.updatedAt)}</td><td className={tdCell}><div className={rowActions}><button className={textButtonNowrap} type="button" onClick={() => setSelected(feature)}>Ver</button><button className={textButtonNowrap} type="button" onClick={() => setEditing(feature)}>Editar</button><button className={dangerTextButton} type="button" disabled={archive.isPending} onClick={() => { if (window.confirm(`Arquivar a feature “${feature.name}”?`)) archive.mutate(feature); }}>Arquivar</button></div></td></tr>)}
+      {features.data?.length ? <div className={tableScroll}><table className={table}><thead><tr><th className={thCell}>Feature</th><th className={thCell}>Critérios</th><th className={thCell}>Docs SDD</th><th className={thCell}>Atualizada</th><th className={thCell}>Ações</th></tr></thead><tbody>
+        {features.data.map(feature => <tr key={feature._id} className={rowHover}><td className={tdCell}><strong className={cellStrong}>{feature.name}</strong><small className={rowId}>{feature._id}</small></td><td className={tdCell}>{feature.acceptance?.length ?? 0}</td><td className={tdCell}>{feature.markdownCount ?? 0}</td><td className={tdCell}>{formatDate(feature.updatedAt)}</td><td className={tdCell}><div className={rowActions}><button className={textButtonNowrap} type="button" onClick={() => setSelected(feature)}>Ver</button><button className={textButtonNowrap} type="button" onClick={() => setEditing(feature)}>Editar</button><button className={dangerTextButton} type="button" disabled={archive.isPending} onClick={() => { if (window.confirm(`Arquivar a feature “${feature.name}”?`)) archive.mutate(feature); }}>Arquivar</button></div></td></tr>)}
       </tbody></table></div> : <div className={emptyState}><h3 className={emptyTitle}>Nenhuma feature</h3><p className={emptyText}>Cadastre a primeira feature deste projeto.</p></div>}
       {archive.isError && <p className={notice.error} role="alert">{errorMessage(archive.error)}</p>}
     </section>}
     {creating && <CreateFeatureDialog key={projectId} token={token} nonce={nonce} projectId={projectId} close={() => setCreating(false)} onCreated={feature => { setCreating(false); notify(`Feature “${feature.name}” criada.`, 'success'); void features.refetch(); }} />}
-    {selected && <CatalogRecordDialog title={selected.name} subtitle="Detalhes da feature" close={() => setSelected(null)}><div className={detailSection}><h3 className={detailSectionTitle}>Objetivo</h3><MarkdownView content={selected.objective} /></div><div className={detailSection}><h3 className={detailSectionTitle}>Contexto</h3><MarkdownView content={selected.context} /></div><div className={detailSection}><h3 className={detailSectionTitle}>Critérios de aceite</h3><ul className={acceptanceList}>{selected.acceptance.map((criterion, index) => <li key={index} className={acceptanceItem}><MarkdownView content={criterion} /></li>)}</ul></div></CatalogRecordDialog>}
+    {selected && <CatalogRecordDialog title={selected.name} subtitle="Detalhes da feature" close={() => setSelected(null)}><div className={detailSection}><h3 className={detailSectionTitle}>Objetivo</h3><MarkdownView content={selected.objective} /></div><div className={detailSection}><h3 className={detailSectionTitle}>Contexto</h3><MarkdownView content={selected.context} /></div><div className={detailSection}><h3 className={detailSectionTitle}>Critérios de aceite</h3><ul className={acceptanceList}>{selected.acceptance.map((criterion, index) => <li key={index} className={acceptanceItem}><MarkdownView content={criterion} /></li>)}</ul></div><FeatureDocuments token={token} nonce={nonce} projectId={projectId} featureId={selected._id} /></CatalogRecordDialog>}
     {editing && <FeatureEditor token={token} nonce={nonce} projectId={projectId} feature={editing} close={() => setEditing(null)} onSaved={() => { setEditing(null); onChanged(); }} notify={notify} />}
+  </section>;
+}
+
+function FeatureDocuments({ token, nonce, projectId, featureId }: { token: string; nonce: string; projectId: string; featureId: string }) {
+  const [selectedDocument, setSelectedDocument] = useState<FeatureMarkdown | null>(null);
+  const documents = useQuery({
+    queryKey: ['feature-markdowns', nonce, projectId, featureId],
+    queryFn: async () => {
+      const items: FeatureMarkdown[] = [];
+      let after: string | undefined;
+      do {
+        const page = await query<{ items: FeatureMarkdown[]; next?: string | null }>(token, 'list_markdowns', {
+          projectId, targetKind: 'feature', targetId: featureId, limit: 100, ...(after ? { after } : {})
+        });
+        items.push(...page.items);
+        after = page.next ?? undefined;
+      } while (after);
+      return items;
+    }
+  });
+  const markdown = useQuery({
+    queryKey: ['feature-markdown-content', nonce, projectId, featureId, selectedDocument?._id, selectedDocument?.revision],
+    enabled: Boolean(selectedDocument),
+    queryFn: async () => {
+      const document = selectedDocument;
+      if (!document) return '';
+      const pages: string[] = [];
+      let line: number | undefined = 1;
+      while (line) {
+        const page = await query<{ content: string; nextLine: number | null }>(token, 'get_markdown', {
+          projectId, id: document._id, revision: document.revision, line, limit: 200
+        });
+        pages.push(page.content);
+        line = page.nextLine ?? undefined;
+      }
+      return pages.join('\n');
+    }
+  });
+
+  return <section className={detailSection}>
+    <h3 className={detailSectionTitle}>Documentos e especificações</h3>
+    {documents.isPending ? <p className="text-sm text-slate-500">Carregando documentos…</p>
+      : documents.isError ? <p className="text-sm text-rose-700" role="alert">{errorMessage(documents.error)}</p>
+        : !documents.data.length ? <p className="text-sm text-slate-500">Nenhum documento vinculado a esta feature.</p>
+          : <ul className="grid gap-2">{documents.data.map(document => <li key={document._id} className="flex items-start justify-between gap-3 rounded-lg border border-slate-200 p-3">
+            <div className="min-w-0"><p className="break-all text-sm font-semibold text-slate-800">{document.name}<span className="ml-2 text-xs font-normal text-slate-500">rev. {document.revision}</span></p><p className="mt-1 text-sm text-slate-600">{document.summary}</p></div>
+            <button type="button" className={textButtonNowrap} onClick={() => setSelectedDocument(document)} aria-pressed={selectedDocument?._id === document._id}>Abrir</button>
+          </li>)}</ul>}
+    {selectedDocument && <div className="mt-4 rounded-lg border border-slate-200 p-4" aria-live="polite">
+      <div className="mb-3 flex items-start justify-between gap-3"><h4 className="break-all text-sm font-semibold text-slate-900">{selectedDocument.name} · rev. {selectedDocument.revision}</h4><button type="button" className={textButtonNowrap} onClick={() => setSelectedDocument(null)}>Fechar documento</button></div>
+      {markdown.isPending ? <p className="text-sm text-slate-500">Carregando conteúdo…</p>
+        : markdown.isError ? <p className="text-sm text-rose-700" role="alert">{errorMessage(markdown.error)}</p>
+          : <MarkdownView content={markdown.data ?? ''} />}
+    </div>}
   </section>;
 }
 

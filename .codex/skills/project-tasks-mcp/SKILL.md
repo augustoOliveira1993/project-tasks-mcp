@@ -15,7 +15,7 @@ Use the MCP prompt `iniciar_trabalho` when the connected client exposes MCP prom
 2. Use the current user request as the task objective when it is clear; ask what should be done if the command was invoked without a clear request.
 3. Search existing records with `list_records` and/or `list_pending`; never invent IDs or create a record by assumption.
 4. When exactly one existing, executable task clearly matches, call `get_task_context`, then `claim_task` using its current version and the server's dependency/status rules.
-5. If no task matches, more than one task matches, or the task cannot be claimed, explain what was found and ask how to proceed before making a mutation.
+5. If no task matches and the user clearly requested a new task, follow the required Spec-Driven workflow below before calling `create_task`. If the request did not authorize creating a task, or the matches are ambiguous, explain what was found and ask how to proceed.
 
 After claiming, follow the regular execution workflow below. The MCP prompt is surfaced only by clients that support MCP prompts; use the skill entry point where prompt support is absent.
 
@@ -47,6 +47,18 @@ Ao usar este repositório, consulte docs/GUIA_AGENTE_MCP.md para o mapa completo
 2. Create the feature with objective, context, and acceptance criteria.
 3. Create separate backend and frontend tasks. Each task has its own repository ID and area.
 4. Make the frontend task depend on the backend task when it consumes its API or contract.
+
+## Spec-Driven task creation (required)
+
+Before every new `create_task` call, including a small fix or maintenance task:
+
+1. Resolve the feature that owns the work. Reuse a unique matching feature; when none exists and the user requested the work, create its feature record before creating tasks.
+2. Produce a proportionate SDD set in memory and persist it as versioned feature Markdown documents with `save_markdown`. Save at least `spec.md`, `plan.md`, and `tasks.md`; include research, contracts, checklists, and other artifacts only when they apply. These documents are linked to the feature record and visible in its **Documentos e especificações** detail section. Read back/list the saved documents and use their current IDs/revisions. Never write Spec Kit artifacts to the checkout or cite local spec paths as their source. Do not create duplicate binary feature attachments; the versioned Markdown is canonical.
+3. Create task records only from the persisted `tasks.md`, link each task to its `featureId`, preserve dependency order, and use MCP document names/IDs/revisions in instructions when useful. A clear user request authorizes the requested task; multiple remote tasks still require the existing summary/authorization rule.
+4. Immediately after each task is created, build a task-specific `sdd-context.md` in memory. Include the task identity, scope, acceptance criteria, dependencies, and source feature document names/IDs/revisions. Call `upload_task_attachment` with Markdown content encoded as Base64 in memory; do not create a temporary or workspace file. This real attachment is what appears in the task's **Arquivos** tab. Feature Markdown documents and task planning Markdown are separate from uploaded task attachments.
+5. Verify the attachment result. If creation succeeded but upload failed, report a partial sync with the created task ID, resume against that task, and never call `create_task` again just to retry its attachment. On repeat syncs, inspect existing tasks and attachments first and avoid duplicates.
+
+If the `save_markdown`, `list_markdowns`, or `upload_task_attachment` tool is unavailable, stop before creating the task and explain which MCP capability is missing. Do not fall back to local spec files or a description containing only a local path.
 
 ## Execute work
 

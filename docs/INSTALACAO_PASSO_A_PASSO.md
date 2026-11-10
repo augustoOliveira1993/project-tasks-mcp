@@ -485,9 +485,9 @@ O script `scripts/install-project-tasks-mcp.ps1` configura Codex, Claude ou ambo
 
 Na versão atual ele usa `trusted_local` e tem o endpoint `http://AVB-NB-00295:3443/mcp` fixo. Use-o somente para esse servidor. Para Ubuntu, outro endereço ou bearer, siga a configuração manual acima. Não crie `.mcp.json` ou `.codex/config.toml` dentro dos repositórios de trabalho.
 
-O instalador também instala a skill global `project-tasks-mcp` nos clientes selecionados. Use `$project-tasks-mcp` no Codex ou `/project-tasks-mcp` no Claude Code. O prompt MCP `iniciar_trabalho` é anunciado pela instância HTTP atualizada; reinicie o cliente depois de atualizar o servidor para carregá-lo.
+O instalador também instala/atualiza as skills globais `project-tasks-mcp` e `speckit-auto` nos clientes selecionados. Use `$project-tasks-mcp` ou `$speckit-auto` no Codex, e `/project-tasks-mcp` ou `/speckit-auto` no Claude Code. Specs, planos, contratos, checklists e tarefas ficam como documentos da feature no banco do MCP antes de criar tasks; depois de cada criação, `sdd-context.md` é enviado à tarefa por `upload_task_attachment` e aparece na aba **Arquivos**. Se o upload falhar, retome a tarefa existente sem duplicá-la. Arquivos de implementação continuam no checkout. O prompt MCP `iniciar_trabalho` é anunciado pela instância HTTP atualizada; reinicie o cliente depois de atualizar o servidor para carregar as skills e o prompt.
 
-No Windows, as skills ficam em `%USERPROFILE%\.codex\skills\project-tasks-mcp\SKILL.md` e/ou `%USERPROFILE%\.claude\skills\project-tasks-mcp\SKILL.md`. No Ubuntu, ficam em `~/.codex/skills/project-tasks-mcp/SKILL.md` e/ou `~/.claude/skills/project-tasks-mcp/SKILL.md`.
+No Windows, `project-tasks-mcp` fica em `%USERPROFILE%\.codex\skills\project-tasks-mcp\SKILL.md` e/ou `%USERPROFILE%\.claude\skills\project-tasks-mcp\SKILL.md`; `speckit-auto` fica em `%USERPROFILE%\.agents\skills\speckit-auto\SKILL.md` para Codex e `%USERPROFILE%\.claude\skills\speckit-auto\SKILL.md` para Claude Code. No Ubuntu, use `~/.codex/skills/project-tasks-mcp/SKILL.md`, `~/.claude/skills/project-tasks-mcp/SKILL.md`, `~/.agents/skills/speckit-auto/SKILL.md` e `~/.claude/skills/speckit-auto/SKILL.md`, conforme os clientes selecionados.
 
 ## 6. Opcional: máquina executora Codex/Claude
 

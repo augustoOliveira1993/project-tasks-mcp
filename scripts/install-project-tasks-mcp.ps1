@@ -4,6 +4,7 @@ param([string]$McpAddress)
 $ErrorActionPreference = 'Stop'
 $DefaultServiceAddress = '192.168.17.26:3443'
 $SkillUrl = if ([string]::IsNullOrWhiteSpace($env:PTM_SKILL_URL)) { 'https://raw.githubusercontent.com/augustoOliveira1993/project-tasks-mcp/main/.codex/skills/project-tasks-mcp/SKILL.md' } else { $env:PTM_SKILL_URL.Trim() }
+$SpecKitSkillUrl = if ([string]::IsNullOrWhiteSpace($env:PTM_SPECKIT_SKILL_URL)) { 'https://raw.githubusercontent.com/augustoOliveira1993/project-tasks-mcp/main/.agents/skills/speckit-auto/SKILL.md' } else { $env:PTM_SPECKIT_SKILL_URL.Trim() }
 $ServiceBaseUrl = $null
 $ServerUrl = $null
 $ServerName = 'project_tasks'
@@ -131,6 +132,42 @@ function Install-ClientSkill {
   Write-Host "Skill do $ClientName instalada em $target" -ForegroundColor Green
 }
 
+function Install-SpecKitAutoSkill {
+  param([string]$ClientRoot, [string]$ClientName)
+  $source = Join-Path $McpRoot '.agents\skills\speckit-auto\SKILL.md'
+  if ($IsMcpCheckout -and (Test-Path -LiteralPath $source -PathType Leaf)) {
+    $skillSource = $source
+    $skillContent = [System.IO.File]::ReadAllText($source, [System.Text.Encoding]::UTF8)
+  } else {
+    $skillSource = $SpecKitSkillUrl
+    try {
+      $skillContent = (Invoke-WebRequest -Uri $SpecKitSkillUrl -UseBasicParsing -TimeoutSec 20).Content
+    } catch {
+      throw "Não foi possível carregar a skill local ($source) nem baixá-la de $SpecKitSkillUrl. $($_.Exception.Message)"
+    }
+  }
+  $frontMatter = [regex]::Match($skillContent, '(?ms)\A---\r?\n(.*?)\r?\n---(?:\r?\n|\z)')
+  if (-not $frontMatter.Success -or $frontMatter.Groups[1].Value -notmatch '(?m)^name:\s*speckit-auto\s*$') {
+    throw "Conteúdo de skill inválido em $skillSource"
+  }
+
+  $skillDirectory = Join-Path $ClientRoot 'skills\speckit-auto'
+  $target = Join-Path $skillDirectory 'SKILL.md'
+  New-Item -ItemType Directory -Path $skillDirectory -Force | Out-Null
+  if (Test-Path -LiteralPath $target -PathType Leaf) {
+    $targetContent = [System.IO.File]::ReadAllText($target, [System.Text.Encoding]::UTF8)
+    if ($targetContent -ceq $skillContent) {
+      Write-Host "Skill speckit-auto do $ClientName já está atualizada em $target" -ForegroundColor Green
+      return
+    }
+    $backup = "$target.bak-$(Get-Date -Format 'yyyyMMddHHmmssfff')"
+    Copy-Item -LiteralPath $target -Destination $backup
+    Write-Host "Skill anterior preservada em $backup" -ForegroundColor Yellow
+  }
+  [System.IO.File]::WriteAllText($target, $skillContent, [System.Text.UTF8Encoding]::new($false))
+  Write-Host "Skill speckit-auto do $ClientName instalada em $target" -ForegroundColor Green
+}
+
 function Set-CodexMcp {
   param([string]$Email, [bool]$InstallBridge)
   $codexDirectory = Join-Path $env:USERPROFILE '.codex'
@@ -217,11 +254,17 @@ $installBridge = (Read-Choice 'Configurar também a bridge Git local? [S/n]' @('
 if ($installBridge -and -not $IsMcpCheckout) { throw 'A bridge Git local exige executar o instalador a partir do checkout do Project Tasks MCP; execute pelo repositório ou responda n para configurar somente o MCP HTTP.' }
 if ($installBridge) { Save-BridgeToken }
 
-if ($choice -in @('c', 'a')) { Set-CodexMcp -Email $email -InstallBridge $installBridge }
-if ($choice -in @('l', 'a')) { Set-ClaudeMcp -Email $email -InstallBridge $installBridge }
+if ($choice -in @('c', 'a')) {
+  Set-CodexMcp -Email $email -InstallBridge $installBridge
+  Install-SpecKitAutoSkill -ClientRoot (Join-Path $env:USERPROFILE '.agents') -ClientName 'Codex'
+}
+if ($choice -in @('l', 'a')) {
+  Set-ClaudeMcp -Email $email -InstallBridge $installBridge
+  Install-SpecKitAutoSkill -ClientRoot (Join-Path $env:USERPROFILE '.claude') -ClientName 'Claude Code'
+}
 
 Write-Host ''
-Write-Host 'Concluído. A skill global project-tasks-mcp foi instalada para cada cliente selecionado.' -ForegroundColor Green
-Write-Host 'Ativação da skill: Codex usa $project-tasks-mcp; Claude Code usa /project-tasks-mcp.' -ForegroundColor Green
-Write-Host 'O prompt MCP iniciar_trabalho é fornecido pelo servidor; atualize e reinicie o cliente para carregá-lo.' -ForegroundColor Green
+Write-Host 'Concluído. As skills project-tasks-mcp e speckit-auto foram instaladas/atualizadas para os clientes selecionados.' -ForegroundColor Green
+Write-Host 'Ativação: Codex usa $project-tasks-mcp e $speckit-auto; Claude Code usa /project-tasks-mcp e /speckit-auto.' -ForegroundColor Green
+Write-Host 'Reinicie Codex ou Claude Code para carregar as skills atualizadas. O prompt iniciar_trabalho vem do servidor MCP atualizado.' -ForegroundColor Green
 if ($installBridge) { Write-Host 'A bridge Git será identificada pelo vínculo salvo e pelo checkout aberto; use status primeiro.' -ForegroundColor Green }

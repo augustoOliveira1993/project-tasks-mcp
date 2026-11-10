@@ -4,6 +4,7 @@ set -euo pipefail
 DEFAULT_URL="http://192.168.17.26:3443/mcp"
 SERVER_NAME="project_tasks"
 SKILL_URL="${PTM_SKILL_URL:-https://raw.githubusercontent.com/augustoOliveira1993/project-tasks-mcp/main/.codex/skills/project-tasks-mcp/SKILL.md}"
+SPECKIT_SKILL_URL="${PTM_SPECKIT_SKILL_URL:-https://raw.githubusercontent.com/augustoOliveira1993/project-tasks-mcp/main/.agents/skills/speckit-auto/SKILL.md}"
 
 read_value() {
   local prompt="$1" default="${2:-}" value
@@ -97,12 +98,13 @@ PY
   claude mcp get "$SERVER_NAME"
 }
 
-install_skill() {
-  local client_root="$1" client_name="$2"
-  python3 - "$client_root" "$SKILL_URL" "$client_name" <<'PY'
+install_skill_file() {
+  local target="$1" url="$2" skill_name="$3" label="$4"
+  python3 - "$target" "$url" "$skill_name" "$label" <<'PY'
 import datetime
 import os
 import pathlib
+import re
 import shutil
 import stat
 import sys
@@ -110,23 +112,22 @@ import tempfile
 import urllib.error
 import urllib.request
 
-root = pathlib.Path(sys.argv[1])
-url, client = sys.argv[2:]
-target = root / "skills" / "project-tasks-mcp" / "SKILL.md"
+target = pathlib.Path(sys.argv[1])
+url, skill_name, label = sys.argv[2:]
 try:
     request = urllib.request.Request(url, headers={"User-Agent": "project-tasks-mcp-installer"})
     with urllib.request.urlopen(request, timeout=20) as response:
         content = response.read()
     text = content.decode("utf-8")
     frontmatter = text.split("---", 2)
-    if len(frontmatter) != 3 or "name: project-tasks-mcp" not in frontmatter[1]:
-        raise ValueError("download did not contain the project-tasks-mcp skill")
+    if len(frontmatter) != 3 or not re.search(r"(?m)^name:\s*" + re.escape(skill_name) + r"\s*$", frontmatter[1]):
+        raise ValueError(f"download did not contain the {skill_name} skill")
 
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.exists():
         previous = target.read_bytes()
         if previous == content:
-            print(f"Skill do {client} já está atualizada em {target}")
+            print(f"{label} já está atualizada em {target}")
             raise SystemExit(0)
         backup = target.with_name(target.name + ".bak-" + datetime.datetime.now().strftime("%Y%m%d%H%M%S%f"))
         backup.write_bytes(previous)
@@ -148,21 +149,33 @@ try:
         except FileNotFoundError:
             pass
         raise
-    print(f"Skill do {client} instalada em {target}")
+    print(f"{label} instalada em {target}")
 except (OSError, UnicodeError, urllib.error.URLError, ValueError) as exc:
-    print(f"Falha ao instalar a skill do {client}: {exc}", file=sys.stderr)
+    print(f"Falha ao instalar {label}: {exc}", file=sys.stderr)
     sys.exit(1)
 PY
+}
+
+install_skill() {
+  local client_root="$1" client_name="$2"
+  install_skill_file "$client_root/skills/project-tasks-mcp/SKILL.md" "$SKILL_URL" "project-tasks-mcp" "Skill project-tasks-mcp do $client_name"
+}
+
+install_speckit_auto_skill() {
+  local client_root="$1" client_name="$2"
+  install_skill_file "$client_root/skills/speckit-auto/SKILL.md" "$SPECKIT_SKILL_URL" "speckit-auto" "Skill speckit-auto do $client_name"
 }
 
 if [[ "$clients" == c || "$clients" == a ]]; then
   configure_codex
   install_skill "$HOME/.codex" "Codex"
+  install_speckit_auto_skill "$HOME/.agents" "Codex"
 fi
 if [[ "$clients" == l || "$clients" == a ]]; then
   configure_claude
   install_skill "$HOME/.claude" "Claude Code"
+  install_speckit_auto_skill "$HOME/.claude" "Claude Code"
 fi
-echo 'Concluído. A skill global project-tasks-mcp foi instalada para cada cliente selecionado.'
-echo 'Ativação da skill: Codex usa $project-tasks-mcp; Claude Code usa /project-tasks-mcp.'
-echo 'O prompt MCP iniciar_trabalho é fornecido pelo servidor; atualize e reinicie o cliente para carregá-lo.'
+echo 'Concluído. As skills project-tasks-mcp e speckit-auto foram instaladas/atualizadas para os clientes selecionados.'
+echo 'Ativação: Codex usa $project-tasks-mcp e $speckit-auto; Claude Code usa /project-tasks-mcp e /speckit-auto.'
+echo 'Reinicie Codex ou Claude Code para carregar as skills atualizadas. O prompt iniciar_trabalho vem do servidor MCP atualizado.'
