@@ -77,7 +77,7 @@ function FeatureDocuments({ token, nonce, projectId, featureId }: { token: strin
       const pages: string[] = [];
       let line: number | undefined = 1;
       while (line) {
-        const page = await query<{ content: string; nextLine: number | null }>(token, 'get_markdown', {
+        const page: { content: string; nextLine: number | null } = await query<{ content: string; nextLine: number | null }>(token, 'get_markdown', {
           projectId, id: document._id, revision: document.revision, line, limit: 200
         });
         pages.push(page.content);
