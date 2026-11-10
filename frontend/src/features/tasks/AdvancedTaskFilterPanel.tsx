@@ -15,9 +15,9 @@ function normalizeOptionSearch(value: string) {
   return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('pt-BR');
 }
 
-export function OptionValuePicker({ options, value, ariaLabel, multiple, booleanValue = false, emptyLabel = 'Selecione…', emptyValue = '', className = 'grid gap-1.5', controlClassName = controlClass, onChange }: {
+export function OptionValuePicker({ options, value, ariaLabel, multiple, booleanValue = false, emptyLabel = 'Selecione…', emptyValue = '', className = 'grid gap-1.5', controlClassName = controlClass, popover = false, onChange }: {
   options: Option[]; value: unknown; ariaLabel: string; multiple: boolean; booleanValue?: boolean; emptyLabel?: string; emptyValue?: string;
-  className?: string; controlClassName?: string; onChange: (value: string | string[] | boolean) => void;
+  className?: string; controlClassName?: string; popover?: boolean; onChange: (value: string | string[] | boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -39,7 +39,7 @@ export function OptionValuePicker({ options, value, ariaLabel, multiple, boolean
     close();
   }
 
-  return <div className={className} onKeyDown={event => {
+  return <div className={popover ? `relative ${className}` : className} onKeyDown={event => {
     if (event.key === 'Escape' && open) { event.preventDefault(); event.stopPropagation(); close(); }
   }}>
     {multiple && <div className="flex flex-wrap gap-1.5" aria-label={`${ariaLabel} selecionados`}>
@@ -56,7 +56,7 @@ export function OptionValuePicker({ options, value, ariaLabel, multiple, boolean
       </button>
       {selectedValues.length > 0 && !booleanValue && <button type="button" className={quietButton} onClick={() => onChange(multiple ? [] : emptyValue)}>Limpar seleção</button>}
     </div>
-    {open && <div id={panelId} className="grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-2">
+    {open && <div id={panelId} className={`grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-2 ${popover ? 'absolute left-0 top-full z-40 mt-1 w-max min-w-full max-w-[280px] shadow-lg max-[760px]:max-w-full' : ''}`}>
       <input className={controlClass} type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Buscar opções…" aria-label={`Buscar opções de ${ariaLabel}`} autoComplete="off" autoFocus />
       {filteredOptions.length ? <div className="grid max-h-44 gap-0.5 overflow-y-auto" role="group" aria-label={`Opções de ${ariaLabel}`}>
         {filteredOptions.map(option => <label key={option.value} className={`flex min-h-9 cursor-pointer items-start gap-2 rounded-md px-2 py-2 text-[11px] font-normal hover:bg-white ${selectedValues.includes(option.value) ? 'bg-white text-indigo-800' : 'text-slate-700'}`}>
