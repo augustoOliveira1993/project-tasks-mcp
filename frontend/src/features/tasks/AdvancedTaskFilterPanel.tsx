@@ -54,7 +54,7 @@ export function OptionValuePicker({ options, value, ariaLabel, multiple, boolean
         {multiple && selectedValues.length > 0 && <span className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-semibold text-slate-600">{selectedValues.length} {selectedValues.length === 1 ? 'opção selecionada' : 'opções selecionadas'}</span>}
         <span aria-hidden="true" className="shrink-0 text-slate-400">{open ? '⌃' : '⌄'}</span>
       </button>
-      {selectedValues.length > 0 && !booleanValue && <button type="button" className={quietButton} onClick={() => onChange(multiple ? [] : emptyValue)}>Limpar seleção</button>}
+      {selectedValues.length > 0 && !booleanValue && !popover && <button type="button" className={quietButton} onClick={() => onChange(multiple ? [] : emptyValue)}>Limpar seleção</button>}
     </div>
     {open && <div id={panelId} className={`grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-2 ${popover ? 'absolute left-0 top-full z-40 mt-1 w-max min-w-full max-w-[280px] shadow-lg max-[760px]:max-w-full' : ''}`}>
       <input className={controlClass} type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Buscar opções…" aria-label={`Buscar opções de ${ariaLabel}`} autoComplete="off" autoFocus />
