@@ -13,3 +13,7 @@
 ## Domain Behavior Guardrails
 1. **[2026-10-07] Update task execution evidence as work progresses**
    Do instead: record heartbeats/milestones, persist acceptance evidence when proven, and submit a concise final execution report.
+
+## User Directives
+1. **[2026-11-10] Auto-create feature task records**
+   Do instead: after persisting a new feature's SDD documents, reconcile `tasks.md` and create every missing MCP task with its task-scoped `sdd-context.md` attachment, without asking for a second approval.
