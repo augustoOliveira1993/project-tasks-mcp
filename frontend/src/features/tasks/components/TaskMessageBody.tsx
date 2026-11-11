@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
-import { query } from '../../api';
-import { errorMessage } from '../../lib/format';
-import { MarkdownView, type MarkdownVariant } from '../ui/MarkdownView';
+import { Button } from '../../../components/ui/button';
+import { query } from '../../../api';
+import { errorMessage } from '../../../lib/format';
+import { MarkdownView, type MarkdownVariant } from '../../../components/ui/MarkdownView';
 
 type TaskMessagePreview = { _id: string; message: string; truncated?: boolean };
 
@@ -45,9 +46,9 @@ export function TaskMessageBody({ token, nonce, projectId, taskId, message, vari
           : completeMessage.isError
             ? <>
               <span role="alert">Falha ao carregar a mensagem completa. {errorMessage(completeMessage.error)}</span>
-              <button type="button" className="font-semibold text-tone-blue underline underline-offset-2 disabled:opacity-50" disabled={completeMessage.isFetching} onClick={() => void completeMessage.refetch()}>
+              <Button type="button" className="font-semibold text-tone-blue underline underline-offset-2 disabled:opacity-50" disabled={completeMessage.isFetching} onClick={() => void completeMessage.refetch()}>
                 {completeMessage.isFetching ? 'Tentando novamente…' : 'Tentar novamente'}
-              </button>
+              </Button>
             </>
             : <span role="status">Esta mensagem foi abreviada; exibindo o trecho disponível.</span>}
     </div>}

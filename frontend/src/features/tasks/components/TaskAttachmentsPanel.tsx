@@ -1,13 +1,16 @@
 import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react';
+import { Button } from '../../../components/ui/button';
+import { Input } from '../../../components/ui/input';
+import { Table, TableBody, TableCell, TableHead, TableRow } from '../../../components/ui/table';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { deleteTaskAttachment, downloadTaskAttachment, listTaskAttachments, MAX_TASK_ATTACHMENT_BYTES, renameTaskAttachment, uploadTaskAttachment, type TaskAttachment } from '../../api';
-import { errorMessage, formatDate } from '../../lib/format';
-import { plural } from '../../lib/labels';
-import { ErrorNotice } from '../ui/ErrorNotice';
-import { buttonBase, buttonSecondarySmall, notice } from '../ui/classes';
+import { deleteTaskAttachment, downloadTaskAttachment, listTaskAttachments, MAX_TASK_ATTACHMENT_BYTES, renameTaskAttachment, uploadTaskAttachment, type TaskAttachment } from '../../../api';
+import { errorMessage, formatDate } from '../../../lib/format';
+import { plural } from '../../../lib/labels';
+import { ErrorNotice } from '../../../components/ui/ErrorNotice';
+import { buttonBase, buttonSecondarySmall, notice } from '../../../components/ui/classes';
 
-const buttonPrimarySmall = `${buttonBase} min-h-[29px] border-transparent bg-accent px-2.5 text-white shadow-[0_3px_8px_#5364dd2a] hover:bg-accent-dark`;
-const buttonPlainSmall = `${buttonBase} min-h-[29px] border-transparent px-2.5`;
+const buttonPrimarySmall = `${buttonBase} min-h-[29px] border-transparent bg-primary px-2.5 text-white shadow-[0_3px_8px_#5364dd2a] hover:bg-accent-dark`;
+const buttonPlainSmall = `${buttonBase} min-h-[29px] border-transparent bg-tone-red-bg px-2.5 text-tone-red hover:bg-tone-red-bg/80`;
 const emptyInline = 'rounded-ui-md border border-dashed border-line-strong px-4 py-3 text-ui-sm text-muted-strong';
 const previewBox = 'max-w-full rounded-ui-sm border border-line bg-[#f8f9fc] p-[7px]';
 const sheetCell = 'max-w-[280px] border-r border-b border-[#e7eaf0] px-[9px] py-1.5 text-left align-top wrap-anywhere';
@@ -273,31 +276,31 @@ function AttachmentRow({ token, projectId, taskId, attachment, onViewed, onRenam
       </div>}
       {spreadsheet && <div className={`${previewBox} grid gap-[7px] overflow-hidden`}>
         <strong className="text-ui-xs text-ink-2">{spreadsheet.sheetName}</strong>
-        {spreadsheet.rows.length ? <div className="max-w-full overflow-auto rounded-ui-sm border border-line bg-white"><table className="w-max min-w-full border-collapse text-ui-xs"><tbody>{spreadsheet.rows.map((row, rowIndex) => <tr key={rowIndex}>{row.map((cell, columnIndex) => {
+        {spreadsheet.rows.length ? <div className="max-w-full overflow-auto rounded-ui-sm border border-line bg-white"><Table className="w-max min-w-full border-collapse text-ui-xs"><TableBody>{spreadsheet.rows.map((row, rowIndex) => <TableRow key={rowIndex}>{row.map((cell, columnIndex) => {
           const value = cellText(cell);
           return rowIndex === 0
-            ? <th className={`${sheetCell} sticky top-0 bg-[#f0f2f8] font-bold text-ink-2`} key={columnIndex} scope="col">{value || `Coluna ${columnIndex + 1}`}</th>
-            : <td className={sheetCell} key={columnIndex}>{value}</td>;
-        })}</tr>)}</tbody></table></div> : <p className={emptyInline}>A planilha está vazia.</p>}
+            ? <TableHead className={`${sheetCell} sticky top-0 bg-[#f0f2f8] font-bold text-ink-2`} key={columnIndex} scope="col">{value || `Coluna ${columnIndex + 1}`}</TableHead>
+            : <TableCell className={sheetCell} key={columnIndex}>{value}</TableCell>;
+        })}</TableRow>)}</TableBody></Table></div> : <p className={emptyInline}>A planilha está vazia.</p>}
         {spreadsheet.truncated && <small className="text-ui-xs text-muted-strong">Prévia limitada às primeiras {MAX_PREVIEW_ROWS} linhas e {MAX_PREVIEW_COLUMNS} colunas.</small>}
       </div>}
       {editingName && <form className="grid gap-[7px] rounded-ui-sm border border-line bg-[#fafbfe] p-2.5" onSubmit={event => void saveName(event)}>
         <label className="text-ui-xs font-bold text-ink-2" htmlFor={`attachment-name-${attachment.id}`}>Novo nome do arquivo</label>
-        <input className="min-h-[38px] w-full rounded-[7px] border border-line-strong bg-white px-2.5 text-ui-sm" id={`attachment-name-${attachment.id}`} value={nextName} maxLength={255} onChange={event => setNextName(event.currentTarget.value)} disabled={busy !== null} autoFocus />
-        <div className="flex flex-wrap gap-1.5"><button type="submit" className={buttonPrimarySmall} disabled={busy !== null}>{busy === 'rename' ? 'Salvando…' : 'Salvar nome'}</button>
-          <button type="button" className={buttonSecondarySmall} disabled={busy !== null} onClick={() => { setEditingName(false); setNextName(attachment.name); setError(''); }}>Cancelar</button></div>
+        <Input className="h-[38px] w-full rounded-[7px] border-line-strong bg-white px-2.5 text-ui-sm" id={`attachment-name-${attachment.id}`} value={nextName} maxLength={255} onChange={event => setNextName(event.currentTarget.value)} disabled={busy !== null} autoFocus />
+        <div className="flex flex-wrap gap-1.5"><Button type="submit" className={buttonPrimarySmall} disabled={busy !== null}>{busy === 'rename' ? 'Salvando…' : 'Salvar nome'}</Button>
+          <Button type="button" className={buttonSecondarySmall} disabled={busy !== null} onClick={() => { setEditingName(false); setNextName(attachment.name); setError(''); }}>Cancelar</Button></div>
       </form>}
       {confirmingDelete && <div className="flex flex-wrap items-center gap-[7px] rounded-ui-sm border border-[#efd7d9] bg-[#fffafa] px-2.5 py-[9px]" role="group" aria-label={`Confirmação para excluir ${attachment.name}`}>
         <p className="flex-[1_1_100%] text-ui-xs font-semibold text-tone-red">Excluir permanentemente “{attachment.name}”?</p>
-        <button type="button" className={buttonPlainSmall} disabled={busy !== null} onClick={() => void confirmDelete()}>{busy === 'delete' ? 'Excluindo…' : 'Confirmar exclusão'}</button>
-        <button type="button" className={buttonSecondarySmall} disabled={busy !== null} onClick={() => setConfirmingDelete(false)}>Cancelar</button>
+        <Button type="button" className={buttonPlainSmall} disabled={busy !== null} onClick={() => void confirmDelete()}>{busy === 'delete' ? 'Excluindo…' : 'Confirmar exclusão'}</Button>
+        <Button type="button" className={buttonSecondarySmall} disabled={busy !== null} onClick={() => setConfirmingDelete(false)}>Cancelar</Button>
       </div>}
     </div>
     <div className="flex flex-wrap justify-end gap-1.5 max-[720px]:col-span-full max-[720px]:justify-start">
-      {hasPreview && <button type="button" className={buttonSecondarySmall} aria-label={`${isPreviewOpen ? 'Ocultar prévia de' : 'Visualizar'} ${attachment.name}`} aria-expanded={isPreviewOpen} disabled={busy !== null} onClick={() => void togglePreview()}>{busy === 'preview' ? 'Carregando…' : isPreviewOpen ? 'Ocultar prévia' : 'Visualizar'}</button>}
-      <button type="button" className={buttonSecondarySmall} disabled={busy !== null} onClick={() => void download()}>{busy === 'download' ? 'Baixando…' : 'Baixar'}</button>
-      <button type="button" className={buttonSecondarySmall} aria-label={`Renomear ${attachment.name}`} disabled={busy !== null || editingName || confirmingDelete} onClick={() => { setNextName(attachment.name); setEditingName(true); setError(''); }}>Renomear</button>
-      <button type="button" className={buttonSecondarySmall} aria-label={`Excluir ${attachment.name}`} disabled={busy !== null || editingName || confirmingDelete} onClick={() => { setConfirmingDelete(true); setError(''); }}>Excluir</button>
+      {hasPreview && <Button type="button" className={buttonSecondarySmall} aria-label={`${isPreviewOpen ? 'Ocultar prévia de' : 'Visualizar'} ${attachment.name}`} aria-expanded={isPreviewOpen} disabled={busy !== null} onClick={() => void togglePreview()}>{busy === 'preview' ? 'Carregando…' : isPreviewOpen ? 'Ocultar prévia' : 'Visualizar'}</Button>}
+      <Button type="button" className={buttonSecondarySmall} disabled={busy !== null} onClick={() => void download()}>{busy === 'download' ? 'Baixando…' : 'Baixar'}</Button>
+      <Button type="button" className={buttonSecondarySmall} aria-label={`Renomear ${attachment.name}`} disabled={busy !== null || editingName || confirmingDelete} onClick={() => { setNextName(attachment.name); setEditingName(true); setError(''); }}>Renomear</Button>
+      <Button type="button" className={buttonSecondarySmall} aria-label={`Excluir ${attachment.name}`} disabled={busy !== null || editingName || confirmingDelete} onClick={() => { setConfirmingDelete(true); setError(''); }}>Excluir</Button>
     </div>
   </li>;
 }
@@ -364,7 +367,7 @@ export function TaskAttachmentsPanel({ token, nonce, projectId, taskId, onAttach
     <div className="flex flex-wrap items-center justify-between gap-3"><div className="grid gap-1"><h3 className="font-display text-[13px] leading-[normal] font-bold text-ink normal-case">Arquivos anexados</h3><p className={emptyInline}>Envie fotos e outros arquivos para mantê-los disponíveis nesta tarefa.</p></div></div>
     <label className="grid gap-[7px] rounded-ui-md border border-dashed border-line-strong bg-[#fbfcff] p-4 text-ui-sm font-bold text-ink-2">
       <span>Adicionar arquivos</span>
-      <input className="max-w-full min-w-0 text-ui-xs text-muted-strong" type="file" multiple disabled={isUploading} onChange={onFilesSelected} aria-describedby="task-attachment-help" />
+      <Input className="h-auto max-w-full min-w-0 border-0 p-0 text-ui-xs text-muted-strong shadow-none file:mr-2 file:rounded file:border-0 file:bg-muted file:px-2 file:py-1 file:text-xs" type="file" multiple disabled={isUploading} onChange={onFilesSelected} aria-describedby="task-attachment-help" />
       <small className="text-ui-xs leading-[1.5] font-normal text-muted-strong" id="task-attachment-help">Até 25 MiB por arquivo. Há prévia para imagens, PDF, Excel/CSV, TXT, DOCX, SVG e HTML; wireframes em PNG/SVG/HTML também podem ser visualizados. Outros formatos mostram o tipo e podem ser baixados.</small>
     </label>
     {uploadingName && <div className="grid gap-1.5 text-ui-xs text-muted-strong" role="status" aria-live="polite">

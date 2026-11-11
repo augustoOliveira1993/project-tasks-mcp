@@ -1,4 +1,4 @@
-export const buttonBase = 'inline-flex items-center justify-center gap-2 rounded-lg border text-[10px] font-bold transition';
+export const buttonBase = 'inline-flex h-auto items-center justify-center gap-2 rounded-lg border bg-transparent text-ink-2 shadow-none text-[10px] font-bold transition';
 const secondaryTone = 'border-[#e1e5ed] bg-white text-[#5d697b] hover:border-[#ccd2df] hover:bg-[#fafbff]';
 
 export const buttonSecondary = `${buttonBase} min-h-[35px] px-3 ${secondaryTone}`;
@@ -18,4 +18,4 @@ export const notice = {
 };
 
 export const eyebrow = 'mb-1.5 font-display text-[9px] leading-[normal] font-bold tracking-[.11em] text-[#7180d8]';
-export const textButton = 'px-0 py-1 text-[11px] font-semibold text-[#5c6bd5] hover:text-[#3748bf]';
+export const textButton = 'h-auto min-h-0 rounded-md border-transparent bg-transparent px-0 py-1 text-[11px] font-semibold text-[#5c6bd5] shadow-none hover:bg-accent/50 hover:text-[#3748bf]';

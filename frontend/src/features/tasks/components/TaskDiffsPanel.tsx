@@ -1,15 +1,18 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { query } from '../../api';
-import { Badge } from '../ui/Badge';
-import { buttonSecondarySmall, notice } from '../ui/classes';
-import { ErrorNotice } from '../ui/ErrorNotice';
-import { IconChevron, IconCopy } from '../ui/icons';
-import { Skeleton } from '../ui/Skeleton';
-import { copyToClipboard } from '../../lib/clipboard';
-import { formatDate } from '../../lib/format';
-import { plural, relativeTime } from '../../lib/labels';
-import { diffTotals, parsePatch, statusLabels, type FileDiff } from '../../lib/patch';
+import { query } from '../../../api';
+import { Button } from '../../../components/ui/button';
+import { Badge } from '../../../components/ui/badge';
+import { Input } from '../../../components/ui/input';
+import { Table, TableBody, TableCell, TableRow } from '../../../components/ui/table';
+import { buttonSecondarySmall, notice } from '../../../components/ui/classes';
+import { ErrorNotice } from '../../../components/ui/ErrorNotice';
+import { IconChevron, IconCopy } from '../../../components/ui/icons';
+import { SkeletonRows as Skeleton } from '../../../components/ui/skeleton';
+import { copyToClipboard } from '../../../lib/clipboard';
+import { formatDate } from '../../../lib/format';
+import { plural, relativeTime } from '../../../lib/labels';
+import { diffTotals, parsePatch, statusLabels, type FileDiff } from '../../../lib/patch';
 
 export type TaskDiffSummary = { _id: string; commit?: string; baseCommit?: string; branch?: string; files?: string[]; at?: string; createdAt?: string; truncated?: boolean; agent?: string };
 type TaskDiffFull = TaskDiffSummary & { patch?: string };
@@ -44,31 +47,31 @@ function FileBlock({ file, open, onToggle }: { file: FileDiff; open: boolean; on
   const total = fileLineCount(file);
   let shown = 0;
   return <section className="mt-2 overflow-hidden rounded-ui-sm border border-line">
-    <button type="button" className="sticky top-0 flex w-full items-center gap-2 bg-[#f6f7fb] px-2.5 py-2 text-left hover:bg-[#eef0ff]" aria-expanded={open} onClick={onToggle}>
+    <Button type="button" className="sticky top-0 flex w-full items-center gap-2 bg-[#f6f7fb] px-2.5 py-2 text-left hover:bg-[#eef0ff]" aria-expanded={open} onClick={onToggle}>
       <IconChevron size={13} className={open ? undefined : '-rotate-90'} />
       <span className={`${statusBase} ${statusTone[file.status]}`}>{statusLabels[file.status]}</span>
       <span className={pathText} title={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}>{file.oldPath ? <><s className="text-muted-strong">{file.oldPath}</s> → {file.path}</> : file.path}</span>
       <span className={counts}><b className={countAdd}>+{file.additions}</b><b className={countDel}>−{file.deletions}</b></span>
-    </button>
+    </Button>
     {open && (file.binary ? <p className="px-3 py-2.5 text-ui-xs text-muted-strong">Arquivo binário: o conteúdo não é exibido.</p>
       : file.hunks.length === 0 ? <p className="px-3 py-2.5 text-ui-xs text-muted-strong">{file.status === 'renamed' ? 'Arquivo renomeado sem alterações de conteúdo.' : 'Sem alterações de conteúdo neste arquivo.'}</p>
-        : <div className="overflow-x-auto bg-white"><table className="w-full border-collapse font-code text-[12px] leading-[1.5]"><tbody>
+        : <div className="bg-white"><Table className="w-full border-collapse font-code text-[12px] leading-[1.5]"><TableBody>
           {file.hunks.map((hunk, hunkIndex) => {
             if (shown >= limit) return null;
             return [
-              <tr key={`h${hunkIndex}`}><td className="bg-[#eef2ff] px-2.5 py-[3px] align-top text-[11px] text-[#4a56a8]" colSpan={3}>{hunk.header}</td></tr>,
+              <TableRow key={`h${hunkIndex}`}><TableCell className="bg-[#eef2ff] px-2.5 py-[3px] align-top text-[11px] text-[#4a56a8]" colSpan={3}>{hunk.header}</TableCell></TableRow>,
               ...hunk.lines.map((line, lineIndex) => {
                 shown++;
                 if (shown > limit) return null;
-                return <tr className={lineRow[line.kind]} key={`${hunkIndex}-${lineIndex}`}>
-                  <td className={`${numCell} ${lineNum[line.kind]}`} aria-hidden="true">{line.oldNumber ?? ''}</td>
-                  <td className={`${numCell} ${lineNum[line.kind]}`} aria-hidden="true">{line.newNumber ?? ''}</td>
-                  <td className={`px-2 py-0 align-top whitespace-pre ${lineCode[line.kind]}`}><span className={`inline-block w-[1.2em] select-none ${lineSign[line.kind]}`} aria-label={line.kind === 'add' ? 'adicionada' : line.kind === 'del' ? 'removida' : undefined}>{line.kind === 'add' ? '+' : line.kind === 'del' ? '−' : ' '}</span>{line.text || ' '}</td>
-                </tr>;
+                return <TableRow className={lineRow[line.kind]} key={`${hunkIndex}-${lineIndex}`}>
+                  <TableCell className={`${numCell} ${lineNum[line.kind]}`} aria-hidden="true">{line.oldNumber ?? ''}</TableCell>
+                  <TableCell className={`${numCell} ${lineNum[line.kind]}`} aria-hidden="true">{line.newNumber ?? ''}</TableCell>
+                  <TableCell className={`px-2 py-0 align-top whitespace-pre ${lineCode[line.kind]}`}><span className={`inline-block w-[1.2em] select-none ${lineSign[line.kind]}`} aria-label={line.kind === 'add' ? 'adicionada' : line.kind === 'del' ? 'removida' : undefined}>{line.kind === 'add' ? '+' : line.kind === 'del' ? '−' : ' '}</span>{line.text || ' '}</TableCell>
+                </TableRow>;
               })
             ];
           })}
-        </tbody></table>{total > limit && <button type="button" className="block w-full bg-[#f6f7fb] p-2 text-[11px] font-semibold text-[#5c6bd5] hover:text-[#3748bf]" onClick={() => setLimit(current => current + PAGE_LINES * 2)}>Mostrar mais ({total - limit} linhas restantes)</button>}</div>)}
+        </TableBody></Table>{total > limit && <Button type="button" className="block w-full bg-[#f6f7fb] p-2 text-[11px] font-semibold text-[#5c6bd5] hover:text-[#3748bf]" onClick={() => setLimit(current => current + PAGE_LINES * 2)}>Mostrar mais ({total - limit} linhas restantes)</Button>}</div>)}
   </section>;
 }
 
@@ -116,11 +119,11 @@ function DiffDetail({ token, nonce, projectId, taskId, summary }: { token: strin
     {!patch ? <p className={emptyInline}>Este diff foi publicado sem o patch; só a lista de arquivos está disponível.</p> : <>
       <div className="flex flex-wrap items-center gap-2">
         <strong className="mr-auto text-ui-sm text-ink-2">{plural(files.length, 'arquivo', 'arquivos')} · <span className={countAdd}>+{totals.additions}</span> <span className={countDel}>−{totals.deletions}</span></strong>
-        <input className="min-h-[30px] w-[170px] rounded-ui-sm border border-line-strong px-2 py-0 text-ui-xs" type="search" value={filter} onChange={event => setFilter(event.target.value)} placeholder="Filtrar arquivos" aria-label="Filtrar arquivos do diff" />
-        <button type="button" className={buttonSecondarySmall} onClick={() => setAll(true)}>Expandir tudo</button>
-        <button type="button" className={buttonSecondarySmall} onClick={() => setAll(false)}>Recolher tudo</button>
-        <button type="button" className={buttonSecondarySmall} onClick={() => void copyPatch()}><IconCopy size={12} /> {copied ? 'Copiado' : 'Copiar patch'}</button>
-        <button type="button" className={buttonSecondarySmall} onClick={downloadPatch}>Baixar .patch</button>
+        <Input className="h-[30px] w-[170px] rounded-ui-sm border-line-strong px-2 py-0 text-ui-xs" type="search" value={filter} onChange={event => setFilter(event.target.value)} placeholder="Filtrar arquivos" aria-label="Filtrar arquivos do diff" />
+        <Button type="button" className={buttonSecondarySmall} onClick={() => setAll(true)}>Expandir tudo</Button>
+        <Button type="button" className={buttonSecondarySmall} onClick={() => setAll(false)}>Recolher tudo</Button>
+        <Button type="button" className={buttonSecondarySmall} onClick={() => void copyPatch()}><IconCopy size={12} /> {copied ? 'Copiado' : 'Copiar patch'}</Button>
+        <Button type="button" className={buttonSecondarySmall} onClick={downloadPatch}>Baixar .patch</Button>
       </div>
       {files.length > 1 && <ul className="m-0 grid max-h-[190px] list-none gap-0.5 overflow-y-auto rounded-ui-sm border border-line bg-[#fafbfd] p-1.5" aria-label="Arquivos alterados">{visible.map(file => <li key={file.path}><a className="flex items-center gap-2 rounded-[4px] px-1.5 py-1 text-ui-xs text-ink-2 no-underline hover:bg-[#eef0ff]" href={`#diff-${summary._id}-${encodeURIComponent(file.path)}`} onClick={event => { event.preventDefault(); setOpenFiles(current => ({ ...current, [file.path]: true })); window.requestAnimationFrame(() => document.getElementById(`diff-${summary._id}-${encodeURIComponent(file.path)}`)?.scrollIntoView({ block: 'start' })); }}><span className={`${statusBase} ${statusTone[file.status]}`}>{statusLabels[file.status]}</span><span className={pathText}>{file.path}</span><span className={counts}><b className={countAdd}>+{file.additions}</b><b className={countDel}>−{file.deletions}</b></span></a></li>)}</ul>}
       {visible.length ? visible.map(file => <div id={`diff-${summary._id}-${encodeURIComponent(file.path)}`} key={file.path}><FileBlock file={file} open={isOpen(file)} onToggle={() => setOpenFiles(current => ({ ...current, [file.path]: !isOpen(file) }))} /></div>) : <p className={emptyInline}>Nenhum arquivo corresponde ao filtro.</p>}
@@ -140,11 +143,11 @@ export function TaskDiffsPanel({ token, nonce, projectId, taskId, items, isPendi
   return <div className="grid gap-3">{items.map(item => {
     const open = isOpen(item._id);
     return <article className="overflow-hidden rounded-ui-md border border-line bg-white" key={item._id}>
-      <button type="button" className="flex w-full items-center gap-2 bg-[#fbfcff] px-3.5 py-2.5 text-left hover:bg-[#f3f5ff]" aria-expanded={open} onClick={() => setOpenIds(current => { const next = new Set(current); if (next.has(item._id)) next.delete(item._id); else next.add(item._id); return next; })}>
+      <Button type="button" className="flex w-full items-center gap-2 bg-[#fbfcff] px-3.5 py-2.5 text-left hover:bg-[#f3f5ff]" aria-expanded={open} onClick={() => setOpenIds(current => { const next = new Set(current); if (next.has(item._id)) next.delete(item._id); else next.add(item._id); return next; })}>
         <IconChevron size={14} className={open ? undefined : '-rotate-90'} />
         <span className="grid min-w-0 flex-1 gap-0.5"><strong className="overflow-hidden text-ui-sm text-ellipsis whitespace-nowrap text-ink">{item.branch || 'Commit ' + (item.commit ?? '').slice(0, 8)}</strong><small className="text-ui-xs text-muted-strong">{plural((item.files ?? []).length, 'arquivo', 'arquivos')} · <time dateTime={item.at ?? item.createdAt} title={formatDate(item.at ?? item.createdAt)}>{relativeTime(item.at ?? item.createdAt)}</time>{item.agent ? ` · ${item.agent}` : ''}</small></span>
-        {item.commit && <Badge title={item.baseCommit ? `${item.baseCommit.slice(0, 8)}..${item.commit.slice(0, 8)}` : item.commit}>{item.commit.slice(0, 7)}</Badge>}
-      </button>
+        {item.commit && <Badge variant="outline" title={item.baseCommit ? `${item.baseCommit.slice(0, 8)}..${item.commit.slice(0, 8)}` : item.commit}>{item.commit.slice(0, 7)}</Badge>}
+      </Button>
       {open && <DiffDetail token={token} nonce={nonce} projectId={projectId} taskId={taskId} summary={item} />}
     </article>;
   })}</div>;

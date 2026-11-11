@@ -4,7 +4,7 @@ import { FeaturesCatalog } from './FeaturesCatalog';
 import { ProjectsCatalog } from './ProjectsCatalog';
 import { ResponsiblesCatalog } from './ResponsiblesCatalog';
 import { TasksCatalog } from './TasksCatalog';
-import { ConversationTypesManager } from '../../components/conversations/ConversationTypesManager';
+import { ConversationTypesManager } from '../conversations/components/ConversationTypesManager';
 import { catalogsDescription, catalogsHeading, catalogsTitle } from './catalogClasses';
 import { eyebrow } from '../../components/ui/classes';
 

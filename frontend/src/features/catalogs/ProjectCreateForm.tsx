@@ -4,6 +4,9 @@ import { operationId, request } from '../../api';
 import type { Project } from '../../api';
 import { copyToClipboard } from '../../lib/clipboard';
 import { errorMessage } from '../../lib/format';
+import { Button } from '../../components/ui/button';
+import { Input } from '../../components/ui/input';
+import { Textarea } from '../../components/ui/textarea';
 import { buttonBase, notice } from '../../components/ui/classes';
 import { primaryTone, secondaryTone } from './catalogClasses';
 
@@ -139,14 +142,14 @@ export function ProjectCreateForm({ token, nonce, project, onSaved, notify, inDi
       if (message.includes('Version conflict or archived')) return 'O projeto mudou desde que você abriu esta tela. Feche e abra a edição novamente para carregar a versão atual; seus dados digitados continuam aqui.';
       return message;
     })()}</div>}
-    <form className={inDialog ? 'grid gap-6' : 'grid gap-7'} onSubmit={submit} aria-busy={saveProject.isPending}>
+    <form className={inDialog ? 'grid min-h-0 flex-1 gap-6 overflow-y-auto px-5 pb-5' : 'grid gap-7'} onSubmit={submit} aria-busy={saveProject.isPending}>
       <section className={section} aria-labelledby="project-details-title">
       <div><div><h3 id="project-details-title" className={sectionTitle}>Dados do projeto</h3><p className={sectionHelp}>Defina o objetivo e as orientações para a equipe. Todos os campos são obrigatórios.</p></div></div>
       <div className={formGrid}>
-      <label className={label}>Nome do projeto<input className={field} name="name" required maxLength={20000} autoFocus={inDialog} defaultValue={project?.name ?? ''} placeholder="Ex.: Plataforma interna" /></label>
-      <label className={label}>Descrição<input className={field} name="description" required maxLength={20000} defaultValue={project?.description ?? ''} placeholder="Resumo do projeto" /></label>
+      <label className={label}>Nome do projeto<Input className={field} name="name" required maxLength={20000} autoFocus={inDialog} defaultValue={project?.name ?? ''} placeholder="Ex.: Plataforma interna" /></label>
+      <label className={label}>Descrição<Input className={field} name="description" required maxLength={20000} defaultValue={project?.description ?? ''} placeholder="Resumo do projeto" /></label>
       </div>
-      <label className={label}>Instruções<textarea className={field} name="instructions" required maxLength={20000} rows={3} defaultValue={project?.instructions ?? ''} placeholder="Regras de trabalho e contexto do projeto" /></label>
+      <label className={label}>Instruções<Textarea className={field} name="instructions" required maxLength={20000} rows={3} defaultValue={project?.instructions ?? ''} placeholder="Regras de trabalho e contexto do projeto" /></label>
       </section>
       <section className={sectionDivided} aria-labelledby="project-repositories-title">
       <div><div><h3 id="project-repositories-title" className={sectionTitle}>Repositórios <span className={repositoryCountBadge}>{repositories.length}/100</span></h3><p className={sectionHelp}>Adicione um ou mais repositórios, como backend, frontend ou aplicativo.</p></div></div>
@@ -154,14 +157,14 @@ export function ProjectCreateForm({ token, nonce, project, onSaved, notify, inDi
       <fieldset className={repositoryFields}>
         <legend className="px-2 text-[12px] font-[650] text-[#435270]">Repositório {index + 1}</legend>
         <div className={formGrid}>
-        <label className={label}>Nome<input className={field} value={repository.name} onChange={event => updateRepository(index, 'name', event.target.value)} required maxLength={20000} placeholder="Ex.: backend" /></label>
-        <label className={label}>URL<input className={field} value={repository.url} onChange={event => updateRepository(index, 'url', event.target.value)} type="url" required maxLength={2048} placeholder="https://github.com/organizacao/repositorio" /></label>
+        <label className={label}>Nome<Input className={field} value={repository.name} onChange={event => updateRepository(index, 'name', event.target.value)} required maxLength={20000} placeholder="Ex.: backend" /></label>
+        <label className={label}>URL<Input className={field} value={repository.url} onChange={event => updateRepository(index, 'url', event.target.value)} type="url" required maxLength={2048} placeholder="https://github.com/organizacao/repositorio" /></label>
         </div>
-        <label className={label}>Instruções do repositório<textarea className={field} value={repository.instructions ?? ''} onChange={event => updateRepository(index, 'instructions', event.target.value)} required maxLength={20000} rows={2} placeholder="Como executar, testar e trabalhar neste repositório" /></label>
-        <div className="flex justify-end"><button type="button" className={removeRepositoryButton} aria-label={`Remover repositório ${index + 1}`} disabled={saveProject.isPending || repositories.length <= 1} onClick={() => setRepositories(current => current.filter(item => item.id !== repository.id))}>Remover repositório</button></div>
+        <label className={label}>Instruções do repositório<Textarea className={field} value={repository.instructions ?? ''} onChange={event => updateRepository(index, 'instructions', event.target.value)} required maxLength={20000} rows={2} placeholder="Como executar, testar e trabalhar neste repositório" /></label>
+        <div className="flex justify-end"><Button type="button" variant="ghost" className={removeRepositoryButton} aria-label={`Remover repositório ${index + 1}`} disabled={saveProject.isPending || repositories.length <= 1} onClick={() => setRepositories(current => current.filter(item => item.id !== repository.id))}>Remover repositório</Button></div>
       </fieldset>
       </div>)}
-      <button type="button" className={addRepositoryButton} disabled={saveProject.isPending || repositories.length >= 100} onClick={() => setRepositories(current => [...current, { id: operationId(), name: '', url: '', instructions: '' }])}>+ Adicionar repositório</button>
+      <Button type="button" variant="outline" className={addRepositoryButton} disabled={saveProject.isPending || repositories.length >= 100} onClick={() => setRepositories(current => [...current, { id: operationId(), name: '', url: '', instructions: '' }])}>+ Adicionar repositório</Button>
       </section>
       <section className={sectionDivided} aria-labelledby="project-access-title">
       <div><div><h3 id="project-access-title" className={sectionTitle}>Organização e acesso</h3><p className={sectionHelp}>Escolha as áreas de trabalho e a visibilidade do projeto.</p></div></div>
@@ -171,18 +174,18 @@ export function ProjectCreateForm({ token, nonce, project, onSaved, notify, inDi
       <div className="grid gap-3.5 rounded-ui-md border border-[#e1e5ed] bg-[#fafbfe] p-3.5">
         <ul className="flex flex-wrap gap-2" aria-label="Áreas adicionadas">
           {areas.map(area => <li key={area} className="inline-flex max-w-full items-center gap-[7px] rounded-[8px] border border-[#dce0fb] bg-[#eef0ff] py-1 pr-1.5 pl-[11px] text-[12px] text-[#4652ac]">{editingArea === area ? <>
-            <input className={areaEditField} autoFocus value={editDraft} aria-label={`Renomear área ${area}`} onChange={event => { setEditDraft(event.target.value); setAreaError(''); }} onKeyDown={event => { if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); renameArea(area); } else if (event.key === 'Escape') { event.preventDefault(); setEditingArea(null); setEditDraft(''); setAreaError(''); } }} />
-            <button type="button" className={areaChipButton} aria-label={`Salvar nome da área ${area}`} disabled={saveProject.isPending} onClick={() => renameArea(area)}>✓</button>
-            <button type="button" className={areaChipButton} aria-label={`Cancelar edição da área ${area}`} disabled={saveProject.isPending} onClick={() => { setEditingArea(null); setEditDraft(''); setAreaError(''); }}>×</button>
+            <Input className={areaEditField} autoFocus value={editDraft} aria-label={`Renomear área ${area}`} onChange={event => { setEditDraft(event.target.value); setAreaError(''); }} onKeyDown={event => { if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); renameArea(area); } else if (event.key === 'Escape') { event.preventDefault(); setEditingArea(null); setEditDraft(''); setAreaError(''); } }} />
+            <Button type="button" variant="ghost" className={areaChipButton} aria-label={`Salvar nome da área ${area}`} disabled={saveProject.isPending} onClick={() => renameArea(area)}>✓</Button>
+            <Button type="button" variant="ghost" className={areaChipButton} aria-label={`Cancelar edição da área ${area}`} disabled={saveProject.isPending} onClick={() => { setEditingArea(null); setEditDraft(''); setAreaError(''); }}>×</Button>
           </> : <>
             <span className="min-w-0 wrap-anywhere">{area}</span>
-            <button type="button" className={areaChipButton} aria-label={`Renomear área ${area}`} title={`Renomear ${area}`} disabled={saveProject.isPending} onClick={() => { setEditingArea(area); setEditDraft(area); setAreaError(''); }}>✎</button>
-            <button type="button" className={areaChipButton} aria-label={`Remover área ${area}`} title={areas.length <= 1 ? 'Mantenha pelo menos uma área' : `Remover ${area}`} disabled={saveProject.isPending || areas.length <= 1} onClick={() => { setAreas(current => current.filter(value => value !== area)); setAreaError(''); }}>×</button>
+            <Button type="button" variant="ghost" className={areaChipButton} aria-label={`Renomear área ${area}`} title={`Renomear ${area}`} disabled={saveProject.isPending} onClick={() => { setEditingArea(area); setEditDraft(area); setAreaError(''); }}>✎</Button>
+            <Button type="button" variant="ghost" className={areaChipButton} aria-label={`Remover área ${area}`} title={areas.length <= 1 ? 'Mantenha pelo menos uma área' : `Remover ${area}`} disabled={saveProject.isPending || areas.length <= 1} onClick={() => { setAreas(current => current.filter(value => value !== area)); setAreaError(''); }}>×</Button>
           </>}</li>)}
         </ul>
         <div className="flex items-center gap-2 max-[420px]:flex-col max-[420px]:items-stretch">
-          <input className={areaEntryField} id="project-area-draft" value={areaDraft} maxLength={80} placeholder="Ex.: design ou infraestrutura" disabled={saveProject.isPending || areas.length >= 100} aria-invalid={!!areaError} aria-describedby={`project-areas-help${areaError ? ' project-areas-error' : ''}`} onChange={event => { setAreaDraft(event.target.value); setAreaError(''); }} onKeyDown={event => { if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); addArea(); } }} />
-          <button type="button" className={areaAddButton} disabled={saveProject.isPending || areas.length >= 100 || !areaDraft.trim()} onClick={addArea}>+ Adicionar</button>
+          <Input className={areaEntryField} id="project-area-draft" value={areaDraft} maxLength={80} placeholder="Ex.: design ou infraestrutura" disabled={saveProject.isPending || areas.length >= 100} aria-invalid={!!areaError} aria-describedby={`project-areas-help${areaError ? ' project-areas-error' : ''}`} onChange={event => { setAreaDraft(event.target.value); setAreaError(''); }} onKeyDown={event => { if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); addArea(); } }} />
+          <Button type="button" variant="outline" className={areaAddButton} disabled={saveProject.isPending || areas.length >= 100 || !areaDraft.trim()} onClick={addArea}>+ Adicionar</Button>
         </div>
       </div>
       <small id="project-areas-help" className={helpText}>{project ? 'Áreas em uso precisam ser reatribuídas ou arquivadas antes de serem removidas. Mantenha pelo menos uma área.' : 'Digite uma área e pressione Enter ou Adicionar. Mantenha pelo menos uma área.'}</small>
@@ -197,18 +200,18 @@ export function ProjectCreateForm({ token, nonce, project, onSaved, notify, inDi
         </label>
       </div></fieldset>
       {needsNewAccessToken && <div className={fieldGroup}>
-        <label className={label}>Token de acesso privado<input className={field} name="accessToken" type={showAccessToken ? 'text' : 'password'} value={accessToken} onChange={event => setAccessToken(event.target.value)} minLength={16} maxLength={512} required autoComplete="new-password" spellCheck={false} aria-describedby="project-token-help" /></label>
+        <label className={label}>Token de acesso privado<Input className={field} name="accessToken" type={showAccessToken ? 'text' : 'password'} value={accessToken} onChange={event => setAccessToken(event.target.value)} minLength={16} maxLength={512} required autoComplete="new-password" spellCheck={false} aria-describedby="project-token-help" /></label>
         <div className="flex items-center gap-2">
-          <button type="button" className={secondaryButton} disabled={saveProject.isPending} onClick={() => {
+          <Button type="button" variant="outline" className={secondaryButton} disabled={saveProject.isPending} onClick={() => {
             const bytes = crypto.getRandomValues(new Uint8Array(32));
             setAccessToken(Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join(''));
             notify(`Novo token gerado. Copie e guarde antes de ${project ? 'salvar' : 'criar'} o projeto.`, 'success');
-          }}>{accessToken ? 'Gerar novo token' : 'Gerar token'}</button>
-          <button type="button" className={secondaryButton} disabled={!accessToken} aria-pressed={showAccessToken} onClick={() => setShowAccessToken(current => !current)}>{showAccessToken ? 'Ocultar' : 'Mostrar'}</button>
-          <button type="button" className={secondaryButton} disabled={!accessToken} onClick={async () => {
+          }}>{accessToken ? 'Gerar novo token' : 'Gerar token'}</Button>
+          <Button type="button" variant="outline" className={secondaryButton} disabled={!accessToken} aria-pressed={showAccessToken} onClick={() => setShowAccessToken(current => !current)}>{showAccessToken ? 'Ocultar' : 'Mostrar'}</Button>
+          <Button type="button" variant="outline" className={secondaryButton} disabled={!accessToken} onClick={async () => {
             if (await copyToClipboard(accessToken)) notify('Token copiado.', 'success');
             else notify('Não foi possível copiar. Use Mostrar e copie o token manualmente.', 'error');
-          }}>Copiar token</button>
+          }}>Copiar token</Button>
         </div>
         <small id="project-token-help" className={helpText}>Gere um token ou informe pelo menos 16 caracteres. Cada geração substitui o valor atual. Guarde o token: o servidor armazena somente o hash.</small>
       </div>}
@@ -216,8 +219,8 @@ export function ProjectCreateForm({ token, nonce, project, onSaved, notify, inDi
       </section>
       <div className={`${inDialog ? 'sticky bottom-0 z-10 bg-white/95 py-3 backdrop-blur-sm' : 'border-t border-[#e7eaf0] pt-[22px]'} flex flex-wrap items-center justify-between gap-4 max-[700px]:flex-col max-[700px]:items-stretch`}>
       <span className="text-[12px] leading-[1.5] text-muted-strong" role="status">{repositories.length} {repositories.length === 1 ? 'repositório será vinculado ao projeto' : 'repositórios serão vinculados ao projeto'}</span>
-      {inDialog && <button type="button" className={cancelButton} disabled={saveProject.isPending} onClick={onCancel}>Cancelar</button>}
-      <button className={submitButton} disabled={saveProject.isPending}>{saveProject.isPending ? 'Salvando…' : project ? 'Salvar projeto' : 'Criar projeto'}</button>
+      {inDialog && <Button type="button" variant="outline" className={cancelButton} disabled={saveProject.isPending} onClick={onCancel}>Cancelar</Button>}
+      <Button type="submit" className={submitButton} disabled={saveProject.isPending}>{saveProject.isPending ? 'Salvando…' : project ? 'Salvar projeto' : 'Criar projeto'}</Button>
       </div>
     </form>
   </section>;

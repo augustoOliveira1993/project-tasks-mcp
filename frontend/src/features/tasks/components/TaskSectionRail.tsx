@@ -1,4 +1,5 @@
 import type { KeyboardEvent, ReactNode } from 'react';
+import { Button } from '../../../components/ui/button';
 
 export type TaskSection<Id extends string = string> = { id: Id; label: string; count?: string; unread?: boolean };
 
@@ -50,7 +51,7 @@ export function TaskSectionRail<Id extends string>({ sections, active, orientati
     <div className={tabListClass[orientation]} role="tablist" aria-label="Seções da tarefa" aria-orientation={orientation}>
       {sections.map(item => {
         const selected = active === item.id;
-        return <button key={item.id} id={`task-tab-${item.id}`} type="button" role="tab" aria-selected={selected} aria-controls="task-tabpanel" aria-label={item.unread ? `${item.label}${item.count ? `, ${item.count} itens` : ''}, há novidades não lidas` : undefined} tabIndex={selected || active === null && item === sections[0] ? 0 : -1} className={tabClass[orientation][selected ? 'active' : 'idle']} onClick={() => onSelect(item.id)} onKeyDown={event => move(event, item.id)}>{item.label}{item.unread && <span className="size-2 rounded-full bg-[#d97706]" aria-hidden="true" />}{item.count && <span className={selected ? `${tabCountBase} bg-tone-blue-bg text-tone-blue` : `${tabCountBase} bg-tone-slate-bg text-tone-slate`}>{item.count}</span>}</button>;
+        return <Button key={item.id} id={`task-tab-${item.id}`} type="button" variant="ghost" role="tab" aria-selected={selected} aria-controls="task-tabpanel" aria-label={item.unread ? `${item.label}${item.count ? `, ${item.count} itens` : ''}, há novidades não lidas` : undefined} tabIndex={selected || active === null && item === sections[0] ? 0 : -1} className={tabClass[orientation][selected ? 'active' : 'idle']} onClick={() => onSelect(item.id)} onKeyDown={event => move(event, item.id)}>{item.label}{item.unread && <span className="size-2 rounded-full bg-[#d97706]" aria-hidden="true" />}{item.count && <span className={selected ? `${tabCountBase} bg-tone-blue-bg text-tone-blue` : `${tabCountBase} bg-tone-slate-bg text-tone-slate`}>{item.count}</span>}</Button>;
       })}
     </div>
     {footer}

@@ -1,11 +1,12 @@
 import type { ComponentProps } from 'react';
+import { Button } from '../../components/ui/button';
 import { useQuery } from '@tanstack/react-query';
 import { query } from '../../api';
 import type { Task } from '../../api';
-import { TaskDetailsContent } from '../../components/tasks/TaskDetailsContent';
+import { TaskDetailsContent } from './components/TaskDetailsContent';
 import { ErrorNotice } from '../../components/ui/ErrorNotice';
 import { buttonSecondary } from '../../components/ui/classes';
-import { Skeleton } from '../../components/ui/Skeleton';
+import { SkeletonRows as Skeleton } from '../../components/ui/skeleton';
 
 type ContentProps = ComponentProps<typeof TaskDetailsContent>;
 
@@ -26,7 +27,7 @@ export function TaskPage({ taskId, ...rest }: Omit<ContentProps, 'variant' | 'ta
   if (context.isPending) return <div className={pageState}><Skeleton rows={8} label="Carregando a tarefa…" /></div>;
   if (context.isError || !task) return <div className={pageState}>
     <ErrorNotice error={context.error ?? new Error('Tarefa não encontrada neste projeto.')} onRetry={() => void context.refetch()} retrying={context.isFetching} title="Não foi possível carregar a tarefa" />
-    <button type="button" className={buttonSecondary} onClick={close}>Voltar às tarefas</button>
+    <Button type="button" className={buttonSecondary} onClick={close}>Voltar às tarefas</Button>
   </div>;
   return <TaskDetailsContent key={task._id} variant="page" task={task} {...rest} />;
 }

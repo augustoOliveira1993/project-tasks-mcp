@@ -9,9 +9,9 @@ export const primaryTone = 'border-transparent bg-accent text-white shadow-[0_3p
 export const buttonPrimaryCompact = `${buttonCore} min-h-[34px] px-2.5 text-[11px] ${primaryTone}`;
 export const buttonSecondaryCompact = `${buttonCore} min-h-[34px] px-2.5 text-[11px] ${secondaryTone}`;
 /** Texto vermelho (Arquivar / Remover): a cor do tema vence a de `textButton` e o hover só pinta o fundo. */
-export const dangerTextButton = 'px-0 py-1 text-[11px] font-semibold whitespace-nowrap text-tone-red enabled:hover:bg-tone-red-bg';
+export const dangerTextButton = 'h-auto min-h-0 rounded-md border-transparent bg-transparent px-0 py-1 text-[11px] font-semibold whitespace-nowrap text-tone-red shadow-none enabled:hover:bg-tone-red-bg';
 export const dangerTextCompact = 'py-2 pr-0 pl-1 text-[11px] font-semibold whitespace-nowrap text-tone-red enabled:hover:bg-tone-red-bg';
-export const textButtonNowrap = 'px-0 py-1 text-[11px] font-semibold whitespace-nowrap text-[#5c6bd5] hover:text-[#3748bf]';
+export const textButtonNowrap = 'h-auto min-h-0 rounded-md border-transparent bg-transparent px-0 py-1 text-[11px] font-semibold whitespace-nowrap text-[#5c6bd5] shadow-none hover:bg-accent/50 hover:text-[#3748bf]';
 
 export const catalogsHeading = 'flex items-end justify-between gap-5 mb-3 max-[760px]:flex-col max-[760px]:items-stretch';
 export const catalogsTitle = 'mb-1.5 font-display text-[length:clamp(21px,2vw,27px)] leading-[normal] font-extrabold tracking-[-.045em] max-[760px]:text-[21px]';
@@ -67,9 +67,9 @@ export const loading = 'px-[18px] py-7 text-center text-[11px] text-[#8792a2]';
 /** Aviso filho direto do diálogo de cadastro (margens do `create-task-dialog`). */
 export const dialogNotice = `${notice.error} mx-[22px] mt-[13px]`;
 
-const dialogShell = 'm-auto rounded-ui-lg border border-[#dfe4ed] bg-white text-[#455164] shadow-[0_24px_70px_#18223040] backdrop:bg-[#18203388] backdrop:backdrop-blur-[3px]';
-export const recordDialog = `${dialogShell} w-[min(calc(100%-28px),720px)] max-h-[min(850px,calc(100dvh-28px))] overflow-auto`;
-export const projectDialog = `${dialogShell} w-[min(calc(100%-28px),1100px)] max-h-[min(900px,calc(100dvh-28px))] overflow-hidden open:flex open:flex-col`;
+const dialogShell = 'rounded-xl border border-border bg-background text-foreground shadow-xl';
+export const recordDialog = `${dialogShell} w-[min(calc(100%-28px),720px)] max-w-none max-h-[min(90dvh,850px)] overflow-auto p-0`;
+export const projectDialog = `${dialogShell} flex w-[min(calc(100%-28px),1100px)] max-w-none max-h-[min(90dvh,900px)] flex-col overflow-hidden p-0`;
 const header = 'flex items-start justify-between gap-4 border-b border-[#edf0f4] px-[23px] pt-[21px] pb-4 max-[760px]:px-4 max-[760px]:pt-[17px] max-[760px]:pb-[13px]';
 export const dialogHeader = header;
 export const dialogHeaderFixed = `${header} flex-none`;

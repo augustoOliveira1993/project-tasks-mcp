@@ -1,11 +1,14 @@
 import { useId, useRef, useState } from 'react';
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import { defaultCondition, filterFields, operatorLabels, operatorsForField, type FilterCondition, type FilterField, type FilterGroup, type FilterNode } from './advanced-filter';
-import { buttonBase, buttonPrimary, buttonSecondarySmall } from '../../components/ui/classes';
+import { Button } from '../../components/ui/button';
+import { Checkbox } from '../../components/ui/checkbox';
+import { Input } from '../../components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../../components/ui/sheet';
 
-const fieldClass = 'grid min-w-0 gap-1 text-[10px] font-semibold text-slate-600';
-const controlClass = 'min-h-[34px] min-w-0 rounded-[7px] border border-slate-200 bg-white px-2.5 text-[11px] font-normal text-slate-700 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100';
-const quietButton = `${buttonBase} min-h-[29px] border-transparent bg-transparent px-2 text-[10px] font-semibold text-slate-500 hover:bg-slate-100`;
+const fieldClass = 'grid min-w-0 gap-2 text-sm font-medium text-foreground';
+const controlClass = 'min-h-9 min-w-0 rounded-md border-border bg-background text-sm';
 const operatorsWithoutValue = new Set(['isEmpty', 'isNotEmpty']);
 
 type Option = { value: string; label: string };
@@ -45,28 +48,28 @@ export function OptionValuePicker({ options, value, ariaLabel, multiple, boolean
     {multiple && <div className="flex flex-wrap gap-1.5" aria-label={`${ariaLabel} selecionados`}>
       {selectedOptions.length ? selectedOptions.map(option => <span key={option.value} className="inline-flex max-w-full items-center gap-1 rounded-full border border-indigo-100 bg-indigo-50 py-0.5 pr-1 pl-2 text-[10px] font-medium text-indigo-800">
         <span className="max-w-[260px] truncate" title={option.label}>{option.label}</span>
-        <button type="button" className="grid size-5 shrink-0 place-items-center rounded-full text-indigo-700 hover:bg-indigo-100 focus-visible:outline-2 focus-visible:outline-indigo-500" aria-label={`Remover ${option.label}`} onClick={() => selectValue(option.value)}>×</button>
+        <Button type="button" variant="ghost" size="icon" className="size-5 rounded-full text-indigo-700 hover:bg-indigo-100" aria-label={`Remover ${option.label}`} onClick={() => selectValue(option.value)}>×</Button>
       </span>) : <span className="text-[10px] font-normal text-slate-400">Nenhuma opção selecionada</span>}
     </div>}
     <div className="flex flex-wrap items-center gap-2">
-      <button ref={triggerRef} type="button" className={`${controlClassName} inline-flex w-full items-center justify-between gap-2 text-left`} aria-label={`${open ? 'Fechar' : 'Selecionar'} valores de ${ariaLabel}`} aria-expanded={open} aria-controls={panelId} onClick={() => open ? close() : setOpen(true)}>
+      <Button ref={triggerRef} type="button" variant="outline" className={`${controlClassName} inline-flex w-full items-center justify-between gap-2 text-left`} aria-label={`${open ? 'Fechar' : 'Selecionar'} valores de ${ariaLabel}`} aria-expanded={open} aria-controls={panelId} onClick={() => open ? close() : setOpen(true)}>
         <span className="min-w-0 truncate">{open ? 'Fechar opções' : multiple ? 'Selecionar opções' : selectedOptions[0]?.label ?? emptyLabel}</span>
         {multiple && selectedValues.length > 0 && <span className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-semibold text-slate-600">{selectedValues.length} {selectedValues.length === 1 ? 'opção selecionada' : 'opções selecionadas'}</span>}
         <span aria-hidden="true" className="shrink-0 text-slate-400">{open ? '⌃' : '⌄'}</span>
-      </button>
-      {selectedValues.length > 0 && !booleanValue && !popover && <button type="button" className={quietButton} onClick={() => onChange(multiple ? [] : emptyValue)}>Limpar seleção</button>}
+      </Button>
+      {selectedValues.length > 0 && !booleanValue && !popover && <Button type="button" variant="ghost" size="sm" className="text-muted-foreground" onClick={() => onChange(multiple ? [] : emptyValue)}>Limpar seleção</Button>}
     </div>
     {open && <div id={panelId} className={`grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-2 ${popover ? 'absolute left-0 top-full z-40 mt-1 w-max min-w-full max-w-[280px] shadow-lg max-[760px]:max-w-full' : ''}`}>
-      <input className={controlClass} type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Buscar opções…" aria-label={`Buscar opções de ${ariaLabel}`} autoComplete="off" autoFocus />
+      <Input className={controlClass} type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Buscar opções…" aria-label={`Buscar opções de ${ariaLabel}`} autoComplete="off" autoFocus />
       {filteredOptions.length ? <div className="grid max-h-44 gap-0.5 overflow-y-auto" role="group" aria-label={`Opções de ${ariaLabel}`}>
         {filteredOptions.map(option => <label key={option.value} className={`flex min-h-9 cursor-pointer items-start gap-2 rounded-md px-2 py-2 text-[11px] font-normal hover:bg-white ${selectedValues.includes(option.value) ? 'bg-white text-indigo-800' : 'text-slate-700'}`}>
-          <input className="mt-0.5 size-3.5 shrink-0 accent-indigo-600" type={multiple ? 'checkbox' : 'radio'} name={multiple ? undefined : panelId} checked={selectedValues.includes(option.value)} onChange={() => selectValue(option.value)} />
+          {multiple ? <Checkbox className="mt-0.5 size-3.5 accent-indigo-600" checked={selectedValues.includes(option.value)} onChange={() => selectValue(option.value)} /> : <input className="mt-0.5 size-3.5 shrink-0 accent-indigo-600" type="radio" name={panelId} checked={selectedValues.includes(option.value)} onChange={() => selectValue(option.value)} />}
           <span className="min-w-0 break-words">{option.label}</span>
         </label>)}
       </div> : <p className="m-0 px-2 py-3 text-center text-[10px] text-slate-500">Nenhuma opção encontrada.</p>}
       <div className="flex items-center justify-between gap-2 border-t border-slate-200 pt-2">
         <span className="text-[10px] text-slate-500">{selectedValues.length} {selectedValues.length === 1 ? 'valor selecionado' : 'valores selecionados'}</span>
-        <button type="button" className={quietButton} onClick={close}>Concluir</button>
+        <Button type="button" variant="ghost" size="sm" className="text-muted-foreground" onClick={close}>Concluir</Button>
       </div>
     </div>}
   </div>;
@@ -108,17 +111,17 @@ function GroupEditor({ group, path, depth, options, setDraft, remove }: {
     <div className="flex flex-wrap items-center gap-2">
       <strong className="text-[10px] text-slate-500">Combine as</strong>
       <div className="inline-flex rounded-full border border-slate-200 bg-slate-50 p-0.5" role="group" aria-label="Combinar condições">
-        {(['AND', 'OR'] as const).map(operator => <button key={operator} type="button" className={`rounded-full px-3 py-1 text-[10px] font-bold ${group.operator === operator ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`} aria-pressed={group.operator === operator} onClick={() => setDraft(current => updateNode(current, path, node => node.kind === 'group' ? { ...node, operator } : node) as FilterGroup)}>{operator}</button>)}
+      {(['AND', 'OR'] as const).map(operator => <Button key={operator} type="button" variant={group.operator === operator ? 'secondary' : 'ghost'} size="sm" className="rounded-full" aria-pressed={group.operator === operator} onClick={() => setDraft(current => updateNode(current, path, node => node.kind === 'group' ? { ...node, operator } : node) as FilterGroup)}>{operator}</Button>)}
       </div>
-      {depth > 0 && <button type="button" className={`${quietButton} ml-auto`} onClick={remove}>Remover grupo</button>}
+      {depth > 0 && <Button type="button" variant="ghost" size="sm" className="ml-auto text-muted-foreground" onClick={remove}>Remover grupo</Button>}
     </div>
     {!group.children.length && <p className="m-0 rounded-lg border border-dashed border-slate-200 px-3 py-4 text-center text-[10px] text-slate-400">Adicione uma condição ou um grupo para começar.</p>}
     {group.children.map((node, index) => node.kind === 'group'
       ? <GroupEditor key={`${path.join('.')}-${index}`} group={node} path={[...path, index]} depth={depth + 1} options={options} setDraft={setDraft} remove={() => removeChild(index)} />
       : <ConditionEditor key={`${path.join('.')}-${index}`} condition={node} options={options} onChange={update => editChild(index, current => current.kind === 'condition' ? update(current) : current)} onRemove={() => removeChild(index)} />)}
     <div className="flex flex-wrap gap-1.5">
-      <button type="button" className={quietButton} onClick={() => setDraft(current => addChild(current, path, defaultCondition()))}>＋ Condição</button>
-      {depth < 2 && <button type="button" className={quietButton} onClick={() => setDraft(current => addChild(current, path, { kind: 'group', operator: 'AND', children: [defaultCondition()] }))}>＋ Grupo</button>}
+      <Button type="button" variant="outline" size="sm" onClick={() => setDraft(current => addChild(current, path, defaultCondition()))}>＋ Condição</Button>
+      {depth < 2 && <Button type="button" variant="outline" size="sm" onClick={() => setDraft(current => addChild(current, path, { kind: 'group', operator: 'AND', children: [defaultCondition()] }))}>＋ Grupo</Button>}
     </div>
   </div>;
 }
@@ -159,15 +162,15 @@ function ConditionEditor({ condition, options, onChange, onRemove }: {
       if (next.length <= 1) return { ...current, value: next[0] ?? '' };
       return { ...current, operator: current.operator === 'isNot' ? 'notIn' : 'in', value: next };
     })} />;
-    if (field.type === 'date') return <input className={controlClass} aria-label={aria} type="date" value={String(value ?? '')} onChange={event => set(event.target.value)} />;
-    if (field.type === 'number') return <input className={controlClass} aria-label={aria} type="number" min="0" max="5" step="1" value={String(value ?? '')} onChange={event => set(event.target.value === '' ? '' : Number(event.target.value))} />;
-    return <input className={controlClass} aria-label={aria} value={String(value ?? '')} placeholder={condition.field === 'id' ? 'ID ou prefixo' : 'Digite um valor'} onChange={event => set(event.target.value)} />;
+    if (field.type === 'date') return <Input className={controlClass} aria-label={aria} type="date" value={String(value ?? '')} onChange={event => set(event.target.value)} />;
+    if (field.type === 'number') return <Input className={controlClass} aria-label={aria} type="number" min="0" max="5" step="1" value={String(value ?? '')} onChange={event => set(event.target.value === '' ? '' : Number(event.target.value))} />;
+    return <Input className={controlClass} aria-label={aria} value={String(value ?? '')} placeholder={condition.field === 'id' ? 'ID ou prefixo' : 'Digite um valor'} onChange={event => set(event.target.value)} />;
   };
   return <div className="grid gap-2 rounded-[10px] border border-slate-200 bg-white p-2.5 shadow-[0_1px_2px_#1d29390d]">
     <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-2 max-[600px]:grid-cols-1">
-      <label className={fieldClass}>Campo<select className={controlClass} value={condition.field} onChange={event => changeField(event.target.value as FilterField)}>{filterFields.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
-      <label className={fieldClass}>Operador<select className={controlClass} value={condition.operator} onChange={event => setOperator(event.target.value as FilterCondition['operator'])}>{operators.map(operator => <option key={operator} value={operator}>{operatorLabels[operator]}</option>)}</select></label>
-      <button type="button" className={`${quietButton} self-end max-[600px]:justify-self-end`} onClick={onRemove} aria-label="Remover condição">Remover</button>
+      <label className={fieldClass}>Campo<Select value={condition.field} onValueChange={value => changeField(value as FilterField)}><SelectTrigger className={controlClass}><SelectValue /></SelectTrigger><SelectContent>{filterFields.map(item => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent></Select></label>
+      <label className={fieldClass}>Operador<Select value={condition.operator} onValueChange={value => setOperator(value as FilterCondition['operator'])}><SelectTrigger className={controlClass}><SelectValue /></SelectTrigger><SelectContent>{operators.map(operator => <SelectItem key={operator} value={operator}>{operatorLabels[operator]}</SelectItem>)}</SelectContent></Select></label>
+      <Button type="button" variant="ghost" size="sm" className="self-end text-muted-foreground max-[600px]:justify-self-end" onClick={onRemove} aria-label="Remover condição">Remover</Button>
     </div>
     {!noValue && <div className={`grid gap-2 ${range ? 'grid-cols-2' : 'grid-cols-1'}`}>
       {optionPicker
@@ -180,18 +183,18 @@ function ConditionEditor({ condition, options, onChange, onRemove }: {
 
 export function AdvancedTaskFilterPanel({ open, draft, valid, setDraft, options, quickControls, close, apply, clear }: Props) {
   if (!open) return null;
-  return <div className="fixed inset-0 z-[80] flex justify-end bg-slate-950/30 backdrop-blur-[1px]" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) close(); }}>
-    <aside className="flex h-full w-[min(580px,100vw)] flex-col border-l border-slate-200 bg-white shadow-2xl max-[760px]:w-full max-[760px]:border-0" role="dialog" aria-modal="true" aria-labelledby="advanced-filter-title">
-      <header className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-5">
-        <div><span className="text-[10px] font-bold uppercase tracking-[.12em] text-indigo-600">Construtor de regras</span><h2 id="advanced-filter-title" className="mb-1 mt-1 font-display text-[17px] font-bold text-slate-800">Filtros avançados</h2><p className="m-0 max-w-[410px] text-[11px] leading-relaxed text-slate-500">Combine campos da tarefa e sinais de colaboração. Grupos podem usar AND ou OR.</p></div>
-        <button type="button" className={quietButton} onClick={close} aria-label="Fechar filtros">Fechar</button>
-      </header>
-      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{quickControls && <div className="mb-5 border-b border-slate-100 pb-4">{quickControls}</div>}<GroupEditor group={draft} path={[]} depth={0} options={options} setDraft={setDraft} /></div>
-      <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 px-5 py-3.5 max-[420px]:grid max-[420px]:grid-cols-2">
-        <button type="button" className={quietButton} onClick={clear}>Limpar</button>
-        <div className="ml-auto flex items-center gap-2 max-[420px]:col-[1/-1] max-[420px]:ml-0 max-[420px]:justify-end">{!valid && <span className="text-[10px] text-amber-700" role="status">Complete as condições antes de aplicar.</span>}<button type="button" className={buttonSecondarySmall} onClick={close}>Cancelar</button><button type="button" className={`${buttonPrimary} disabled:cursor-not-allowed disabled:opacity-45`} onClick={apply} disabled={!valid}>Aplicar filtros</button></div>
+  return <Sheet open={open} onOpenChange={nextOpen => { if (!nextOpen) close(); }}>
+    <SheetContent side="right" showCloseButton={false} aria-labelledby="advanced-filter-title" className="w-full gap-0 p-0 sm:max-w-[580px]">
+      <SheetHeader className="shrink-0 flex-row items-start justify-between gap-4 border-b border-border px-5 py-5">
+        <div className="grid gap-1"><span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-primary">Construtor de regras</span><SheetTitle id="advanced-filter-title">Filtros avançados</SheetTitle><SheetDescription className="max-w-[410px]">Combine campos da tarefa e sinais de colaboração. Grupos podem usar AND ou OR.</SheetDescription></div>
+        <Button type="button" variant="outline" size="sm" onClick={close} aria-label="Fechar filtros">Fechar</Button>
+      </SheetHeader>
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{quickControls && <div className="mb-5 border-b border-border pb-4">{quickControls}</div>}<GroupEditor group={draft} path={[]} depth={0} options={options} setDraft={setDraft} /></div>
+      <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-5 py-3.5 max-[420px]:grid max-[420px]:grid-cols-2">
+        <Button type="button" variant="ghost" onClick={clear}>Limpar</Button>
+        <div className="ml-auto flex items-center gap-2 max-[420px]:col-[1/-1] max-[420px]:ml-0 max-[420px]:justify-end">{!valid && <span className="text-xs text-amber-700" role="status">Complete as condições antes de aplicar.</span>}<Button type="button" variant="outline" onClick={close}>Cancelar</Button><Button type="button" onClick={apply} disabled={!valid}>Aplicar filtros</Button></div>
       </footer>
-    </aside>
-  </div>;
+    </SheetContent>
+  </Sheet>;
 }
 

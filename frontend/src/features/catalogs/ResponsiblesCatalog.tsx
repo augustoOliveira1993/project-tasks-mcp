@@ -1,9 +1,12 @@
 import { useState } from 'react';
 import type { Project } from '../../api';
-import { ResponsibleRegistration } from '../../components/admin/ResponsibleRegistration';
-import { Badge } from '../../components/ui/Badge';
+import { ResponsibleRegistration } from './components/ResponsibleRegistration';
+import { Badge } from '../../components/ui/badge';
+import { Button } from '../../components/ui/button';
+import { Input } from '../../components/ui/input';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
 import { ErrorNotice } from '../../components/ui/ErrorNotice';
-import { Skeleton } from '../../components/ui/Skeleton';
+import { SkeletonRows } from '../../components/ui/skeleton';
 import { Person } from '../../components/ui/Person';
 import { formatDate } from '../../lib/format';
 import { plural } from '../../lib/labels';
@@ -39,24 +42,24 @@ export function ResponsiblesCatalog({ token, nonce, projects, project, systemAdm
   const visible = filterResponsibles(items, search, kind);
 
   return <section className={screen}>
-    <div className={screenHeading}><div><h2 className={screenTitle}>Responsáveis</h2><p className={screenDescription}>Pessoas e agentes de IA que podem receber tarefas. Cada cadastro gera os tokens e define os projetos de acesso.</p></div><button type="button" className={`${buttonPrimary} ${screenAction}`} aria-expanded={creating} onClick={() => setCreating(open => !open)}>{creating ? 'Fechar cadastro' : 'Novo responsável'}</button></div>
+    <div className={screenHeading}><div><h2 className={screenTitle}>Responsáveis</h2><p className={screenDescription}>Pessoas e agentes de IA que podem receber tarefas. Cada cadastro gera os tokens e define os projetos de acesso.</p></div><Button type="button" className={`${buttonPrimary} ${screenAction}`} aria-expanded={creating} onClick={() => setCreating(open => !open)}>{creating ? 'Fechar cadastro' : 'Novo responsável'}</Button></div>
     {creating && <ResponsibleRegistration key={token} token={token} projects={projects} currentProjectId={project?._id ?? ''} systemAdmin={systemAdmin} knownEmails={items.map(item => item.email)} notify={notify} onChanged={async () => { await query.refetch(); await onChanged(); }} />}
     <section className={tableCard} aria-labelledby="responsibles-title">
       <div className={sectionHeading}><div><h3 id="responsibles-title" className={sectionTitle}>Responsáveis cadastrados</h3><p className={sectionDescription}>{systemAdmin ? 'Todos os projetos e agentes' : `Pessoas com acesso a ${project?.name ?? 'o projeto ativo'}`} · {plural(items.length, 'responsável', 'responsáveis')}</p></div></div>
       <div className="mb-3 flex flex-wrap items-center gap-3">
-        <label className="flex h-[34px] max-w-[420px] min-w-[260px] flex-[1_1_260px] items-center gap-2 rounded-[7px] border border-[#e3e7ef] px-2.5 text-[#9ba5b4] focus-within:border-[#929ef2] focus-within:shadow-[0_0_0_3px_#596ce31a]"><input className="w-full min-w-0 border-0 text-[12px] text-[#394558] shadow-none" type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Buscar por e-mail ou projeto" aria-label="Buscar responsáveis" /></label>
-        <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filtrar por tipo">{([['todos', 'Todos'], ['pessoa', 'Pessoas'], ['agente', 'Agentes']] as const).map(([id, label]) => <button type="button" key={id} className={`${filterBase} ${kind === id ? filterTones.active : filterTones.idle}`} aria-pressed={kind === id} onClick={() => setKind(id)}>{label}</button>)}</div>
+        <label className="flex h-9 max-w-[420px] min-w-[260px] flex-[1_1_260px] items-center gap-2 rounded-md border border-input px-2.5 text-muted-foreground focus-within:ring-2 focus-within:ring-ring/30"><span className="sr-only">Buscar responsáveis</span><Input className="h-8 border-0 px-0 shadow-none focus-visible:ring-0" type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Buscar por e-mail ou projeto" aria-label="Buscar responsáveis" /></label>
+        <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filtrar por tipo">{([['todos', 'Todos'], ['pessoa', 'Pessoas'], ['agente', 'Agentes']] as const).map(([id, label]) => <Button type="button" variant={kind === id ? 'secondary' : 'outline'} key={id} className={`${filterBase} ${kind === id ? filterTones.active : filterTones.idle}`} aria-pressed={kind === id} onClick={() => setKind(id)}>{label}</Button>)}</div>
       </div>
-      {query.isPending ? <Skeleton rows={4} label="Carregando responsáveis…" /> : query.isError ? <ErrorNotice error={query.error} onRetry={() => void query.refetch()} title="Não foi possível listar os responsáveis" /> : visible.length ? <div className={tableScroll}><table className={tableResponsibles}>
-        <thead><tr><th className={thCell}>Responsável</th><th className={thCell}>Tipo</th><th className={thCell}>Projetos com acesso</th><th className={thCell}>Tokens ativos</th><th className={thCell}>Desde</th></tr></thead>
-        <tbody>{visible.map(item => <tr key={item.email} className="hover:bg-[#fbfcff]">
-          <td className={tdCell}><Person identity={item.email} /><small className={rowId}>{item.email}</small></td>
-          <td className={tdCell}><span className="inline-flex flex-wrap gap-1">{item.kinds.map(value => <Badge key={value} tone={value === 'agente' ? 'blue' : 'green'}>{value === 'agente' ? 'Agente de IA' : 'Pessoa'}</Badge>)}{item.systemAdmin && <Badge tone="amber">Admin do sistema</Badge>}</span></td>
-          <td className={tdCell}>{item.projects.length ? <span className="block max-w-[320px] overflow-hidden text-ellipsis whitespace-nowrap" title={item.projects.join(', ')}>{item.projects.join(', ')}</span> : <span className="text-muted-strong">{item.kinds.includes('agente') ? 'Global (agentes)' : '—'}</span>}</td>
-          <td className={tdCell}>{item.tokens}</td>
-          <td className={tdCell}><time dateTime={item.since}>{formatDate(item.since)}</time></td>
-        </tr>)}</tbody>
-      </table></div> : <div className={emptyState}><h3 className={emptyTitle}>{items.length ? 'Nenhum responsável nesse filtro' : 'Nenhum responsável cadastrado'}</h3><p className={emptyText}>{items.length ? 'Ajuste a busca ou o tipo.' : 'Use “Novo responsável” para cadastrar o primeiro e gerar os tokens.'}</p></div>}
+      {query.isPending ? <SkeletonRows rows={4} label="Carregando responsáveis…" /> : query.isError ? <ErrorNotice error={query.error} onRetry={() => void query.refetch()} title="Não foi possível listar os responsáveis" /> : visible.length ? <div className={tableScroll}><Table className={tableResponsibles}>
+        <TableHeader><TableRow><TableHead className={thCell}>Responsável</TableHead><TableHead className={thCell}>Tipo</TableHead><TableHead className={thCell}>Projetos com acesso</TableHead><TableHead className={thCell}>Tokens ativos</TableHead><TableHead className={thCell}>Desde</TableHead></TableRow></TableHeader>
+        <TableBody>{visible.map(item => <TableRow key={item.email} className="hover:bg-[#fbfcff]">
+          <TableCell className={tdCell}><Person identity={item.email} /><small className={rowId}>{item.email}</small></TableCell>
+          <TableCell className={tdCell}><span className="inline-flex flex-wrap gap-1">{item.kinds.map(value => <Badge key={value} variant={value === 'agente' ? 'info' : 'success'}>{value === 'agente' ? 'Agente de IA' : 'Pessoa'}</Badge>)}{item.systemAdmin && <Badge variant="warning">Admin do sistema</Badge>}</span></TableCell>
+          <TableCell className={tdCell}>{item.projects.length ? <span className="block max-w-[320px] overflow-hidden text-ellipsis whitespace-nowrap" title={item.projects.join(', ')}>{item.projects.join(', ')}</span> : <span className="text-muted-strong">{item.kinds.includes('agente') ? 'Global (agentes)' : '—'}</span>}</TableCell>
+          <TableCell className={tdCell}>{item.tokens}</TableCell>
+          <TableCell className={tdCell}><time dateTime={item.since}>{formatDate(item.since)}</time></TableCell>
+        </TableRow>)}</TableBody>
+      </Table></div> : <div className={emptyState}><h3 className={emptyTitle}>{items.length ? 'Nenhum responsável nesse filtro' : 'Nenhum responsável cadastrado'}</h3><p className={emptyText}>{items.length ? 'Ajuste a busca ou o tipo.' : 'Use “Novo responsável” para cadastrar o primeiro e gerar os tokens.'}</p></div>}
     </section>
   </section>;
 }

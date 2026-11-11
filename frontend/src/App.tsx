@@ -1,40 +1,45 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
-import type { FormEvent } from 'react';
+import type { FormEvent, MouseEvent } from 'react';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { allRecords, ApiRequestError, listProjects, operationId, query, request } from './api';
 import type { AdminCapabilities, Project, ProjectSummary, Task } from './api';
-import { ProjectPickerDialog } from './components/projects/ProjectPickerDialog';
+import { ProjectPickerDialog } from './features/projects/components/ProjectPickerDialog';
+import { AppShell } from './components/layout/AppShell';
+import { AppSidebar } from './components/layout/AppSidebar';
 import type { HardDeleteTarget } from './components/ui/HardDeleteDialog';
 import { copyToClipboard } from './lib/clipboard';
 import { errorMessage } from './lib/format';
 import { openTaskConversation } from './features/tasks/task-conversation';
 import type { ActivityEvent } from './features/activity/ActivityPage';
-import { IconMenu } from './components/ui/icons';
-import { Logo } from './components/ui/Logo';
+import { Alert, AlertDescription } from './components/ui/alert';
+import { Button } from './components/ui/button';
+import { ConfirmDialog } from './components/ui/confirm-dialog';
 import { EntityNavigationContext } from './components/ui/Links';
-import type { TaskReviewDecision } from './components/tasks/TaskDetailsDialog';
+import type { TaskReviewDecision } from './features/tasks/components/TaskDetailsDialog';
 import { catalogSectionForRoute, conversationIdFromSearch, isCatalogRoute, projectIdFromSearch, routeForCatalogSection, routeForTab, routeFromPath, routeUrl, tabForRoute, taskIdFromPath, taskIdFromSearch, taskPageUrl, type AppRoute, type AppTab } from './route-state';
+import { SignInScreen } from './features/auth/SignInScreen';
 
-const AdminPanel = lazy(() => import('./components/admin/AdminPanel').then(module => ({ default: module.AdminPanel })));
-const ProjectImportPanel = lazy(() => import('./components/admin/ProjectImportPanel').then(module => ({ default: module.ProjectImportPanel })));
-const ProjectsPage = lazy(() => import('./components/projects/ProjectsPage').then(module => ({ default: module.ProjectsPage })));
-const ProjectSummaryDialog = lazy(() => import('./components/projects/ProjectSummaryDialog').then(module => ({ default: module.ProjectSummaryDialog })));
-const TaskStatusDialog = lazy(() => import('./components/tasks/TaskStatusDialog').then(module => ({ default: module.TaskStatusDialog })));
-const TaskDetailsDialog = lazy(() => import('./components/tasks/TaskDetailsDialog').then(module => ({ default: module.TaskDetailsDialog })));
+const AdminPanel = lazy(() => import('./features/admin/components/AdminPanel').then(module => ({ default: module.AdminPanel })));
+const ProjectImportPanel = lazy(() => import('./features/admin/components/ProjectImportPanel').then(module => ({ default: module.ProjectImportPanel })));
+const ProjectsPage = lazy(() => import('./features/projects/components/ProjectsPage').then(module => ({ default: module.ProjectsPage })));
+const ProjectSummaryDialog = lazy(() => import('./features/projects/components/ProjectSummaryDialog').then(module => ({ default: module.ProjectSummaryDialog })));
+const TaskStatusDialog = lazy(() => import('./features/tasks/components/TaskStatusDialog').then(module => ({ default: module.TaskStatusDialog })));
+const TaskDetailsDialog = lazy(() => import('./features/tasks/components/TaskDetailsDialog').then(module => ({ default: module.TaskDetailsDialog })));
 const HardDeleteDialog = lazy(() => import('./components/ui/HardDeleteDialog').then(module => ({ default: module.HardDeleteDialog })));
 const TaskPage = lazy(() => import('./features/tasks/TaskPage').then(module => ({ default: module.TaskPage })));
 const TaskWorkspace = lazy(() => import('./features/tasks/TaskWorkspace').then(module => ({ default: module.TaskWorkspace })));
 const ProjectDashboardPage = lazy(() => import('./features/dashboard/ProjectDashboardPage').then(module => ({ default: module.ProjectDashboardPage })));
 const GlobalDashboardPage = lazy(() => import('./features/dashboard/GlobalDashboardPage').then(module => ({ default: module.GlobalDashboardPage })));
 const TransferTaskDialog = lazy(() => import('./features/tasks/TransferTaskDialog').then(module => ({ default: module.TransferTaskDialog })));
-const ConversationPanel = lazy(() => import('./components/conversations/ConversationPanel').then(module => ({ default: module.ConversationPanel })));
-const HelpToolsPanel = lazy(() => import('./components/help/HelpToolsPanel').then(module => ({ default: module.HelpToolsPanel })));
+const ConversationPanel = lazy(() => import('./features/conversations/components/ConversationPanel').then(module => ({ default: module.ConversationPanel })));
+const HelpToolsPanel = lazy(() => import('./features/help/components/HelpToolsPanel').then(module => ({ default: module.HelpToolsPanel })));
 const CatalogsPage = lazy(() => import('./features/catalogs/CatalogsPage').then(module => ({ default: module.CatalogsPage })));
 const ActivityPage = lazy(() => import('./features/activity/ActivityPage').then(module => ({ default: module.ActivityPage })));
 
 const tokenKey = 'project-tasks.human-token';
 const sidebarKey = 'project-tasks.sidebar-collapsed';
 type TaskDetailsAction = 'details' | 'edit' | 'summary' | 'json' | 'criteria' | 'assign';
+type ArchiveTarget = { kind: 'project' } | { kind: 'task'; task: Task };
 
 function App() {
   const queryClient = useQueryClient();
@@ -49,6 +54,8 @@ function App() {
   const globalDashboardRoute = activeRoute === 'globalDashboard';
   const globalActivityRoute = activeRoute === 'globalActivity' || activeRoute === 'activity' && activityScope === 'global';
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => { try { return localStorage.getItem(sidebarKey) === '1'; } catch { return false; } });
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [projectPickerOpen, setProjectPickerOpen] = useState(false);
   const [notice, setNotice] = useState<{ message: string; kind: string } | null>(null);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [selectedTaskAction, setSelectedTaskAction] = useState<TaskDetailsAction>('details');
@@ -58,6 +65,7 @@ function App() {
   const [conversationToOpen, setConversationToOpen] = useState(() => conversationIdFromSearch(window.location.search));
   const [statusTask, setStatusTask] = useState<Task | null>(null);
   const [saving, setSaving] = useState(false);
+  const [archiveTarget, setArchiveTarget] = useState<ArchiveTarget | null>(null);
   const [toolSearch, setToolSearch] = useState('');
   const [copiedProjectId, setCopiedProjectId] = useState(false);
   const [allProjectsSearch, setAllProjectsSearch] = useState('');
@@ -525,32 +533,39 @@ function App() {
       } else setHardDeleteError(errorMessage(error));
     } finally { setHardDeleteBusy(false); }
   }
-  async function archiveProject() {
-    if (!project || saving || !window.confirm(`Arquivar o projeto “${project.name}”? Ele sairá da lista ativa, mas poderá ser restaurado depois. O servidor também pode recusar se houver tarefas ativas.`)) return;
-    setSaving(true);
-    try {
-      await request(token, '/admin/archive', { method: 'POST', body: { operationId: operationId(), projectId: project._id, kind: 'project', id: project._id, version: project.version } });
-      const remainingProjects = (queryClient.getQueryData<ProjectSummary[]>(['admin-projects', nonce]) ?? projects).filter(item => item.project._id !== project._id);
-      queryClient.setQueryData<ProjectSummary[]>(['admin-projects', nonce], remainingProjects);
-      setActiveProjectId(remainingProjects[0]?.project._id ?? '');
-      setSelectedTask(null);
-      setStatusTask(null);
-      setSummaryOpen(false);
-      notify('Projeto arquivado. O histórico continua disponível para restauração.', 'success');
-    } catch (error) { notify(errorMessage(error), 'error'); }
-    finally { setSaving(false); }
+  function archiveProject() {
+    if (!project || saving) return;
+    setArchiveTarget({ kind: 'project' });
   }
-  async function archiveTask(task: Task) {
-    if (saving || !window.confirm(`Arquivar “${task.name}”? A tarefa sairá da lista ativa, mas seu histórico será preservado e poderá ser restaurado.`)) return;
+  function archiveTask(task: Task) {
+    if (saving) return;
+    setArchiveTarget({ kind: 'task', task });
+  }
+  async function confirmArchive() {
+    const target = archiveTarget;
+    if (!target || saving) return;
     setSaving(true);
     try {
-      await request(token, '/admin/archive', { method: 'POST', body: { operationId: operationId(), projectId: activeProjectId, kind: 'task', id: task._id, version: task.version } });
-      queryClient.setQueryData<Task[]>(['project-tasks', nonce, activeProjectId], current => current?.filter(item => item._id !== task._id) ?? []);
-      if (selectedTask?._id === task._id) setSelectedTask(null);
-      if (statusTask?._id === task._id) setStatusTask(null);
-      notify('Tarefa arquivada. O histórico foi preservado.', 'success');
+      if (target.kind === 'project') {
+        if (!project) return;
+        await request(token, '/admin/archive', { method: 'POST', body: { operationId: operationId(), projectId: project._id, kind: 'project', id: project._id, version: project.version } });
+        const remainingProjects = (queryClient.getQueryData<ProjectSummary[]>(['admin-projects', nonce]) ?? projects).filter(item => item.project._id !== project._id);
+        queryClient.setQueryData<ProjectSummary[]>(['admin-projects', nonce], remainingProjects);
+        setActiveProjectId(remainingProjects[0]?.project._id ?? '');
+        setSelectedTask(null);
+        setStatusTask(null);
+        setSummaryOpen(false);
+        notify('Projeto arquivado. O histórico continua disponível para restauração.', 'success');
+      } else {
+        const task = target.task;
+        await request(token, '/admin/archive', { method: 'POST', body: { operationId: operationId(), projectId: activeProjectId, kind: 'task', id: task._id, version: task.version } });
+        queryClient.setQueryData<Task[]>(['project-tasks', nonce, activeProjectId], current => current?.filter(item => item._id !== task._id) ?? []);
+        if (selectedTask?._id === task._id) setSelectedTask(null);
+        if (statusTask?._id === task._id) setStatusTask(null);
+        notify('Tarefa arquivada. O histórico foi preservado.', 'success');
+      }
     } catch (error) { notify(errorMessage(error), 'error'); }
-    finally { setSaving(false); }
+    finally { setSaving(false); setArchiveTarget(null); }
   }
   const filteredProjects = projects.filter(item => {
     const matches = item.project.name.toLocaleLowerCase('pt-BR').includes(allProjectsSearch.toLocaleLowerCase('pt-BR'));
@@ -559,62 +574,49 @@ function App() {
   const projectPages = Math.max(1, Math.ceil(filteredProjects.length / 8));
   const currentProjectPage = filteredProjects.slice((projectPage - 1) * 8, projectPage * 8);
 
-  if (!token || !nonce) return <main className="auth-page"><div className="auth-brand"><Logo size={36} title="Project Tasks" /><span>Project Tasks</span></div><section className="auth-card"><p className="eyebrow">PAINEL DE OPERAÇÃO</p><h1>Acesse seu workspace</h1><p className="muted-text">Entre com seu token humano para consultar projetos e tarefas.</p><form className="stack-form" onSubmit={signIn}><label>Token humano<input name="token" type="password" autoComplete="current-password" required autoFocus placeholder="Cole o token de administrador" /></label><button className="button primary full-button" disabled={saving}>{saving ? 'Validando…' : 'Entrar'}</button></form><p className="auth-footnote">As ações respeitam as permissões configuradas no servidor.</p></section>{notice && <div className={'toast toast-' + notice.kind}>{notice.message}</div>}</main>;
+  const breadcrumbLabel = activeRoute === 'globalDashboard' ? 'Visão geral' : activeRoute === 'projects' ? 'Projetos' : activeTab === 'activity' ? 'Atividade' : catalogScreen ? `Cadastros · ${{ projects: 'Projetos', features: 'Features', tasks: 'Tarefas', responsibles: 'Responsáveis', conversationTypes: 'Tipos de conversa' }[catalogSectionForRoute(activeRoute)]}` : project?.name ?? 'Carregando projeto';
 
-  return <EntityNavigationContext.Provider value={{ projectId: activeProjectId, openTask: openTaskFromActivity, openConversation, filterByFeature: featureId => filterTasksBy('featureId', featureId), filterBy: filterTasksBy, openTasks: openTasksWith }}><div className={'app-shell min-h-screen bg-canvas text-ink' + (sidebarCollapsed ? ' sidebar-collapsed' : '')}>
-    <aside className="sidebar" id="app-sidebar" aria-label="Menu lateral" aria-hidden={sidebarCollapsed || undefined} inert={sidebarCollapsed || undefined}>
-      <a className="brand" href={routeUrl('tasks', window.location.search, activeProjectId)} onClick={event => { event.preventDefault(); navigateToRoute('tasks'); }}><Logo size={34} /><span><strong>Project Tasks</strong><small>Workspace</small></span></a>
-      <div className="sidebar-label">CONTEXTO DO PROJETO</div>
-      <div className="project-picker">
-        <span className="project-picker-label">Projeto ativo</span>
-        <div className="project-picker-control">
-          <button id="active-project" type="button" className="project-picker-trigger" aria-haspopup="dialog" aria-controls="projects-dialog" disabled={projectsQuery.isPending || projects.length === 0} onClick={() => { setAllProjectsSearch(''); setProjectPage(1); (document.getElementById('projects-dialog') as HTMLDialogElement | null)?.showModal(); }}>
-            <span className="project-avatar">{project?.name.slice(0, 1).toLocaleUpperCase('pt-BR') ?? '⌘'}</span>
-            <span className="project-picker-copy"><strong>{project?.name ?? (projectsQuery.isPending ? 'Carregando projetos…' : 'Nenhum projeto')}</strong><small>{project ? project.visibility === 'private' ? 'Projeto privado' : 'Projeto compartilhado' : 'Selecione um workspace'}</small></span>
-            <span className="project-picker-chevron" aria-hidden="true">⌄</span>
-          </button>
-          {project && <button className="small-icon project-copy-button" onClick={() => void copyProjectId()} title="Copiar ID do projeto" aria-label="Copiar ID do projeto">{copiedProjectId ? '✓' : '⧉'}</button>}
-        </div>
-      </div>
-      <nav className="primary-nav" aria-label="Navegação principal">
-        <button className={activeRoute === 'tasks' || activeRoute === 'task' ? 'nav-item active' : 'nav-item'} onClick={() => navigateToRoute('tasks')}><span>▦</span> Tarefas <b>{tasks.length}</b></button>
-        <button className={activeRoute === 'dashboard' ? 'nav-item active' : 'nav-item'} onClick={() => navigateToRoute('dashboard')}><span>▤</span> Dashboard</button>
-        <button className={activeRoute === 'conversations' ? 'nav-item active' : 'nav-item'} onClick={() => navigateToRoute('conversations')}><span>✉</span> Conversas{unreadConversationCount > 0 && <b className="nav-badge-unread" aria-label={unreadConversationCount + ' conversa(s) com mensagens não lidas'}>{unreadConversationCount}</b>}</button>
-        <button className={activeRoute === 'activity' || globalActivityRoute ? 'nav-item active' : 'nav-item'} onClick={() => navigateToRoute('activity')}><span>◷</span> Atividade</button>
-        <div className="sidebar-label nav-section-label">WORKSPACE</div>
-        <button className={activeRoute === 'projects' ? 'nav-item active' : 'nav-item'} onClick={() => navigateToRoute('projects')}><span>▣</span> Meus projetos <b>{projects.length}</b></button>
-        <button className={globalDashboardRoute ? 'nav-item active' : 'nav-item'} onClick={() => navigateToRoute('globalDashboard', '', false)}><span>▤</span> Visão geral</button>
-        <div className="sidebar-label nav-section-label">CADASTROS</div>
-        <button className={activeRoute === 'catalogProjects' || activeRoute === 'catalogs' || activeRoute === 'catalogAreas' ? 'nav-item active' : 'nav-item'} onClick={() => navigateToRoute('catalogProjects')}><span>▣</span> Projetos</button>
-        <button className={activeRoute === 'catalogFeatures' ? 'nav-item active' : 'nav-item'} onClick={() => navigateToRoute('catalogFeatures')}><span>◈</span> Features</button>
-        <button className={activeRoute === 'catalogTasks' ? 'nav-item active' : 'nav-item'} onClick={() => navigateToRoute('catalogTasks')}><span>☑</span> Tarefas</button>
-        <button className={activeRoute === 'catalogResponsibles' ? 'nav-item active' : 'nav-item'} onClick={() => navigateToRoute('catalogResponsibles')}><span>☺</span> Responsáveis</button>
-        <button className={activeRoute === 'catalogConversationTypes' ? 'nav-item active' : 'nav-item'} onClick={() => navigateToRoute('catalogConversationTypes', activeProjectId, false)}><span>⇄</span> Tipos de conversa</button>
-        <div className="sidebar-label nav-section-label">SISTEMA</div>
-        <button className={activeRoute === 'settings' ? 'nav-item active' : 'nav-item'} onClick={() => navigateToRoute('settings')}><span>⚙</span> Administração</button>
-        <button className={activeRoute === 'help' ? 'nav-item active' : 'nav-item'} onClick={() => navigateToRoute('help')}><span>ⓘ</span> Ajuda</button>
-      </nav>
-      <div className="sidebar-spacer" />
-      <div className="sidebar-footer"><span className="online-dot" /> Conectado ao MCP <button className="small-icon" onClick={signOut} title="Sair">↪</button></div>
-    </aside>
-    <main className="main-area min-h-screen">
-      <header className="topbar"><div className="breadcrumbs"><button type="button" className="small-icon sidebar-toggle" aria-controls="app-sidebar" aria-expanded={!sidebarCollapsed} aria-label={sidebarCollapsed ? 'Mostrar menu lateral' : 'Ocultar menu lateral'} title={(sidebarCollapsed ? 'Mostrar' : 'Ocultar') + ' menu lateral (Ctrl+B)'} onClick={toggleSidebar}><IconMenu size={18} /></button><span>Workspace</span><span>/</span><strong>{activeRoute === 'globalDashboard' ? 'Visão geral' : activeRoute === 'projects' ? 'Projetos' : activeTab === 'activity' ? 'Atividade' : catalogScreen ? `Cadastros · ${{projects:'Projetos',features:'Features',tasks:'Tarefas',responsibles:'Responsáveis',conversationTypes:'Tipos de conversa'}[catalogSectionForRoute(activeRoute)]}` : project?.name ?? 'Carregando projeto'}</strong></div><div className="topbar-actions"><span className="connection-pill"><span className="online-dot" /> Serviço ativo</span><button className="avatar-button" onClick={signOut} title="Sair">AU</button></div></header>
-      <div className="content-wrap">
-        {projectsQuery.isError && <div className="notice error">{errorMessage(projectsQuery.error)}</div>}
-        <Suspense fallback={<div className="loading">Carregando tela…</div>}>
+  function hrefForRoute(route: AppRoute) {
+    const params = new URLSearchParams(window.location.search);
+    const isGlobalActivity = route === 'globalActivity';
+    const targetRoute: AppRoute = isGlobalActivity ? 'activity' : route;
+    if (targetRoute !== 'tasks') params.delete('taskId');
+    if (targetRoute !== 'activity') params.delete('activityScope');
+    if (isGlobalActivity) params.set('activityScope', 'global');
+    if (route === 'globalDashboard') params.set('dashboardScope', 'global');
+    else if (route === 'dashboard') params.delete('dashboardScope');
+    return routeUrl(targetRoute, params.toString(), route === 'globalDashboard' ? '' : activeProjectId, true);
+  }
+
+  function onSidebarNavigate(event: MouseEvent<HTMLAnchorElement>, route: AppRoute) {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    navigateToRoute(route, route === 'globalDashboard' ? '' : activeProjectId, route !== 'globalDashboard');
+    setMobileNavOpen(false);
+  }
+
+  const sidebar = <AppSidebar activeRoute={activeRoute} activeProjectId={activeProjectId} projectName={project?.name ?? (projectsQuery.isPending ? 'Carregando projetos…' : undefined)} projectVisibility={project?.visibility} projectCount={projects.length} taskCount={tasks.length} unreadConversationCount={unreadConversationCount} projectPickerOpen={projectPickerOpen} copiedProjectId={copiedProjectId} onOpenProjectPicker={() => { setAllProjectsSearch(''); setProjectPage(1); setProjectPickerOpen(true); }} onCopyProjectId={() => void copyProjectId()} onSignOut={signOut} hrefForRoute={hrefForRoute} onNavigate={onSidebarNavigate} />;
+
+  if (!token || !nonce) return <SignInScreen saving={saving} notice={notice} onSubmit={signIn} />;
+
+  return <EntityNavigationContext.Provider value={{ projectId: activeProjectId, openTask: openTaskFromActivity, openConversation, filterByFeature: featureId => filterTasksBy('featureId', featureId), filterBy: filterTasksBy, openTasks: openTasksWith }}>
+    <AppShell sidebar={sidebar} breadcrumbs={breadcrumbLabel} projectName={project?.name} notice={notice} sidebarCollapsed={sidebarCollapsed} mobileNavOpen={mobileNavOpen} onToggleSidebar={toggleSidebar} onMobileNavOpenChange={setMobileNavOpen} onSignOut={signOut} onDismissNotice={() => setNotice(null)}>
+      <div className="mx-auto flex w-full max-w-screen-2xl flex-1 flex-col gap-5 px-4 py-6 sm:px-6 sm:py-8">
+        {projectsQuery.isError && <Alert variant="destructive"><AlertDescription>{errorMessage(projectsQuery.error)}</AlertDescription></Alert>}
+        <Suspense fallback={<div className="grid min-h-40 place-items-center text-sm text-muted-foreground" role="status">Carregando tela…</div>}>
         {activeRoute === 'projects' && <ProjectsPage projects={currentProjectPage} isPending={projectsQuery.isPending} activeProjectId={activeProjectId} search={allProjectsSearch} currentPage={projectPage} pages={projectPages} total={filteredProjects.length} onSearchChange={value => { setAllProjectsSearch(value); setProjectPage(1); }} onPageChange={setProjectPage} onSelect={selectProject} onOpenOverview={() => navigateToRoute('globalDashboard', '', false)} />}
-        {activeRoute !== 'projects' && !catalogScreen && !globalActivityRoute && !globalDashboardRoute && !projects.length && !projectsQuery.isPending && <div className="empty-state"><h2>Nenhum projeto disponível</h2><p>Esta credencial ainda não possui projetos acessíveis.</p><button className="button secondary" onClick={() => navigateToRoute('projects')}>Abrir projetos</button></div>}
-        {activeTab === 'admin' && !project && !projectsQuery.isPending && canHardDelete && <div className="grid max-w-[850px] gap-[18px]"><div className="page-heading"><div><p className="eyebrow">CONFIGURAÇÃO</p><h1>Administração</h1><p className="muted-text">Importe um projeto para começar neste MCP.</p></div></div><ProjectImportPanel token={token} canImport onImported={async result => { await projectsQuery.refetch(); setActiveProjectId(result.projectId); navigateToRoute('settings', result.projectId, false); }} /></div>}
+        {activeRoute !== 'projects' && !catalogScreen && !globalActivityRoute && !globalDashboardRoute && !projects.length && !projectsQuery.isPending && <section className="grid justify-items-start gap-3 rounded-xl border border-border bg-card p-6"><h2 className="text-lg font-semibold">Nenhum projeto disponível</h2><p className="text-sm text-muted-foreground">Esta credencial ainda não possui projetos acessíveis.</p><Button variant="secondary" onClick={() => navigateToRoute('projects')}>Abrir projetos</Button></section>}
+        {activeTab === 'admin' && !project && !projectsQuery.isPending && canHardDelete && <div className="grid max-w-[850px] gap-5"><div><p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Configuração</p><h1 className="mt-1 text-2xl font-semibold tracking-tight">Administração</h1><p className="mt-2 text-sm text-muted-foreground">Importe um projeto para começar neste MCP.</p></div><ProjectImportPanel token={token} canImport onImported={async result => { await projectsQuery.refetch(); setActiveProjectId(result.projectId); navigateToRoute('settings', result.projectId, false); }} /></div>}
         {catalogScreen && <CatalogsPage section={catalogSectionForRoute(activeRoute)} token={token} nonce={nonce} projects={projects.map(item => item.project)} projectsPending={projectsQuery.isPending} projectsError={projectsQuery.isError} project={project} tasks={tasks} notify={notify} onNavigateToConversations={() => navigateToRoute('conversations', activeProjectId, false)} onProjectCreated={async created => { await projectsQuery.refetch(); navigateToRoute(routeForCatalogSection('projects'), created._id, false); }} onSelectProject={projectId => navigateToRoute(activeRoute, projectId, false)} systemAdmin={capabilitiesQuery.data?.systemAdmin === true} onChanged={() => { void projectsQuery.refetch(); void tasksQuery.refetch(); }} />}
         {activeRoute !== 'projects' && !catalogScreen && (project || globalActivityRoute || globalDashboardRoute) && <>
-          {activeRoute !== 'task' && activeRoute !== 'dashboard' && activeRoute !== 'globalDashboard' && <div className="page-heading"><div><p className="eyebrow">{activeTab === 'tasks' ? 'ACOMPANHAMENTO' : activeTab === 'chat' ? 'COLABORAÇÃO' : activeTab === 'activity' ? 'ATIVIDADE' : activeTab === 'admin' ? 'CONFIGURAÇÃO' : 'DOCUMENTAÇÃO'}</p><h1>{activeTab === 'tasks' ? 'Tarefas do projeto' : activeTab === 'chat' ? 'Conversas com IA' : activeTab === 'activity' ? 'Atividade' : activeTab === 'admin' ? 'Administração' : 'Ajuda do Project Tasks'}</h1><p className="muted-text">{activeTab === 'tasks' ? 'Acompanhe execução, revisão e conclusão do trabalho.' : activeTab === 'chat' ? 'Esclareça pedidos com a IA e autorize a execução quando a proposta estiver pronta.' : activeTab === 'activity' ? globalActivityRoute ? 'Acompanhe eventos recentes de todos os projetos.' : 'Acompanhe eventos, mudanças e colaboração neste projeto.' : activeTab === 'admin' ? 'Credenciais e configurações restritas do workspace.' : 'Referência rápida para os servidores e ferramentas MCP.'}</p></div>{activeTab === 'tasks' && <div className="button-row"><button className="button secondary" onClick={() => setSummaryOpen(true)}>Resumo do projeto</button></div>}{activeTab === 'chat' && <div id="conversation-heading-actions" className="button-row" />}</div>}
+          {activeRoute !== 'task' && activeRoute !== 'dashboard' && activeRoute !== 'globalDashboard' && <div className="flex flex-wrap items-end justify-between gap-4"><div><p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{activeTab === 'tasks' ? 'Acompanhamento' : activeTab === 'chat' ? 'Colaboração' : activeTab === 'activity' ? 'Atividade' : activeTab === 'admin' ? 'Configuração' : 'Documentação'}</p><h1 className="mt-1 text-2xl font-semibold tracking-tight text-foreground">{activeTab === 'tasks' ? 'Tarefas do projeto' : activeTab === 'chat' ? 'Conversas com IA' : activeTab === 'activity' ? 'Atividade' : activeTab === 'admin' ? 'Administração' : 'Ajuda do Project Tasks'}</h1><p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">{activeTab === 'tasks' ? 'Acompanhe execução, revisão e conclusão do trabalho.' : activeTab === 'chat' ? 'Esclareça pedidos com a IA e autorize a execução quando a proposta estiver pronta.' : activeTab === 'activity' ? globalActivityRoute ? 'Acompanhe eventos recentes de todos os projetos.' : 'Acompanhe eventos, mudanças e colaboração neste projeto.' : activeTab === 'admin' ? 'Credenciais e configurações restritas do workspace.' : 'Referência rápida para os servidores e ferramentas MCP.'}</p></div>{activeTab === 'tasks' && <Button variant="outline" onClick={() => setSummaryOpen(true)}>Resumo do projeto</Button>}{activeTab === 'chat' && <div id="conversation-heading-actions" className="flex items-center gap-2" />}</div>}
           {activeTab === 'tasks' && activeRoute !== 'task' && <TaskWorkspace key={activeProjectId} token={token} nonce={nonce} projectId={activeProjectId} repositories={project?.repositories ?? []} projectAreas={project?.areas ?? ['backend', 'frontend', 'outro']} tasks={tasks} isPending={tasksQuery.isPending} isError={tasksQuery.isError} error={tasksQuery.error} saving={saving} updatedAt={tasksQuery.dataUpdatedAt || undefined} refreshing={tasksQuery.isFetching} canHardDelete={canHardDelete} systemAdmin={capabilitiesQuery.data?.systemAdmin === true} onRefresh={() => { void projectsQuery.refetch(); if (activeRoute === 'tasks') void queryClient.invalidateQueries({ queryKey: ['task-workspace-search', nonce, activeProjectId] }); else void tasksQuery.refetch(); }} onOpenTask={openTaskDetails} onOpenTaskConversation={openTaskConversationFromTable} onTransferTask={setTransferTask} onChangeStatus={setStatusTask} onToggleChecked={toggleChecked} onRequestHardDeleteTask={requestTaskHardDelete} onArchiveTask={archiveTask} onApproveSelected={approveSelected} onSetTasksChecked={setTasksChecked} />}
           {activeRoute === 'dashboard' && <ProjectDashboardPage token={token} nonce={nonce} projectId={activeProjectId} onSelectProject={id => navigateToRoute('dashboard', id, false)} />}
           {globalDashboardRoute && <GlobalDashboardPage token={token} nonce={nonce} onOpenProject={projectId => navigateToRoute('dashboard', projectId, false)} />}
           {activeRoute === 'task' && pageTaskId && <TaskPage key={activeProjectId + ':' + pageTaskId} taskId={pageTaskId} token={token} nonce={nonce} projectId={activeProjectId} project={project!} tasks={tasks} checking={adminMutation.isPending || saving} notify={notify} onToggleChecked={toggleChecked} onOpenConversation={openConversation} onRequestTransfer={setTransferTask} systemAdmin={capabilitiesQuery.data?.systemAdmin === true} onReview={reviewTask} onChangeStatus={setStatusTask} close={() => navigateToRoute('tasks', activeProjectId, false)} />}
           {activeTab === 'chat' && <ConversationPanel token={token} nonce={nonce} projectId={activeProjectId} tasks={tasks} requestedConversationId={conversationToOpen || undefined} onConversationSelected={rememberConversation} onOpenTask={openTaskFromConversation} onOpenAdmin={() => setActiveTab('admin')} />}
           {activeTab === 'activity' && (globalActivityRoute && capabilitiesQuery.data?.systemAdmin !== true
-            ? <div className="notice error" role="alert">{capabilitiesQuery.isPending ? 'Verificando acesso administrativo…' : capabilitiesQuery.isError ? errorMessage(capabilitiesQuery.error) : 'A atividade global é restrita a administradores do sistema.'}</div>
+            ? <Alert variant="destructive"><AlertDescription>{capabilitiesQuery.isPending ? 'Verificando acesso administrativo…' : capabilitiesQuery.isError ? errorMessage(capabilitiesQuery.error) : 'A atividade global é restrita a administradores do sistema.'}</AlertDescription></Alert>
             : <ActivityPage
               key={globalActivityRoute ? 'global' : activeProjectId}
               events={globalActivityRoute ? globalActivityQuery.data?.pages.flatMap(page => page.items) ?? [] : projectActivityQuery.data?.pages.flatMap(page => page.items) ?? []}
@@ -638,18 +640,25 @@ function App() {
         </>}
         </Suspense>
       </div>
-      <footer className="app-footer"><span>Project Tasks MCP</span><span>{project?.name ?? ''}</span></footer>
-    </main>
+    </AppShell>
     <Suspense fallback={null}>
     {selectedTask && project && <TaskDetailsDialog key={`${project._id}:${selectedTask._id}:${selectedTaskAction}`} token={token} nonce={nonce} projectId={project._id} project={project} tasks={tasks} task={selectedTask} initialAction={selectedTaskAction} checking={adminMutation.isPending || saving} notify={notify} onToggleChecked={toggleChecked} onOpenConversation={openConversation} onRequestTransfer={setTransferTask} systemAdmin={capabilitiesQuery.data?.systemAdmin === true} onReview={reviewTask} onChangeStatus={setStatusTask} onOpenPage={() => openTaskPage(selectedTask._id)} close={closeTaskDetails} />}
     {transferTask && project && <TransferTaskDialog key={`${project._id}:${transferTask._id}`} token={token} nonce={nonce} projectId={project._id} task={transferTask} projects={projects.map(item => item.project)} close={() => setTransferTask(null)} onTransferred={onTaskTransferred} />}
     {statusTask && <TaskStatusDialog task={statusTask} saving={saving} onClose={() => setStatusTask(null)} onSubmit={updateStatus} />}
-    <ProjectPickerDialog projects={currentProjectPage} activeProjectId={activeProjectId} search={allProjectsSearch} currentPage={projectPage} pages={projectPages} total={filteredProjects.length} onSearchChange={value => { setAllProjectsSearch(value); setProjectPage(1); }} onPageChange={setProjectPage} onSelect={id => { selectProject(id); (document.getElementById('projects-dialog') as HTMLDialogElement | null)?.close(); }} />
+    <ProjectPickerDialog open={projectPickerOpen} onOpenChange={setProjectPickerOpen} projects={currentProjectPage} activeProjectId={activeProjectId} search={allProjectsSearch} currentPage={projectPage} pages={projectPages} total={filteredProjects.length} onSearchChange={value => { setAllProjectsSearch(value); setProjectPage(1); }} onPageChange={setProjectPage} onSelect={id => { selectProject(id); setProjectPickerOpen(false); }} />
     {summaryOpen && <ProjectSummaryDialog name={project?.name} taskCount={projectSummaryQuery.data?.taskCount ?? tasks.length} markdown={projectSummaryQuery.data?.markdown} error={projectSummaryQuery.error} isPending={projectSummaryQuery.isPending} isError={projectSummaryQuery.isError} onClose={() => setSummaryOpen(false)} />}
     {hardDeleteTarget && <HardDeleteDialog target={hardDeleteTarget} busy={hardDeleteBusy} error={hardDeleteError} onClose={() => { setHardDeleteTarget(null); setHardDeleteError(''); }} onConfirm={() => void confirmHardDelete()} />}
+    <ConfirmDialog
+      open={Boolean(archiveTarget)}
+      title={archiveTarget?.kind === 'project' ? 'Arquivar projeto?' : 'Arquivar tarefa?'}
+      description={archiveTarget?.kind === 'project' ? `Arquivar o projeto “${project?.name ?? ''}”? Ele sairá da lista ativa, mas poderá ser restaurado depois. O servidor também pode recusar se houver tarefas ativas.` : `Arquivar “${archiveTarget?.kind === 'task' ? archiveTarget.task.name : ''}”? A tarefa sairá da lista ativa, mas seu histórico será preservado e poderá ser restaurado.`}
+      confirmLabel="Arquivar"
+      pending={saving}
+      onOpenChange={open => { if (!open && !saving) setArchiveTarget(null); }}
+      onConfirm={() => void confirmArchive()}
+    />
     </Suspense>
-    {notice && <div className={'toast toast-' + notice.kind} role="status">{notice.message}<button onClick={() => setNotice(null)} aria-label="Dispensar">×</button></div>}
-  </div></EntityNavigationContext.Provider>;
+  </EntityNavigationContext.Provider>;
 }
 
 export default App;

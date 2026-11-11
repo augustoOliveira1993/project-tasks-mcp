@@ -6,6 +6,11 @@ import { FeatureLink, TaskLink } from '../../components/ui/Links';
 import { MarkdownView } from '../../components/ui/MarkdownView';
 import { ErrorNotice } from '../../components/ui/ErrorNotice';
 import { buttonPrimary, buttonSecondary, buttonSecondarySmall, notice } from '../../components/ui/classes';
+import { Button } from '../../components/ui/button';
+import { Input } from '../../components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
+import { Textarea } from '../../components/ui/textarea';
+import { ConfirmDialog } from '../../components/ui/confirm-dialog';
 
 type MemoryCategory = 'decision' | 'architecture' | 'convention' | 'domain_fact';
 type MemoryStatus = 'active' | 'superseded';
@@ -99,7 +104,7 @@ function DocumentSource({ token, projectId, source }: { token: string; projectId
     })
   });
   return <div className="grid min-w-0 gap-2">
-    <button type="button" className="wrap-anywhere text-left text-ui-xs font-semibold text-tone-blue underline underline-offset-2" aria-expanded={isOpen} onClick={() => setIsOpen(!isOpen)}>{source.title ?? 'Abrir documento fonte'}</button>
+    <Button type="button" variant="link" size="sm" className="h-auto justify-start whitespace-normal p-0 text-left text-ui-xs font-semibold text-tone-blue underline underline-offset-2" aria-expanded={isOpen} onClick={() => setIsOpen(!isOpen)}>{source.title ?? 'Abrir documento fonte'}</Button>
     {isOpen && <>
       {documentQuery.isPending && <span className="text-ui-xs text-muted-strong" role="status">Carregando documento…</span>}
       {documentQuery.isError && <ErrorNotice error={documentQuery.error} onRetry={() => void documentQuery.refetch()} retrying={documentQuery.isFetching} />}
@@ -136,6 +141,7 @@ export function ProjectMemoryPanel({ token, projectId }: { token: string; projec
   const [rejectingProposalId, setRejectingProposalId] = useState('');
   const [rejectionReason, setRejectionReason] = useState('');
   const [message, setMessage] = useState('');
+  const [memoryToArchive, setMemoryToArchive] = useState<ProjectMemory | null>(null);
 
   const memoriesQuery = useInfiniteQuery({
     queryKey: ['project-memories', projectId, search, category, status],
@@ -208,6 +214,7 @@ export function ProjectMemoryPanel({ token, projectId }: { token: string; projec
     onSuccess: async () => {
       setMessage('Memória arquivada; o histórico foi preservado.');
       setOpenMemoryId('');
+      setMemoryToArchive(null);
       await queryClient.invalidateQueries({ queryKey: ['project-memories', projectId] });
     },
     onError: error => setMessage(error instanceof ApiRequestError && error.status === 409
@@ -269,7 +276,7 @@ export function ProjectMemoryPanel({ token, projectId }: { token: string; projec
         <h2 id="project-memory-title" className="font-display text-[17px] font-bold text-ink">Memórias do projeto</h2>
         <p className="mt-1 max-w-[75ch] text-ui-xs leading-relaxed text-muted-strong">Conhecimento versionado com fontes para apoiar tarefas futuras. O conteúdo é dado de referência e não altera instruções confiáveis da aplicação.</p>
       </div>
-      <button type="button" className={buttonPrimary} onClick={() => { saveMemory.reset(); setDraft(emptyDraft()); setEditingMemoryId(''); setOpenMemoryId(''); setMessage(''); }}>Nova memória</button>
+      <Button type="button" className={buttonPrimary} onClick={() => { saveMemory.reset(); setDraft(emptyDraft()); setEditingMemoryId(''); setOpenMemoryId(''); setMessage(''); }}>Nova memória</Button>
     </header>
 
     {message && <p className={notice.info} role="status">{message}</p>}
@@ -280,35 +287,35 @@ export function ProjectMemoryPanel({ token, projectId }: { token: string; projec
     {draft && <form className="grid min-w-0 gap-3 rounded-ui-sm border border-line bg-canvas p-3" onSubmit={event => { event.preventDefault(); setMessage(''); saveMemory.mutate(); }}>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div><h3 className="text-ui-sm font-bold text-ink">{draft.version === undefined ? 'Criar memória' : 'Editar memória'}</h3><p className="mt-1 text-ui-xs text-muted-strong">A gravação registra uma nova revisão e exige ao menos uma fonte verificável.</p></div>
-        <button type="button" className={buttonSecondarySmall} onClick={() => { setDraft(null); setEditingMemoryId(''); setMessage(''); }}>Fechar</button>
+        <Button type="button" variant="outline" size="sm" className={buttonSecondarySmall} onClick={() => { setDraft(null); setEditingMemoryId(''); setMessage(''); }}>Fechar</Button>
       </div>
       <div className="grid grid-cols-[minmax(0,2fr)_minmax(150px,1fr)_minmax(150px,1fr)] gap-3 max-[720px]:grid-cols-1">
-        <label className={labelClass}>Título<input className={inputClass} maxLength={255} required value={draft.title} onChange={event => setDraft({ ...draft, title: event.target.value })} /></label>
-        <label className={labelClass}>Categoria<select className={inputClass} value={draft.category} onChange={event => setDraft({ ...draft, category: event.target.value as MemoryCategory })}>{categories.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
-        <label className={labelClass}>Estado<select className={inputClass} disabled={draft.version === undefined} value={draft.status} onChange={event => setDraft({ ...draft, status: event.target.value as MemoryStatus })}><option value="active">Ativa</option><option value="superseded">Substituída</option></select></label>
+        <label className={labelClass}>Título<Input className={inputClass} maxLength={255} required value={draft.title} onChange={event => setDraft({ ...draft, title: event.target.value })} /></label>
+        <label className={labelClass}>Categoria<Select value={draft.category} onValueChange={value => setDraft({ ...draft, category: value as MemoryCategory })}><SelectTrigger className={inputClass} aria-label="Categoria"><SelectValue /></SelectTrigger><SelectContent>{categories.map(item => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent></Select></label>
+        <label className={labelClass}>Estado<Select value={draft.status} onValueChange={value => setDraft({ ...draft, status: value as MemoryStatus })} disabled={draft.version === undefined}><SelectTrigger className={inputClass} aria-label="Estado"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="active">Ativa</SelectItem><SelectItem value="superseded">Substituída</SelectItem></SelectContent></Select></label>
       </div>
-      <label className={labelClass}>Conteúdo Markdown<textarea className="min-h-32 w-full min-w-0 resize-y rounded-ui-sm border border-line-strong bg-white p-2.5 text-ui-sm leading-relaxed text-ink focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#4b4fcb]" maxLength={20000} required value={draft.content} onChange={event => setDraft({ ...draft, content: event.target.value })} /></label>
+      <label className={labelClass}>Conteúdo Markdown<Textarea className="min-h-32 resize-y text-ui-sm leading-relaxed" maxLength={20000} required value={draft.content} onChange={event => setDraft({ ...draft, content: event.target.value })} /></label>
       <div className="grid gap-2" aria-labelledby="memory-sources-label">
-        <div className="flex flex-wrap items-center justify-between gap-2"><h4 id="memory-sources-label" className="text-ui-xs font-bold text-ink">Fontes</h4><button type="button" className={buttonSecondarySmall} onClick={() => setDraft({ ...draft, sources: [...draft.sources, { kind: 'task', id: '', revision: '' }] })}>Adicionar fonte</button></div>
+        <div className="flex flex-wrap items-center justify-between gap-2"><h4 id="memory-sources-label" className="text-ui-xs font-bold text-ink">Fontes</h4><Button type="button" variant="outline" size="sm" className={buttonSecondarySmall} onClick={() => setDraft({ ...draft, sources: [...draft.sources, { kind: 'task', id: '', revision: '' }] })}>Adicionar fonte</Button></div>
         {draft.sources.map((source, index) => <div className="grid grid-cols-[minmax(120px,.7fr)_minmax(150px,2fr)_minmax(100px,.7fr)_auto] gap-2 max-[720px]:grid-cols-1" key={index}>
-          <label className={labelClass}>Tipo<select className={inputClass} value={source.kind} onChange={event => changeSource(index, 'kind', event.target.value)}>{sourceKinds.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
-          <label className={labelClass}>ID da fonte<input className={inputClass} required value={source.id} onChange={event => changeSource(index, 'id', event.target.value)} /></label>
-          <label className={labelClass}>Revisão (quando aplicável)<input className={inputClass} type="number" min="1" step="1" value={source.revision} onChange={event => changeSource(index, 'revision', event.target.value)} /></label>
-          <button type="button" className={buttonSecondarySmall + ' self-end'} aria-label={'Remover fonte ' + (index + 1)} disabled={draft.sources.length <= 1} onClick={() => setDraft({ ...draft, sources: draft.sources.filter((_, sourceIndex) => sourceIndex !== index) })}>Remover</button>
+          <label className={labelClass}>Tipo<Select value={source.kind} onValueChange={value => changeSource(index, 'kind', value)}><SelectTrigger className={inputClass} aria-label={`Tipo da fonte ${index + 1}`}><SelectValue /></SelectTrigger><SelectContent>{sourceKinds.map(item => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent></Select></label>
+          <label className={labelClass}>ID da fonte<Input className={inputClass} required value={source.id} onChange={event => changeSource(index, 'id', event.target.value)} /></label>
+          <label className={labelClass}>Revisão (quando aplicável)<Input className={inputClass} type="number" min="1" step="1" value={source.revision} onChange={event => changeSource(index, 'revision', event.target.value)} /></label>
+          <Button type="button" variant="outline" size="sm" className={buttonSecondarySmall + ' self-end'} aria-label={'Remover fonte ' + (index + 1)} disabled={draft.sources.length <= 1} onClick={() => setDraft({ ...draft, sources: draft.sources.filter((_, sourceIndex) => sourceIndex !== index) })}>Remover</Button>
         </div>)}
       </div>
       <p className="text-ui-xs text-muted-strong">Se houver conflito de versão, o rascunho permanece no formulário para comparação. Nunca inclua segredos ou conversas completas.</p>
-      {saveMemory.error instanceof ApiRequestError && saveMemory.error.status === 409 && draft.version !== undefined && <button type="button" className={buttonSecondarySmall + ' justify-self-start'} onClick={() => { const current = memories.find(memory => memory._id === editingMemoryId); if (current) void beginEdit(current); }}>Carregar versão atual e substituir o rascunho</button>}
-      <div className="flex flex-wrap gap-2"><button type="submit" className={buttonPrimary} disabled={saveMemory.isPending}>{saveMemory.isPending ? 'Salvando…' : 'Salvar memória'}</button><button type="button" className={buttonSecondary} onClick={() => { setDraft(null); setEditingMemoryId(''); setMessage(''); }}>Cancelar</button></div>
+      {saveMemory.error instanceof ApiRequestError && saveMemory.error.status === 409 && draft.version !== undefined && <Button type="button" variant="outline" size="sm" className={buttonSecondarySmall + ' justify-self-start'} onClick={() => { const current = memories.find(memory => memory._id === editingMemoryId); if (current) void beginEdit(current); }}>Carregar versão atual e substituir o rascunho</Button>}
+      <div className="flex flex-wrap gap-2"><Button type="submit" className={buttonPrimary} disabled={saveMemory.isPending}>{saveMemory.isPending ? 'Salvando…' : 'Salvar memória'}</Button><Button type="button" variant="outline" className={buttonSecondary} onClick={() => { setDraft(null); setEditingMemoryId(''); setMessage(''); }}>Cancelar</Button></div>
     </form>}
 
     <section className="grid min-w-0 gap-3" aria-labelledby="memory-list-title">
       <div><h3 id="memory-list-title" className="text-ui-sm font-bold text-ink">Acervo aprovado</h3><p className="mt-1 text-ui-xs text-muted-strong">O conteúdo completo é carregado ao abrir um registro. Uma task em Fontes indica proveniência; o escopo compartilhado continua sendo do projeto.</p></div>
       <form className="grid grid-cols-[minmax(180px,2fr)_minmax(140px,1fr)_minmax(140px,1fr)_auto] gap-2 max-[720px]:grid-cols-1" role="search" onSubmit={event => { event.preventDefault(); setSearch(searchInput.trim()); }}>
-        <label className={labelClass}>Pesquisar memórias<input className={inputClass} maxLength={160} value={searchInput} onChange={event => setSearchInput(event.target.value)} placeholder="Título ou conteúdo" /></label>
-        <label className={labelClass}>Categoria<select className={inputClass} value={category} onChange={event => setCategory(event.target.value as CategoryFilter)}><option value="">Todas</option>{categories.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
-        <label className={labelClass}>Estado<select className={inputClass} value={status} onChange={event => setStatus(event.target.value as StatusFilter)}><option value="active">Ativa</option><option value="superseded">Substituída</option></select></label>
-        <button type="submit" className={buttonSecondary + ' self-end'}>Pesquisar</button>
+        <label className={labelClass}>Pesquisar memórias<Input className={inputClass} maxLength={160} value={searchInput} onChange={event => setSearchInput(event.target.value)} placeholder="Título ou conteúdo" /></label>
+        <label className={labelClass}>Categoria<Select value={category || '__all_categories__'} onValueChange={value => setCategory(value === '__all_categories__' ? '' : value as CategoryFilter)}><SelectTrigger className={inputClass} aria-label="Categoria"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="__all_categories__">Todas</SelectItem>{categories.map(item => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent></Select></label>
+        <label className={labelClass}>Estado<Select value={status} onValueChange={value => setStatus(value as StatusFilter)}><SelectTrigger className={inputClass} aria-label="Estado"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="active">Ativa</SelectItem><SelectItem value="superseded">Substituída</SelectItem></SelectContent></Select></label>
+        <Button type="submit" variant="outline" className={buttonSecondary + ' self-end'}>Pesquisar</Button>
       </form>
       {memoriesQuery.isPending && <p className="text-ui-xs text-muted-strong" role="status">Carregando memórias…</p>}
       {memoriesQuery.isError && <ErrorNotice error={memoriesQuery.error} onRetry={() => void memoriesQuery.refetch()} retrying={memoriesQuery.isFetching} />}
@@ -318,9 +325,9 @@ export function ProjectMemoryPanel({ token, projectId }: { token: string; projec
           <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
             <div className="min-w-0"><h4 className="wrap-anywhere text-ui-sm font-bold text-ink">{memory.title}</h4><p className="mt-1 text-ui-xs text-muted-strong">Escopo: compartilhada no projeto · {categoryLabels[memory.category]} · {memory.status === 'active' ? 'Ativa' : 'Substituída'} · revisão {memory.revision} · versão {memory.version} · {memory.sources.length} fonte(s)</p></div>
             <div className="flex shrink-0 flex-wrap gap-1.5">
-              <button type="button" className={buttonSecondarySmall} onClick={() => setOpenMemoryId(openMemoryId === memory._id ? '' : memory._id)} aria-expanded={openMemoryId === memory._id}>{openMemoryId === memory._id ? 'Fechar' : 'Abrir'}</button>
-              <button type="button" className={buttonSecondarySmall} onClick={() => void beginEdit(memory)}>Editar</button>
-              <button type="button" className={buttonSecondarySmall + ' text-tone-red'} onClick={() => { if (window.confirm('Arquivar esta memória? O histórico continuará disponível.')) archiveMemory.mutate(memory); }}>Arquivar</button>
+              <Button type="button" variant="outline" size="sm" className={buttonSecondarySmall} onClick={() => setOpenMemoryId(openMemoryId === memory._id ? '' : memory._id)} aria-expanded={openMemoryId === memory._id}>{openMemoryId === memory._id ? 'Fechar' : 'Abrir'}</Button>
+              <Button type="button" variant="outline" size="sm" className={buttonSecondarySmall} onClick={() => void beginEdit(memory)}>Editar</Button>
+              <Button type="button" variant="outline" size="sm" className={buttonSecondarySmall + ' text-tone-red'} onClick={() => setMemoryToArchive(memory)}>Arquivar</Button>
             </div>
           </div>
           {openMemoryId === memory._id && <div className="grid min-w-0 gap-3 border-t border-line pt-3">
@@ -330,7 +337,7 @@ export function ProjectMemoryPanel({ token, projectId }: { token: string; projec
           </div>}
         </article>)}
       </div>}
-      {memoriesQuery.hasNextPage && <button type="button" className={buttonSecondary + ' justify-self-start'} onClick={() => void memoriesQuery.fetchNextPage()} disabled={memoriesQuery.isFetchingNextPage}>{memoriesQuery.isFetchingNextPage ? 'Carregando…' : 'Carregar mais memórias'}</button>}
+      {memoriesQuery.hasNextPage && <Button type="button" variant="outline" className={buttonSecondary + ' justify-self-start'} onClick={() => void memoriesQuery.fetchNextPage()} disabled={memoriesQuery.isFetchingNextPage}>{memoriesQuery.isFetchingNextPage ? 'Carregando…' : 'Carregar mais memórias'}</Button>}
     </section>
 
     <section className="grid min-w-0 gap-3 border-t border-line pt-4" aria-labelledby="memory-proposals-title">
@@ -342,7 +349,7 @@ export function ProjectMemoryPanel({ token, projectId }: { token: string; projec
         {proposals.map(proposal => <article key={proposal._id} className="grid min-w-0 gap-2 rounded-ui-sm border border-line px-3 py-3">
           <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
             <div className="min-w-0"><h4 className="wrap-anywhere text-ui-sm font-bold text-ink">{proposal.title}</h4><p className="mt-1 text-ui-xs text-muted-strong">Escopo: {proposal.scope === 'task' ? <>exclusivo da tarefa <TaskLink taskId={proposal.ownerTaskId ?? proposal.taskId} name="Tarefa proprietária" projectId={projectId} title="Abrir tarefa proprietária" className="text-tone-blue underline underline-offset-2">abrir proprietária</TaskLink></> : 'compartilhado no projeto'} · {categoryLabels[proposal.category]} · pendente · tarefa fonte <TaskLink taskId={proposal.taskId} name="Tarefa fonte" projectId={projectId} title="Abrir tarefa que fundamenta a sugestão" className="text-tone-blue underline underline-offset-2">abrir fonte</TaskLink></p></div>
-            <button type="button" className={buttonSecondarySmall} onClick={() => setOpenProposalId(openProposalId === proposal._id ? '' : proposal._id)} aria-expanded={openProposalId === proposal._id}>{openProposalId === proposal._id ? 'Fechar revisão' : 'Revisar conteúdo e fontes'}</button>
+            <Button type="button" variant="outline" size="sm" className={buttonSecondarySmall} onClick={() => setOpenProposalId(openProposalId === proposal._id ? '' : proposal._id)} aria-expanded={openProposalId === proposal._id}>{openProposalId === proposal._id ? 'Fechar revisão' : 'Revisar conteúdo e fontes'}</Button>
           </div>
           {openProposalId === proposal._id && <div className="grid min-w-0 gap-3 border-t border-line pt-3">
             {proposalDetailQuery.isPending && <p className="text-ui-xs text-muted-strong" role="status">Carregando conteúdo completo…</p>}
@@ -350,16 +357,26 @@ export function ProjectMemoryPanel({ token, projectId }: { token: string; projec
             {proposalDetailQuery.data && <>
               <MarkdownView content={proposalDetailQuery.data.content} variant="compact" className="max-h-96 overflow-auto rounded-ui-sm bg-canvas p-3" />
               <div className="grid gap-2"><h5 className="text-ui-xs font-bold text-ink">Fontes da sugestão</h5><SourceList sources={proposalDetailQuery.data.sources} projectId={projectId} token={token} relatedTaskId={proposalDetailQuery.data.taskId} /></div>
-              <div className="flex flex-wrap gap-2"><button type="button" className={buttonPrimary} disabled={proposalAction.isPending} onClick={() => proposalAction.mutate({ proposal, action: 'approve' })}>Aprovar e publicar</button><button type="button" className={buttonSecondarySmall} disabled={proposalAction.isPending} onClick={() => { setRejectingProposalId(proposal._id); setRejectionReason(''); }}>Rejeitar</button></div>
+              <div className="flex flex-wrap gap-2"><Button type="button" className={buttonPrimary} disabled={proposalAction.isPending} onClick={() => proposalAction.mutate({ proposal, action: 'approve' })}>Aprovar e publicar</Button><Button type="button" variant="outline" size="sm" className={buttonSecondarySmall} disabled={proposalAction.isPending} onClick={() => { setRejectingProposalId(proposal._id); setRejectionReason(''); }}>Rejeitar</Button></div>
               {rejectingProposalId === proposal._id && <form className="grid gap-2 rounded-ui-sm border border-line bg-canvas p-3" onSubmit={event => { event.preventDefault(); proposalAction.mutate({ proposal, action: 'reject', reason: rejectionReason }); }}>
-                <label className={labelClass}>Motivo da rejeição<textarea className="min-h-20 w-full resize-y rounded-ui-sm border border-line-strong bg-white p-2.5 text-ui-sm text-ink" required maxLength={2000} value={rejectionReason} onChange={event => setRejectionReason(event.target.value)} /></label>
-                <div className="flex flex-wrap gap-2"><button type="submit" className={buttonSecondarySmall} disabled={proposalAction.isPending}>Registrar rejeição</button><button type="button" className={buttonSecondarySmall} onClick={() => { setRejectingProposalId(''); setRejectionReason(''); }}>Cancelar</button></div>
+                <label className={labelClass}>Motivo da rejeição<Textarea className="resize-y text-ui-sm" required maxLength={2000} value={rejectionReason} onChange={event => setRejectionReason(event.target.value)} /></label>
+                <div className="flex flex-wrap gap-2"><Button type="submit" variant="outline" size="sm" className={buttonSecondarySmall} disabled={proposalAction.isPending}>Registrar rejeição</Button><Button type="button" variant="outline" size="sm" className={buttonSecondarySmall} onClick={() => { setRejectingProposalId(''); setRejectionReason(''); }}>Cancelar</Button></div>
               </form>}
             </>}
           </div>}
         </article>)}
       </div>}
-      {proposalsQuery.hasNextPage && <button type="button" className={buttonSecondary + ' justify-self-start'} onClick={() => void proposalsQuery.fetchNextPage()} disabled={proposalsQuery.isFetchingNextPage}>{proposalsQuery.isFetchingNextPage ? 'Carregando…' : 'Carregar mais sugestões'}</button>}
+      {proposalsQuery.hasNextPage && <Button type="button" variant="outline" className={buttonSecondary + ' justify-self-start'} onClick={() => void proposalsQuery.fetchNextPage()} disabled={proposalsQuery.isFetchingNextPage}>{proposalsQuery.isFetchingNextPage ? 'Carregando…' : 'Carregar mais sugestões'}</Button>}
     </section>
+    <ConfirmDialog
+      open={Boolean(memoryToArchive)}
+      title="Arquivar memória?"
+      description="O histórico desta memória continuará disponível."
+      confirmLabel="Arquivar memória"
+      pendingLabel="Arquivando…"
+      pending={archiveMemory.isPending}
+      onOpenChange={open => { if (!open) setMemoryToArchive(null); }}
+      onConfirm={() => { if (memoryToArchive) archiveMemory.mutate(memoryToArchive); }}
+    />
   </section>;
 }

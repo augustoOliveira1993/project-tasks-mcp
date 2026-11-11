@@ -1,10 +1,11 @@
 import type { ReactNode } from 'react';
+import { Button } from '../../components/ui/button';
 import { textButton } from '../../components/ui/classes';
 import { IconDiff, IconMail, IconQuestion } from '../../components/ui/icons';
 
 type Kpi = { id: string; label: string; value: ReactNode; hint: string; active: boolean; onClick: () => void; tone?: string; icon?: ReactNode; featured?: boolean; compact?: boolean };
 
-const card = 'relative grid min-w-0 content-start gap-[3px] rounded-ui-md border text-left text-ink-2 transition-[border-color,box-shadow,transform] duration-150 ease-[ease]';
+const card = 'relative grid h-auto min-w-0 content-start gap-[3px] rounded-ui-md border text-left text-ink-2 transition-[border-color,box-shadow,transform] duration-150 ease-[ease]';
 const cardHover = 'hover:border-[#c3caf5] hover:shadow-[0_4px_12px_#27336d14]';
 const cardSurface = {
   idle: `border-line bg-white shadow-[0_1px_2px_#1720330a] ${cardHover}`,
@@ -16,14 +17,14 @@ const valueBase = 'font-display font-bold leading-[1.1] tracking-[-.04em]';
 
 function KpiButton({ kpi }: { kpi: Kpi }) {
   const surface = kpi.featured ? (kpi.active ? cardSurface.featuredActive : cardSurface.featuredIdle) : kpi.active ? cardSurface.active : cardSurface.idle;
-  const size = kpi.compact ? 'p-3' : 'px-4 py-3';
+  const size = kpi.compact ? 'min-h-[60px] p-3' : 'min-h-[78px] px-4 py-3 max-[760px]:min-h-[62px]';
   const scroll = kpi.featured ? 'max-[760px]:flex-[0_0_148px]' : 'max-[760px]:flex-[0_0_132px]';
   const valueTone = kpi.featured ? 'text-[30px] text-tone-amber max-[760px]:text-[26px]' : kpi.compact ? 'text-[20px] text-ink' : 'text-[22px] text-ink';
-  return <button type="button" className={`${card} ${size} ${scroll} ${surface} max-[760px]:snap-start`} aria-pressed={kpi.active} title={kpi.hint} onClick={kpi.onClick}>
+  return <Button type="button" className={`${card} ${size} ${scroll} ${surface} max-[760px]:snap-start`} aria-pressed={kpi.active} title={kpi.hint} onClick={kpi.onClick}>
     <span className="inline-flex items-center gap-[5px] text-ui-xs font-bold text-muted-strong">{kpi.icon}{kpi.label}</span>
     <strong className={`${valueBase} ${valueTone}`}>{kpi.value}</strong>
     <small className={`${kpi.compact ? 'hidden' : 'max-[760px]:hidden'} text-[10.5px] leading-[1.35] text-muted-strong`}>{kpi.hint}</small>
-  </button>;
+  </Button>;
 }
 
 const barClass = 'mb-4 grid grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)] gap-3 max-[1180px]:grid-cols-[minmax(0,1fr)] max-[760px]:gap-2';
@@ -63,7 +64,7 @@ export function TaskKpiBar({ counts, sync, syncState, onSyncRetry, statusFilter,
     <div className={groupPrimary} role="group" aria-label="Por status">{primary.map(kpi => <KpiButton key={kpi.id} kpi={kpi} />)}</div>
     <div className={groupAttention} role="group" aria-label="Pedem atenção" aria-busy={syncState === 'pending'}>
       {attention.map(kpi => <KpiButton key={kpi.id} kpi={kpi} />)}
-      {syncState === 'error' && <button type="button" className={`${textButton} col-[1/-1] justify-self-start max-[760px]:flex-[0_0_auto]`} onClick={onSyncRetry}>Falha ao carregar · tentar novamente</button>}
+      {syncState === 'error' && <Button type="button" className={`${textButton} col-[1/-1] justify-self-start max-[760px]:flex-[0_0_auto]`} onClick={onSyncRetry}>Falha ao carregar · tentar novamente</Button>}
     </div>
   </section>;
 }

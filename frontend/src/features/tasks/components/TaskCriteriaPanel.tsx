@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { notice } from '../ui/classes';
-import { MarkdownView } from '../ui/MarkdownView';
+import { Checkbox } from '../../../components/ui/checkbox';
+import { notice } from '../../../components/ui/classes';
+import { MarkdownView } from '../../../components/ui/MarkdownView';
+import { Textarea } from '../../../components/ui/textarea';
 
 const emptyInline = 'rounded-ui-md border border-dashed border-line-strong px-4 py-3 text-ui-sm text-muted-strong';
 const itemBase = 'rounded-ui-md border px-4 py-3 text-ui-sm leading-[1.55] text-[#626f80]';
@@ -69,12 +71,12 @@ export function TaskCriteriaPanel({ acceptance, progress, evidence, savingIndex,
       const open = openIndexes.has(index);
       return <li className={`${itemBase} ${done ? itemTone.done : itemTone.pending}`} key={index}>
         <div className="flex items-start justify-between gap-3">
-          <div className="flex min-w-0 cursor-pointer items-start gap-2.5"><input className="mt-0.5 h-[18px] w-[18px] shrink-0 basis-[18px] accent-[#148058] disabled:cursor-wait" type="checkbox" checked={done} disabled={readOnly || savingIndex !== null} aria-label={`${done ? 'Desmarcar' : 'Marcar'} critério ${index + 1}`} onChange={event => toggle(index, event.currentTarget.checked)} /><span className="min-w-0"><MarkdownView content={item} variant="criterion" /></span></div>
+          <div className="flex min-w-0 cursor-pointer items-start gap-2.5"><Checkbox className="mt-0.5 h-[18px] w-[18px] basis-[18px] accent-[#148058] disabled:cursor-wait" checked={done} disabled={readOnly || savingIndex !== null} aria-label={`${done ? 'Desmarcar' : 'Marcar'} critério ${index + 1}`} onChange={event => toggle(index, event.currentTarget.checked)} /><span className="min-w-0"><MarkdownView content={item} variant="criterion" /></span></div>
           <span className={`${stateBase} ${done ? stateTone.done : stateTone.pending}`}>{done ? 'Atendido' : 'Pendente'}</span>
         </div>
         <details className="mt-2 ml-7 grid gap-1 text-[9px] text-[#737f90]" open={open} onToggle={event => setOpen(index, event.currentTarget.open)}>
           <summary className="inline-flex cursor-pointer list-none items-center gap-2 text-ui-xs font-bold text-muted-strong before:text-[10px] before:transition-[rotate] before:duration-150 before:ease-[ease] before:content-['▸'] [[open]>&]:before:rotate-90 [&::-webkit-details-marker]:hidden"><span>Evidência</span><span className={`rounded-full px-[7px] py-px font-semibold ${saved ? evidenceTone.has : evidenceTone.none}`}>{saved ? 'registrada' : 'não registrada'}</span></summary>
-          <textarea className="mt-1.5 block min-h-16 w-full resize-y rounded-ui-sm border border-[#dce1ea] bg-white px-2.5 py-2 text-ui-sm text-[#435064] disabled:cursor-not-allowed disabled:bg-[#f5f7fa] disabled:text-[#737f90]" ref={element => { textareas.current[index] = element; }} rows={3} value={drafts[index] ?? evidence[index] ?? ''} disabled={readOnly || savingIndex !== null || locked} placeholder={done && !saved ? 'Informe o motivo para desmarcar este critério.' : 'Como este critério foi validado? Cole o comando, o teste ou o trecho de diff.'} aria-label={`Evidência do critério ${index + 1}`} aria-invalid={missing === index} onChange={event => { setDrafts(current => ({ ...current, [index]: event.target.value })); if (missing === index) setMissing(null); }} />
+          <Textarea className="mt-1.5 min-h-16 resize-y rounded-ui-sm border-[#dce1ea] px-2.5 py-2 text-ui-sm text-[#435064] disabled:cursor-not-allowed disabled:bg-[#f5f7fa] disabled:text-[#737f90]" ref={element => { textareas.current[index] = element; }} rows={3} value={drafts[index] ?? evidence[index] ?? ''} disabled={readOnly || savingIndex !== null || locked} placeholder={done && !saved ? 'Informe o motivo para desmarcar este critério.' : 'Como este critério foi validado? Cole o comando, o teste ou o trecho de diff.'} aria-label={`Evidência do critério ${index + 1}`} aria-invalid={missing === index} onChange={event => { setDrafts(current => ({ ...current, [index]: event.target.value })); if (missing === index) setMissing(null); }} />
           {missing === index && <p className="mt-1 text-ui-xs font-semibold text-tone-red" role="alert">Descreva a evidência para {done ? 'desmarcar' : 'marcar'} este critério.</p>}
           {locked && <small className="mt-1 block text-ui-xs text-muted-strong">Para alterar a evidência, desmarque o critério.</small>}
         </details>

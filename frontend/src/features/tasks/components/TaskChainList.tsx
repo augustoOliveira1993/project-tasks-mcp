@@ -1,7 +1,6 @@
-import { Badge } from '../ui/Badge';
-import { TaskLink } from '../ui/Links';
-import { statusLabels, statusTone } from '../../features/tasks/status';
-import { areaLabel } from '../../lib/labels';
+import { TaskLink } from '../../../components/ui/Links';
+import { TaskStatusBadge } from './TaskStatusBadge';
+import { areaLabel } from '../../../lib/labels';
 
 export type ChainTask = { _id: string; name: string; status: string; area?: string };
 
@@ -17,7 +16,7 @@ function ChainGroup({ label, items, projectId }: { label: string; items: ChainTa
     <span className="text-ui-xs font-bold text-muted-strong">{label}</span>
     <ul className="m-0 grid list-none gap-1.5 p-0">{items.map(item => <li className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-ui-sm border border-line bg-[#fbfcfe] px-2.5 py-2 text-ui-sm" key={item._id}>
       <TaskLink taskId={item._id} name={item.name} projectId={projectId}>{item.name}</TaskLink>
-      <Badge tone={statusTone[item.status]}>{statusLabels[item.status] ?? item.status}</Badge>
+      <TaskStatusBadge status={item.status} />
       {item.area && <span className={`inline-flex max-w-full items-center gap-1 rounded-ui-sm px-2 py-0.5 text-[10.5px] leading-[1.5] font-semibold whitespace-nowrap ${chipArea[item.area] ?? chipAreaDefault}`}>{areaLabel(item.area)}</span>}
     </li>)}</ul>
   </div>;

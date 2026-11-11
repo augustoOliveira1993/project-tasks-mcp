@@ -2,9 +2,12 @@ import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { query } from '../../api';
 import { ErrorNotice } from '../../components/ui/ErrorNotice';
-import { Skeleton } from '../../components/ui/Skeleton';
+import { SkeletonRows } from '../../components/ui/skeleton';
 import { TasksLink } from '../../components/ui/Links';
 import { buttonSecondary, eyebrow } from '../../components/ui/classes';
+import { Button } from '../../components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
 import { statusLabels, statusTone } from '../tasks/status';
 import { displayResponsible, formatDuration, formatPercent, periodStart, type DashboardPeriod } from './dashboard-format';
 import { periodFilters, responsibleFilterValue } from './dashboard-links';
@@ -79,7 +82,7 @@ function ResponsibleProjects({ items, responsibleKey, from, onOpenProject }: { i
     <summary className="cursor-pointer text-tone-blue underline decoration-[#b9c1f5] underline-offset-2">Ver projetos e status ({items.length})</summary>
     <div className="mt-2 grid gap-2.5">
       {items.map(project => <div key={project.projectId} className="grid gap-1.5 rounded-ui-sm bg-canvas p-2">
-        <button type="button" className="w-fit text-left text-ui-xs font-bold text-tone-blue underline decoration-[#b9c1f5] underline-offset-2 hover:text-[#2a39ad]" onClick={() => onOpenProject(project.projectId)}>{project.projectName} · {project.count} tarefa(s)</button>
+        <Button variant="link" size="sm" className="h-auto w-fit justify-start whitespace-normal p-0 text-left text-ui-xs font-bold text-tone-blue underline decoration-[#b9c1f5] underline-offset-2 hover:text-[#2a39ad]" onClick={() => onOpenProject(project.projectId)}>{project.projectName} · {project.count} tarefa(s)</Button>
         <StatusBadges items={project.byStatus} projectId={project.projectId} from={from} responsibleKey={responsibleKey} />
         <TasksLink projectId={project.projectId} filters={{ responsible: responsibleFilterValue(responsibleKey), ...periodFilters(from) }} title={`Ver as tarefas de ${displayResponsible(responsibleKey)} em ${project.projectName}`} className="w-fit text-[10px] font-semibold text-tone-blue underline decoration-[#b9c1f5] underline-offset-2">Tarefas deste responsável</TasksLink>
       </div>)}
@@ -104,15 +107,13 @@ export function GlobalDashboardPage({ token, nonce, onOpenProject }: { token: st
       <div><p className={eyebrow}>DESEMPENHO DO WORKSPACE</p><h1 id="global-dashboard-title" className="mb-1.5 font-display text-[length:clamp(21px,2vw,27px)] leading-[normal] font-extrabold tracking-[-.045em]">Visão geral dos projetos</h1><p className="text-ui-sm text-muted-strong">Projetos acessíveis e tarefas criadas no período selecionado.</p></div>
       <div className="flex gap-[9px] [align-items:end] max-[720px]:w-full">
         <label className="grid gap-[5px] text-ui-xs text-muted-strong max-[720px]:flex-1">Período
-          <select className="min-h-9 min-w-[158px] rounded-ui-sm border border-line-strong bg-surface px-[10px] text-ink max-[720px]:w-full" value={period} onChange={event => setPeriod(event.target.value as DashboardPeriod)}>
-            <option value="30d">Últimos 30 dias</option><option value="90d">Últimos 90 dias</option><option value="year">Este ano</option><option value="all">Todo o período</option>
-          </select>
+          <Select value={period} onValueChange={value => setPeriod(value as DashboardPeriod)}><SelectTrigger className="min-h-9 min-w-[158px] bg-surface text-ink max-[720px]:w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="30d">Últimos 30 dias</SelectItem><SelectItem value="90d">Últimos 90 dias</SelectItem><SelectItem value="year">Este ano</SelectItem><SelectItem value="all">Todo o período</SelectItem></SelectContent></Select>
         </label>
-        <button type="button" className={buttonSecondary} onClick={() => void dashboardQuery.refetch()} disabled={dashboardQuery.isFetching}>{dashboardQuery.isFetching ? 'Atualizando…' : 'Atualizar'}</button>
+        <Button variant="outline" className={buttonSecondary} onClick={() => void dashboardQuery.refetch()} disabled={dashboardQuery.isFetching}>{dashboardQuery.isFetching ? 'Atualizando…' : 'Atualizar'}</Button>
       </div>
     </div>
 
-    {dashboardQuery.isPending && <div className="py-2"><Skeleton rows={6} label="Carregando indicadores dos projetos…" /></div>}
+    {dashboardQuery.isPending && <div className="py-2"><SkeletonRows rows={6} label="Carregando indicadores dos projetos…" /></div>}
     {dashboardQuery.isError && <ErrorNotice error={dashboardQuery.error} onRetry={() => void dashboardQuery.refetch()} retrying={dashboardQuery.isFetching} title="Não foi possível carregar os indicadores" />}
     {data && <>
       <div className="grid grid-cols-[repeat(5,minmax(0,1fr))] gap-3 max-[960px]:grid-cols-[repeat(2,minmax(0,1fr))] max-[480px]:gap-2" aria-label="Indicadores gerais">
@@ -134,30 +135,30 @@ export function GlobalDashboardPage({ token, nonce, onOpenProject }: { token: st
 
         <section className={panel} aria-labelledby="global-projects-title">
           <h2 id="global-projects-title" className={panelTitle}>Comparação por projeto</h2><p className={subtitle}>Selecione um projeto para abrir seu dashboard detalhado.</p>
-          {data.projects.length ? <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[690px] border-collapse text-left text-ui-xs"><thead><tr><th className={th} scope="col">Projeto</th><th className={th} scope="col">Tarefas</th><th className={th} scope="col">Status</th><th className={th} scope="col">Conclusão</th><th className={th} scope="col">Tempo médio em execução</th></tr></thead>
-            <tbody>{data.projects.map(project => <tr key={project.id} className="[&:last-child>td]:border-b-0">
-              <td className={`${cell} min-w-[135px]`}><button type="button" className="text-left font-semibold text-tone-blue underline decoration-[#b9c1f5] underline-offset-2 hover:text-[#2a39ad]" onClick={() => onOpenProject(project.id)}>{project.name}</button><small className="mt-1 block text-muted-strong">Abrir dashboard →</small></td>
-              <td className={cell}><strong>{project.totalTasks}</strong><small className="mt-1 block text-muted-strong">{project.completedCount} concluídas</small></td>
-              <td className={cell}><StatusBadges items={project.byStatus} projectId={project.id} from={from} /></td>
-              <td className={cell}><strong>{formatPercent(project.completionRate)}</strong><small className="mt-1 block text-muted-strong">não canceladas</small></td>
-              <td className={cell}><strong>{formatDuration(project.development.averageTimeMs)}</strong><small className="mt-1 block text-muted-strong">{project.development.sampleCount} com tempo · {project.development.withoutSampleCount} sem amostra</small></td>
-            </tr>)}</tbody>
-          </table></div> : <p className="mt-4 rounded-ui-sm border border-dashed border-line-strong px-3 py-3 text-ui-xs text-muted-strong">Nenhum projeto acessível.</p>}
+          {data.projects.length ? <div className="mt-3"><Table className="min-w-[690px] border-collapse text-left text-ui-xs"><TableHeader><TableRow><TableHead className={th} scope="col">Projeto</TableHead><TableHead className={th} scope="col">Tarefas</TableHead><TableHead className={th} scope="col">Status</TableHead><TableHead className={th} scope="col">Conclusão</TableHead><TableHead className={th} scope="col">Tempo médio em execução</TableHead></TableRow></TableHeader>
+            <TableBody>{data.projects.map(project => <TableRow key={project.id} className="[&:last-child>td]:border-b-0">
+              <TableCell className={`${cell} min-w-[135px]`}><Button variant="link" size="sm" className="h-auto justify-start p-0 text-left font-semibold text-tone-blue underline decoration-[#b9c1f5] underline-offset-2 hover:text-[#2a39ad]" onClick={() => onOpenProject(project.id)}>{project.name}</Button><small className="mt-1 block text-muted-strong">Abrir dashboard →</small></TableCell>
+              <TableCell className={cell}><strong>{project.totalTasks}</strong><small className="mt-1 block text-muted-strong">{project.completedCount} concluídas</small></TableCell>
+              <TableCell className={cell}><StatusBadges items={project.byStatus} projectId={project.id} from={from} /></TableCell>
+              <TableCell className={cell}><strong>{formatPercent(project.completionRate)}</strong><small className="mt-1 block text-muted-strong">não canceladas</small></TableCell>
+              <TableCell className={cell}><strong>{formatDuration(project.development.averageTimeMs)}</strong><small className="mt-1 block text-muted-strong">{project.development.sampleCount} com tempo · {project.development.withoutSampleCount} sem amostra</small></TableCell>
+            </TableRow>)}</TableBody>
+          </Table></div> : <p className="mt-4 rounded-ui-sm border border-dashed border-line-strong px-3 py-3 text-ui-xs text-muted-strong">Nenhum projeto acessível.</p>}
         </section>
       </div>
 
       <section className={panel} aria-labelledby="global-responsibles-title">
         <h2 id="global-responsibles-title" className={panelTitle}>Desempenho por responsável</h2><p className={subtitle}>Totais agregados; abra “Ver projetos e status” para navegar às tarefas dentro de cada projeto. Inclui Sem responsável.</p>
-        {data.byResponsible.length ? <div className="mt-3 max-h-[680px] overflow-auto rounded-ui-sm border border-line"><table className="w-full min-w-[840px] border-collapse text-left text-ui-xs"><thead className="sticky top-0 bg-surface"><tr><th className={th} scope="col">Responsável</th><th className={th} scope="col">Tarefas</th><th className={th} scope="col">Status</th><th className={th} scope="col">Concluídas</th><th className={th} scope="col">Tempo médio em execução</th><th className={th} scope="col">Projetos e tarefas</th></tr></thead>
-          <tbody>{data.byResponsible.map(item => <tr key={item.key || 'unassigned'} className="[&:last-child>td]:border-b-0">
-            <td className={`${cell} font-semibold`}>{displayResponsible(item.key)}{item.key && <small className="mt-1 block font-normal text-muted-strong">{item.key}</small>}</td>
-            <td className={cell}><strong>{item.count}</strong></td>
-            <td className={cell}><StatusBadges items={item.byStatus} /></td>
-            <td className={cell}><strong>{item.completedCount} · {formatPercent(item.completionRate)}</strong><small className="mt-1 block text-muted-strong">sobre as não canceladas</small></td>
-            <td className={cell}><strong>{formatDuration(item.averageDevelopmentTimeMs)}</strong><small className="mt-1 block text-muted-strong">{item.developmentSampleCount} com tempo · {item.withoutDevelopmentSampleCount} sem amostra</small></td>
-            <td className={cell}><ResponsibleProjects items={item.byProject} responsibleKey={item.key} from={from} onOpenProject={onOpenProject} /></td>
-          </tr>)}</tbody>
-        </table></div> : <p className="mt-4 rounded-ui-sm border border-dashed border-line-strong px-3 py-3 text-ui-xs text-muted-strong" role="status">Nenhum responsável com tarefas neste período.</p>}
+        {data.byResponsible.length ? <div className="mt-3 max-h-[680px] overflow-auto rounded-ui-sm border border-line"><Table className="min-w-[840px] border-collapse text-left text-ui-xs"><TableHeader className="sticky top-0 bg-surface"><TableRow><TableHead className={th} scope="col">Responsável</TableHead><TableHead className={th} scope="col">Tarefas</TableHead><TableHead className={th} scope="col">Status</TableHead><TableHead className={th} scope="col">Concluídas</TableHead><TableHead className={th} scope="col">Tempo médio em execução</TableHead><TableHead className={th} scope="col">Projetos e tarefas</TableHead></TableRow></TableHeader>
+          <TableBody>{data.byResponsible.map(item => <TableRow key={item.key || 'unassigned'} className="[&:last-child>td]:border-b-0">
+            <TableCell className={`${cell} font-semibold`}>{displayResponsible(item.key)}{item.key && <small className="mt-1 block font-normal text-muted-strong">{item.key}</small>}</TableCell>
+            <TableCell className={cell}><strong>{item.count}</strong></TableCell>
+            <TableCell className={cell}><StatusBadges items={item.byStatus} /></TableCell>
+            <TableCell className={cell}><strong>{item.completedCount} · {formatPercent(item.completionRate)}</strong><small className="mt-1 block text-muted-strong">sobre as não canceladas</small></TableCell>
+            <TableCell className={cell}><strong>{formatDuration(item.averageDevelopmentTimeMs)}</strong><small className="mt-1 block text-muted-strong">{item.developmentSampleCount} com tempo · {item.withoutDevelopmentSampleCount} sem amostra</small></TableCell>
+            <TableCell className={cell}><ResponsibleProjects items={item.byProject} responsibleKey={item.key} from={from} onOpenProject={onOpenProject} /></TableCell>
+          </TableRow>)}</TableBody>
+        </Table></div> : <p className="mt-4 rounded-ui-sm border border-dashed border-line-strong px-3 py-3 text-ui-xs text-muted-strong" role="status">Nenhum responsável com tarefas neste período.</p>}
       </section>
     </>}
   </section>;

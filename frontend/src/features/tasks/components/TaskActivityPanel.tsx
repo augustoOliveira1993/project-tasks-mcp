@@ -1,14 +1,16 @@
 import { useState } from 'react';
-import { Avatar } from '../ui/Person';
-import { ErrorNotice } from '../ui/ErrorNotice';
-import { MarkdownView } from '../ui/MarkdownView';
-import { Skeleton } from '../ui/Skeleton';
-import { Badge } from '../ui/Badge';
-import { AgentClientIcon, isKnownAgentClient } from '../ui/AgentClientIcon';
-import { ConversationLink } from '../ui/Links';
-import { formatDate } from '../../lib/format';
-import { personName, relativeTime } from '../../lib/labels';
-import { eventKindLabel, eventSummary, isTechnicalEvent, originLabel } from '../../lib/activity';
+import { Button } from '../../../components/ui/button';
+import { Checkbox } from '../../../components/ui/checkbox';
+import { Avatar } from '../../../components/ui/Person';
+import { ErrorNotice } from '../../../components/ui/ErrorNotice';
+import { MarkdownView } from '../../../components/ui/MarkdownView';
+import { SkeletonRows as Skeleton } from '../../../components/ui/skeleton';
+import { Badge } from '../../../components/ui/badge';
+import { AgentClientIcon, isKnownAgentClient } from '../../../components/ui/AgentClientIcon';
+import { ConversationLink } from '../../../components/ui/Links';
+import { formatDate } from '../../../lib/format';
+import { personName, relativeTime } from '../../../lib/labels';
+import { eventKindLabel, eventSummary, isTechnicalEvent, originLabel } from '../../../lib/activity';
 
 const section = 'grid gap-3 [&_h3]:font-display [&_h3]:text-[13px] [&_h3]:leading-[normal] [&_h3]:font-bold [&_h3]:text-ink [&_h3]:normal-case [&_h3]:m-0';
 const list = 'm-0 grid list-none gap-3 p-0 [&_p]:text-ui-sm [&_p]:leading-[1.5] [&_p]:text-ink-2';
@@ -56,20 +58,20 @@ export function TaskActivityPanel({ events, unreadEvents = [], unreadCount = 0, 
     {executions.length > 0 && <section className={section} aria-label="Execuções">
       <h3>Execuções</h3>
       <ul className={list}>{executions.slice(0, 5).map(execution => <li className={item} key={execution._id}>
-        <div className={rowHead}><Badge tone={execution.status === 'completed' || execution.status === 'concluida' ? 'green' : 'blue'}>{execution.status}</Badge><small>Iniciada {relativeTime(execution.startedAt, now)} · {formatDate(execution.startedAt)}</small></div>
+        <div className={rowHead}><Badge variant={execution.status === 'completed' || execution.status === 'concluida' ? 'success' : 'info'}>{execution.status}</Badge><small>Iniciada {relativeTime(execution.startedAt, now)} · {formatDate(execution.startedAt)}</small></div>
         {execution.result?.summary && <MarkdownView content={execution.result.summary} />}
       </li>)}</ul>
     </section>}
     <section className={section} aria-label="Eventos da tarefa">
       <div className="flex flex-wrap items-center justify-between gap-3"><h3>Eventos</h3><div className="flex flex-wrap items-center gap-3">
         {unreadCount > 0 && <span className="rounded-full bg-[#fff2d8] px-2.5 py-1 text-ui-xs font-bold text-[#9a5c00]" role="status">{unreadCount} {unreadCount === 1 ? 'novidade não lida' : 'novidades não lidas'}</span>}
-        {hidden > 0 && <label className="inline-flex items-center gap-1.5 text-ui-xs text-muted-strong"><input type="checkbox" checked={showTechnical} onChange={event => setShowTechnical(event.target.checked)} /> Mostrar chamadas MCP e heartbeats ({hidden})</label>}
-        {unreadCount > 0 && onMarkRead && <button type="button" className="inline-flex min-h-[32px] items-center justify-center rounded-[7px] border border-[#e2c488] bg-white px-3 text-ui-xs font-bold text-[#855400] hover:bg-[#fffaf0] disabled:cursor-not-allowed disabled:opacity-55" disabled={markReadPending || unreadEventsPending} onClick={onMarkRead}>{markReadPending ? 'Marcando…' : unreadEventsPending ? 'Carregando novidades…' : 'Marcar novidades como lidas'}</button>}
+        {hidden > 0 && <label className="inline-flex items-center gap-1.5 text-ui-xs text-muted-strong"><Checkbox checked={showTechnical} onChange={event => setShowTechnical(event.target.checked)} /> Mostrar chamadas MCP e heartbeats ({hidden})</label>}
+        {unreadCount > 0 && onMarkRead && <Button type="button" className="inline-flex min-h-[32px] items-center justify-center rounded-[7px] border border-[#e2c488] bg-white px-3 text-ui-xs font-bold text-[#855400] hover:bg-[#fffaf0] disabled:cursor-not-allowed disabled:opacity-55" disabled={markReadPending || unreadEventsPending} onClick={onMarkRead}>{markReadPending ? 'Marcando…' : unreadEventsPending ? 'Carregando novidades…' : 'Marcar novidades como lidas'}</Button>}
       </div></div>
       {unreadCount > 0 && <p className="text-ui-xs text-muted-strong">As novidades permanecem destacadas até você marcá-las como lidas.</p>}
-      {markReadError && <div className="flex flex-wrap items-center gap-2 rounded-ui-sm border border-[#efd7d9] bg-[#fffafa] px-3 py-2 text-ui-xs text-tone-red" role="alert"><span>Não foi possível marcar as novidades como lidas: {markReadError}</span>{onRetryMarkRead && <button type="button" className="font-bold underline" disabled={markReadPending} onClick={onRetryMarkRead}>Tentar novamente</button>}</div>}
+      {markReadError && <div className="flex flex-wrap items-center gap-2 rounded-ui-sm border border-[#efd7d9] bg-[#fffafa] px-3 py-2 text-ui-xs text-tone-red" role="alert"><span>Não foi possível marcar as novidades como lidas: {markReadError}</span>{onRetryMarkRead && <Button type="button" className="font-bold underline" disabled={markReadPending} onClick={onRetryMarkRead}>Tentar novamente</Button>}</div>}
       {unreadEventsPending && <p className="text-ui-xs text-muted-strong" role="status">Carregando novidades da tarefa…</p>}
-      {unreadEventsError && <div className="flex flex-wrap items-center gap-2 rounded-ui-sm border border-[#efd7d9] bg-[#fffafa] px-3 py-2 text-ui-xs text-tone-red" role="alert"><span>Não foi possível identificar os eventos novos. A leitura continua pendente.</span>{onRetryUnreadEvents && <button type="button" className="font-bold underline" onClick={onRetryUnreadEvents}>Tentar novamente</button>}</div>}
+      {unreadEventsError && <div className="flex flex-wrap items-center gap-2 rounded-ui-sm border border-[#efd7d9] bg-[#fffafa] px-3 py-2 text-ui-xs text-tone-red" role="alert"><span>Não foi possível identificar os eventos novos. A leitura continua pendente.</span>{onRetryUnreadEvents && <Button type="button" className="font-bold underline" onClick={onRetryUnreadEvents}>Tentar novamente</Button>}</div>}
       {isPending ? <Skeleton rows={4} label="Carregando atividade…" /> : isError ? <ErrorNotice error={error} onRetry={onRetry} title="Não foi possível carregar a atividade" /> : visible.length ? <ul className={list}>{visible.map((event, index) => {
         const author = event.author?.trim() || '';
         const unreadKey = taskActivityEventKey(event);

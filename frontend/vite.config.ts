@@ -10,6 +10,9 @@ export default defineConfig(({ command }) => ({
   root: frontendRoot,
   base: command === 'serve' ? '/' : '/admin/',
   plugins: [react(), tailwindcss()],
+  resolve: {
+    alias: { '@': resolve(frontendRoot, 'src') }
+  },
   build: { outDir: resolve(frontendRoot, 'dist'), emptyOutDir: true },
   server: {
     host: '127.0.0.1',

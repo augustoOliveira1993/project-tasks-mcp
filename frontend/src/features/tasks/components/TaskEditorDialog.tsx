@@ -1,35 +1,32 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { operationId, request } from '../../api';
-import type { Project, Task } from '../../api';
-import { errorMessage } from '../../lib/format';
-import { plannedDateInput, plannedDateTime } from '../../features/tasks/task-create';
-import { AssigneePicker } from '../ui/AssigneePicker';
-import { useAssignees } from '../../features/tasks/assignees';
-import { buttonPrimary, buttonSecondary, eyebrow, notice } from '../ui/classes';
+import { operationId, request } from '../../../api';
+import type { Project, Task } from '../../../api';
+import { errorMessage } from '../../../lib/format';
+import { plannedDateInput, plannedDateTime } from '../task-create';
+import { AssigneePicker } from '../../../components/ui/AssigneePicker';
+import { useAssignees } from '../assignees';
+import { Alert, AlertDescription } from '../../../components/ui/alert';
+import { Button } from '../../../components/ui/button';
+import { Checkbox } from '../../../components/ui/checkbox';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../../../components/ui/dialog';
+import { Input } from '../../../components/ui/input';
+import { Label } from '../../../components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../../components/ui/select';
+import { Textarea } from '../../../components/ui/textarea';
 
 type Feature = { _id: string; name: string };
 const taskTypes = ['feature', 'fix', 'chore', 'docs', 'refactor', 'test', 'perf', 'build', 'ci', 'revert'];
 
-const dialogClass = 'm-auto max-h-[min(850px,calc(100dvh-28px))] w-[min(100%-28px,720px)] overflow-auto rounded-ui-lg border border-[#dfe4ed] bg-white p-0 text-[#455164] shadow-[0_24px_70px_#18223040] open:block backdrop:bg-[#18203388] backdrop:backdrop-blur-[3px]';
-const headerClass = 'flex items-start justify-between gap-4 border-b border-[#edf0f4] px-[23px] pt-[21px] pb-4 max-[760px]:px-4 max-[760px]:pt-[17px] max-[760px]:pb-[13px]';
-const titleClass = 'mb-[5px] font-display text-[17px] leading-[normal] font-bold tracking-[-.035em] text-[#263246]';
-const iconButton = 'inline-grid size-[30px] flex-none place-items-center rounded-[7px] border border-transparent bg-transparent text-[20px] text-[#8792a2] hover:bg-[#f2f3f8] hover:text-[#4654c0]';
-const formClass = 'grid max-h-[calc(100dvh-175px)] gap-[13px] overflow-y-auto px-[22px] pt-4 pb-5 max-[760px]:px-4 max-[480px]:pt-[13px] max-[480px]:pb-4';
-const hint = 'text-[9px] leading-normal font-normal text-[#8a94a4]';
-const fieldLabel = 'grid gap-1.5 text-[10px] font-semibold text-[#566275]';
-const control = 'w-full rounded-[7px] border border-[#e1e5ed] bg-white px-2.5 py-[9px] text-[11px] text-[#344054]';
-const textareaControl = `${control} resize-y`;
+const hint = 'text-xs leading-5 text-muted-foreground';
 
 export function TaskEditorDialog({ token, nonce, project, tasks, features, task, systemAdmin = false, close, notify, onSaved }: {
   systemAdmin?: boolean;
   token: string; nonce: string; project: Project; tasks: Task[]; features: Feature[]; task: Task; close: () => void; notify: (message: string, kind?: string) => void; onSaved: () => void;
 }) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
   const client = useQueryClient();
   const assignees = useAssignees(token, nonce, project._id, systemAdmin);
   const [dependencies, setDependencies] = useState<string[]>(task.dependencies ?? []);
-  useEffect(() => { const dialog = dialogRef.current; if (dialog && !dialog.open) dialog.showModal(); return () => { if (dialog?.open) dialog.close(); }; }, []);
   const mutation = useMutation({
     mutationFn: (data: Record<string, unknown>) => request<Task>(token, '/admin/records/edit', { body: { operationId: operationId(), projectId: project._id, kind: 'task', id: task._id, version: task.version, data } }),
     onSuccess: async result => {
@@ -56,6 +53,8 @@ export function TaskEditorDialog({ token, nonce, project, tasks, features, task,
     if (!acceptance.length) return notify('Informe pelo menos um critério de aceite.', 'error');
     const plannedStartAt = String(form.get('plannedStartAt') ?? '');
     const plannedDueAt = String(form.get('plannedDueAt') ?? '');
+    const repositoryId = String(form.get('repositoryId') ?? '');
+    if (!repositories.some(repository => repository.id === repositoryId)) return notify('Selecione um repositório para esta tarefa.', 'error');
     const dueControl = event.currentTarget.elements.namedItem('plannedDueAt') as HTMLInputElement;
     if (plannedStartAt && plannedDueAt && plannedStartAt > plannedDueAt) {
       dueControl.setCustomValidity('A entrega planejada precisa ser no mesmo dia ou depois do início.');
@@ -68,8 +67,8 @@ export function TaskEditorDialog({ token, nonce, project, tasks, features, task,
     const originalAcceptance = task.acceptance ?? [];
     const acceptanceChanged = acceptance.length !== originalAcceptance.length || acceptance.some((value, index) => value !== originalAcceptance[index]);
     const data: Record<string, unknown> = {
-      name, instructions, area: String(form.get('area') ?? ''), repositoryId: String(form.get('repositoryId') ?? ''),
-      featureId: String(form.get('featureId') ?? '') || null, type: String(form.get('type') ?? 'feature'),
+      name, instructions, area: String(form.get('area') ?? ''), repositoryId,
+      featureId: String(form.get('featureId') ?? '') === 'none' ? null : String(form.get('featureId') ?? '') || null, type: String(form.get('type') ?? 'feature'),
       priority: Number(form.get('priority') ?? 2), dependencies,
       plannedStartAt: plannedDateTime(plannedStartAt), plannedDueAt: plannedDateTime(plannedDueAt),
       ...(responsible ? { responsible } : {})
@@ -78,27 +77,35 @@ export function TaskEditorDialog({ token, nonce, project, tasks, features, task,
     mutation.mutate(data);
   }
 
-  return <dialog ref={dialogRef} className={dialogClass} aria-labelledby="edit-task-title" onCancel={event => { event.preventDefault(); if (!mutation.isPending) close(); }}>
-    <header className={headerClass}><div><p className={eyebrow}>TAREFA · EDIÇÃO</p><h2 className={titleClass} id="edit-task-title">Editar tarefa</h2><p className="text-[10px] text-muted-strong">{task._id} · versão {task.version}</p></div><button className={iconButton} type="button" onClick={close} disabled={mutation.isPending} aria-label="Fechar">×</button></header>
-    {mutation.isError && <p className={`${notice.error} mx-[22px] mt-[13px]`} role="alert">{errorMessage(mutation.error)}</p>}
-    <form className={formClass} onSubmit={submit}>
-      <label className={fieldLabel}>Nome<input className={control} name="name" required maxLength={20000} defaultValue={task.name} /></label>
-      <label className={fieldLabel}>Instruções<textarea className={textareaControl} name="instructions" required maxLength={20000} rows={4} defaultValue={task.instructions ?? task.description ?? ''} /></label>
-      <label className={fieldLabel}>Critérios de aceite<textarea className={textareaControl} name="acceptance" required rows={5} defaultValue={(task.acceptance ?? []).join('\n')} /><small className={hint}>Um critério por linha. Alterar os critérios reinicia o progresso deles.</small></label>
-      <div className="grid grid-cols-2 gap-3 max-[480px]:grid-cols-[1fr]">
-        <label className={fieldLabel}>Área<select className={control} name="area" required defaultValue={task.area ?? areas[0]}>{areas.map(area => <option key={area} value={area}>{area}</option>)}</select></label>
-        <label className={fieldLabel}>Repositório<select className={control} name="repositoryId" required defaultValue={task.repositoryId ?? ''}><option value="" disabled>Selecione</option>{repositories.map(repository => <option key={repository.id} value={repository.id}>{repository.name}</option>)}</select></label>
-        <label className={fieldLabel}>Feature<select className={control} name="featureId" defaultValue={task.featureId ?? ''}><option value="">Sem feature</option>{features.map(feature => <option key={feature._id} value={feature._id}>{feature.name}</option>)}</select></label>
-        <label className={fieldLabel}>Tipo<select className={control} name="type" defaultValue={task.type ?? 'feature'}>{taskTypes.map(type => <option key={type} value={type}>{type}</option>)}</select></label>
-        <label className={fieldLabel}>Prioridade<select className={control} name="priority" defaultValue={task.priority ?? 2}>{[0, 1, 2, 3, 4, 5].map(priority => <option key={priority} value={priority}>{priority}</option>)}</select></label>
-        <div><AssigneePicker className="[&_select]:text-[#344054]" name="responsible" assignees={assignees.data ?? []} isPending={assignees.isPending} isError={assignees.isError} defaultValue={task.responsible} allowEmpty={!task.responsible} /><small className={hint}>Escolha entre as credenciais ativas de pessoas e agentes. O responsável só pode ser trocado, não removido.</small></div>
+  return <Dialog open onOpenChange={open => { if (!open && !mutation.isPending) close(); }}>
+    <DialogContent className="flex max-h-[min(90dvh,850px)] max-w-3xl flex-col gap-0 overflow-hidden p-0">
+      <DialogHeader className="shrink-0 border-b border-border px-5 py-5 sm:px-6">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Tarefa · edição</p>
+        <DialogTitle className="mt-1">Editar tarefa</DialogTitle>
+        <DialogDescription className="break-all">{task._id} · versão {task.version}</DialogDescription>
+      </DialogHeader>
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {mutation.isError && <Alert variant="destructive" className="mx-5 mt-4 sm:mx-6"><AlertDescription>{errorMessage(mutation.error)}</AlertDescription></Alert>}
+        <form className="grid gap-4 p-5 sm:p-6" onSubmit={submit}>
+          <div className="grid gap-2"><Label htmlFor="edit-task-name">Nome</Label><Input id="edit-task-name" name="name" required maxLength={20000} defaultValue={task.name} /></div>
+          <div className="grid gap-2"><Label htmlFor="edit-task-instructions">Instruções</Label><Textarea id="edit-task-instructions" name="instructions" required maxLength={20000} rows={4} defaultValue={task.instructions ?? task.description ?? ''} /></div>
+          <div className="grid gap-2"><Label htmlFor="edit-task-acceptance">Critérios de aceite</Label><Textarea id="edit-task-acceptance" name="acceptance" required rows={5} defaultValue={(task.acceptance ?? []).join('\n')} /><p className={hint}>Um critério por linha. Alterar os critérios reinicia o progresso deles.</p></div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-2"><Label htmlFor="edit-task-area">Área</Label><Select name="area" defaultValue={task.area ?? areas[0]}><SelectTrigger id="edit-task-area" className="w-full"><SelectValue /></SelectTrigger><SelectContent>{areas.map(area => <SelectItem key={area} value={area}>{area}</SelectItem>)}</SelectContent></Select></div>
+            <div className="grid gap-2"><Label htmlFor="edit-task-repository">Repositório</Label><Select name="repositoryId" defaultValue={task.repositoryId ?? 'unassigned'} required><SelectTrigger id="edit-task-repository" className="w-full"><SelectValue placeholder="Selecione" /></SelectTrigger><SelectContent><SelectItem value="unassigned" disabled>Selecione</SelectItem>{repositories.map(repository => <SelectItem key={repository.id} value={repository.id}>{repository.name}</SelectItem>)}</SelectContent></Select></div>
+            <div className="grid gap-2"><Label htmlFor="edit-task-feature">Feature</Label><Select name="featureId" defaultValue={task.featureId ?? 'none'}><SelectTrigger id="edit-task-feature" className="w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="none">Sem feature</SelectItem>{features.map(feature => <SelectItem key={feature._id} value={feature._id}>{feature.name}</SelectItem>)}</SelectContent></Select></div>
+            <div className="grid gap-2"><Label htmlFor="edit-task-type">Tipo</Label><Select name="type" defaultValue={task.type ?? 'feature'}><SelectTrigger id="edit-task-type" className="w-full"><SelectValue /></SelectTrigger><SelectContent>{taskTypes.map(type => <SelectItem key={type} value={type}>{type}</SelectItem>)}</SelectContent></Select></div>
+            <div className="grid gap-2"><Label htmlFor="edit-task-priority">Prioridade</Label><Select name="priority" defaultValue={String(task.priority ?? 2)}><SelectTrigger id="edit-task-priority" className="w-full"><SelectValue /></SelectTrigger><SelectContent>{[0, 1, 2, 3, 4, 5].map(priority => <SelectItem key={priority} value={String(priority)}>{priority}</SelectItem>)}</SelectContent></Select></div>
+            <div className="grid gap-2"><AssigneePicker className="[&_select]:text-[#344054]" name="responsible" assignees={assignees.data ?? []} isPending={assignees.isPending} isError={assignees.isError} defaultValue={task.responsible} allowEmpty={!task.responsible} /><p className={hint}>Escolha entre credenciais ativas. O responsável só pode ser trocado, não removido.</p></div>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2" role="group" aria-label="Cronograma planejado da tarefa">
+            <div className="grid gap-2"><Label htmlFor="edit-task-start">Início planejado</Label><Input id="edit-task-start" type="date" name="plannedStartAt" defaultValue={plannedDateInput(task.plannedStartAt)} /></div>
+            <div className="grid gap-2"><Label htmlFor="edit-task-due">Entrega planejada</Label><Input id="edit-task-due" type="date" name="plannedDueAt" defaultValue={plannedDateInput(task.plannedDueAt)} /><p className={hint}>Limpe os campos para remover as datas planejadas.</p></div>
+          </div>
+          <fieldset className="grid gap-2"><legend className="text-sm font-medium">Dependências</legend><div className="grid max-h-40 gap-1 overflow-y-auto rounded-md border border-border p-2">{tasks.filter(item => item._id !== task._id).map(item => <label className="flex min-h-9 cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm hover:bg-accent" key={item._id}><Checkbox checked={dependencies.includes(item._id)} onChange={event => setDependencies(current => event.target.checked ? [...current, item._id] : current.filter(id => id !== item._id))} /><span className="min-w-0 break-words">{item.name} · {item.status}</span></label>)}</div></fieldset>
+          <DialogFooter><Button type="button" variant="outline" onClick={close} disabled={mutation.isPending}>Cancelar</Button><Button type="submit" disabled={mutation.isPending || repositories.length === 0}>{mutation.isPending ? 'Salvando…' : 'Salvar tarefa'}</Button></DialogFooter>
+        </form>
       </div>
-      <div className="grid grid-cols-2 gap-3 max-[480px]:grid-cols-1" role="group" aria-label="Cronograma planejado da tarefa">
-        <label className={fieldLabel}>Início planejado<input className={control} type="date" name="plannedStartAt" defaultValue={plannedDateInput(task.plannedStartAt)} /></label>
-        <label className={fieldLabel}>Entrega planejada<input className={control} type="date" name="plannedDueAt" defaultValue={plannedDateInput(task.plannedDueAt)} /><small className={hint}>Limpe os campos para remover as datas planejadas.</small></label>
-      </div>
-      <div className="grid gap-[7px] text-[10px] text-[#566275]" role="group" aria-labelledby="edit-task-dependencies-label"><strong className="font-semibold" id="edit-task-dependencies-label">Dependências</strong><div className="grid max-h-[150px] gap-1 overflow-y-auto rounded-[7px] border border-[#e1e5ed] p-[7px]">{tasks.filter(item => item._id !== task._id).map(item => <label className="flex cursor-pointer items-center gap-2 px-0.5 py-1 text-[10px] font-normal text-[#566275]" key={item._id}><input className="m-0 size-[14px] flex-none rounded-[7px] border border-[#e1e5ed] bg-white p-0 text-[11px] text-[#344054] accent-accent" type="checkbox" checked={dependencies.includes(item._id)} onChange={event => setDependencies(current => event.target.checked ? [...current, item._id] : current.filter(id => id !== item._id))} /><span>{item.name} · {item.status}</span></label>)}</div></div>
-      <div className="mt-1 flex items-center justify-end gap-2"><button type="button" className={buttonSecondary} onClick={close} disabled={mutation.isPending}>Cancelar</button><button className={buttonPrimary} disabled={mutation.isPending || repositories.length === 0}>{mutation.isPending ? 'Salvando…' : 'Salvar tarefa'}</button></div>
-    </form>
-  </dialog>;
+    </DialogContent>
+  </Dialog>;
 }

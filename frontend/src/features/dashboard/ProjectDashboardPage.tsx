@@ -2,9 +2,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { query } from '../../api';
 import { ErrorNotice } from '../../components/ui/ErrorNotice';
-import { Skeleton } from '../../components/ui/Skeleton';
-import { buttonSecondary, eyebrow, textButton } from '../../components/ui/classes';
+import { SkeletonRows } from '../../components/ui/skeleton';
+import { eyebrow, textButton } from '../../components/ui/classes';
 import { TaskLink, TasksLink } from '../../components/ui/Links';
+import { Button } from '../../components/ui/button';
+import { Input } from '../../components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
 import { ProjectMemoryPanel } from './ProjectMemoryPanel';
 import { areaFilterValue, responsibleFilterValue, type TaskLinkFilters } from './dashboard-links';
 import { statusLabels, statusTone } from '../tasks/status';
@@ -164,7 +168,7 @@ function DistributionChart({ title, items, projectId, filtersFor, onOpenProject 
         {projectId && filtersFor && hasFeatureFilter
           ? <TasksLink projectId={projectId} filters={filtersFor(item)} title={`Ver ${item.count} tarefa(s): ${item.label}`} className={className}>{content}</TasksLink>
           : item.projectId && onOpenProject
-            ? <button type="button" className={`${className} w-full cursor-pointer`} onClick={() => onOpenProject(item.projectId!)}>{content}</button>
+            ? <Button type="button" variant="ghost" className={`${className} h-auto w-full justify-start px-1.5 py-0.5 text-left whitespace-normal`} onClick={() => onOpenProject(item.projectId!)}>{content}</Button>
             : <div className={className}>{content}</div>}
       </div>;
     })}
@@ -189,23 +193,23 @@ function TrendChart({ items, granularity }: { items: DashboardSummary['trendByPe
 function ScheduleTimeline({ items, showProject = false }: { items: ScheduleTask[]; showProject?: boolean }) {
   if (!items.length) return <p className={emptyInline}>Nenhuma tarefa com datas planejadas neste recorte.</p>;
   const visible = items.slice(0, 100);
-  return <div className="overflow-x-auto">
-    <table className="w-full min-w-[890px] border-collapse text-left text-ui-sm">
-      <thead><tr>{showProject && <th className={th} scope="col">Projeto</th>}<th className={th} scope="col">Tarefa / feature</th><th className={th} scope="col">Responsável</th><th className={th} scope="col">Início planejado</th><th className={th} scope="col">Entrega planejada</th><th className={th} scope="col">Linha do tempo real de status</th></tr></thead>
-      <tbody>{visible.map(task => {
+  return <div>
+    <Table className="min-w-[890px] border-collapse text-left text-ui-sm">
+      <TableHeader><TableRow>{showProject && <TableHead className={th} scope="col">Projeto</TableHead>}<TableHead className={th} scope="col">Tarefa / feature</TableHead><TableHead className={th} scope="col">Responsável</TableHead><TableHead className={th} scope="col">Início planejado</TableHead><TableHead className={th} scope="col">Entrega planejada</TableHead><TableHead className={th} scope="col">Linha do tempo real de status</TableHead></TableRow></TableHeader>
+      <TableBody>{visible.map(task => {
         const overdue = task.plannedDueAt && new Date(task.plannedDueAt).valueOf() < Date.now() && !['concluida', 'cancelada'].includes(task.status);
-        return <tr className="[&:last-child>td]:border-b-0" key={task.taskId}>
-          {showProject && <td className={`${cell} max-w-[160px] [overflow-wrap:anywhere]`}>{task.projectName ?? 'Projeto'}</td>}
-          <td className={`${cell} max-w-[240px] [overflow-wrap:anywhere]`}><TaskLink taskId={task.taskId} name={task.name} projectId={task.projectId} className="font-semibold text-tone-blue underline decoration-[#b9c1f5] underline-offset-2 hover:text-[#2a3dbe]">{task.name}</TaskLink><small className="mt-1 block text-[10px] text-muted-strong">{task.featureName ?? 'Sem feature'} · {statusName(task.status)}{overdue ? ' · Atrasada' : ''}</small></td>
-          <td className={cell}>{displayResponsible(task.responsible)}</td>
-          <td className={`${cell} whitespace-nowrap`}>{dateLabel(task.plannedStartAt)}</td>
-          <td className={`${cell} whitespace-nowrap`}><span className={overdue ? 'font-semibold text-tone-red' : ''}>{dateLabel(task.plannedDueAt)}</span></td>
-          <td className={cell}>{task.actualStatusHistory.length ? <ol className="flex min-w-[220px] flex-wrap gap-1.5" aria-label={`Histórico real de status de ${task.name}`}>
+        return <TableRow className="[&:last-child>td]:border-b-0" key={task.taskId}>
+          {showProject && <TableCell className={`${cell} max-w-[160px] [overflow-wrap:anywhere]`}>{task.projectName ?? 'Projeto'}</TableCell>}
+          <TableCell className={`${cell} max-w-[240px] [overflow-wrap:anywhere]`}><TaskLink taskId={task.taskId} name={task.name} projectId={task.projectId} className="font-semibold text-tone-blue underline decoration-[#b9c1f5] underline-offset-2 hover:text-[#2a3dbe]">{task.name}</TaskLink><small className="mt-1 block text-[10px] text-muted-strong">{task.featureName ?? 'Sem feature'} · {statusName(task.status)}{overdue ? ' · Atrasada' : ''}</small></TableCell>
+          <TableCell className={cell}>{displayResponsible(task.responsible)}</TableCell>
+          <TableCell className={`${cell} whitespace-nowrap`}>{dateLabel(task.plannedStartAt)}</TableCell>
+          <TableCell className={`${cell} whitespace-nowrap`}><span className={overdue ? 'font-semibold text-tone-red' : ''}>{dateLabel(task.plannedDueAt)}</span></TableCell>
+          <TableCell className={cell}>{task.actualStatusHistory.length ? <ol className="flex min-w-[220px] flex-wrap gap-1.5" aria-label={`Histórico real de status de ${task.name}`}>
             {task.actualStatusHistory.map((interval, index) => <li className="rounded-full border border-line bg-canvas px-2 py-1 text-[10px] text-ink-2" key={`${interval.startedAt}-${index}`} title={`${dateLabel(interval.startedAt)} até ${interval.endedAt ? dateLabel(interval.endedAt) : 'em aberto'} · ${formatDuration(interval.durationMs)}`}><span className={`mr-1 inline-block size-[6px] rounded-full ${toneByStatus[statusTone[interval.status] ?? 'muted'] ?? toneByStatus.muted}`} aria-hidden="true" />{statusName(interval.status)} <time dateTime={interval.startedAt}>{dateLabel(interval.startedAt)}</time></li>)}
-          </ol> : <span className="text-muted-strong">Sem eventos registrados</span>}</td>
-        </tr>;
-      })}</tbody>
-    </table>
+          </ol> : <span className="text-muted-strong">Sem eventos registrados</span>}</TableCell>
+        </TableRow>;
+      })}</TableBody>
+    </Table>
     {items.length > visible.length && <p className="mt-2 text-ui-xs text-muted-strong">Exibindo {visible.length} de {items.length} tarefas planejadas. Ajuste os filtros para reduzir o recorte.</p>}
   </div>;
 }
@@ -289,26 +293,26 @@ export function ProjectDashboardPage({ token, nonce, projectId, onSelectProject 
       <div><p className={eyebrow}>GESTÃO DO PROJETO</p><h1 id="dashboard-title" className="mb-1.5 font-display text-[length:clamp(21px,2vw,27px)] leading-[normal] font-extrabold tracking-[-.045em]">Dashboard de projetos</h1><p className="text-ui-sm text-muted-strong">Portfólio, desempenho, responsáveis e cronograma planejado com histórico real de status.</p></div>
       <div className="flex flex-wrap items-end gap-2">
         <div className="flex rounded-ui-sm border border-line bg-surface p-1" role="group" aria-label="Escopo do dashboard">
-          <button type="button" className={`${buttonSecondary} ${view === 'portfolio' ? 'border-focus text-focus' : ''}`} aria-pressed={view === 'portfolio'} onClick={() => setView('portfolio')}>Portfólio</button>
-          <button type="button" className={`${buttonSecondary} ${view === 'project' ? 'border-focus text-focus' : ''}`} aria-pressed={view === 'project'} onClick={() => setView('project')}>Projeto</button>
+          <Button variant={view === 'portfolio' ? 'default' : 'ghost'} size="sm" aria-pressed={view === 'portfolio'} onClick={() => setView('portfolio')}>Portfólio</Button>
+          <Button variant={view === 'project' ? 'default' : 'ghost'} size="sm" aria-pressed={view === 'project'} onClick={() => setView('project')}>Projeto</Button>
         </div>
-        {view === 'portfolio' && <label className="grid gap-[5px] text-ui-xs text-muted-strong">Projeto no portfólio<select className={control} value={projectFilter} onChange={event => chooseProject(event.target.value)}><option value="">Todos os projetos acessíveis</option>{(portfolio?.projects ?? []).map(item => <option value={item.projectId} key={item.projectId}>{item.projectName}</option>)}</select></label>}
+        {view === 'portfolio' && <label className="grid gap-[5px] text-ui-xs text-muted-strong">Projeto no portfólio<Select value={projectFilter || '__all_projects__'} onValueChange={value => chooseProject(value === '__all_projects__' ? '' : value)}><SelectTrigger className={control} aria-label="Projeto no portfólio"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="__all_projects__">Todos os projetos acessíveis</SelectItem>{(portfolio?.projects ?? []).map(item => <SelectItem value={item.projectId} key={item.projectId}>{item.projectName}</SelectItem>)}</SelectContent></Select></label>}
       </div>
     </div>
 
     <div className="grid grid-cols-[repeat(3,minmax(0,1fr))_repeat(2,minmax(0,1.1fr))] items-end gap-2 rounded-ui-md border border-line bg-surface p-3 max-[900px]:grid-cols-3 max-[560px]:grid-cols-2">
       <div className="col-span-full flex flex-wrap gap-1.5">
-        {(['30d', '90d', 'year', 'all'] as const).map(preset => <button className={`${textButton} !px-2 !py-1`} type="button" key={preset} onClick={() => setPreset(preset)}>{preset === '30d' ? '30 dias' : preset === '90d' ? '90 dias' : preset === 'year' ? 'Este ano' : 'Todo o período'}</button>)}
+        {(['30d', '90d', 'year', 'all'] as const).map(preset => <Button variant="ghost" size="sm" className={`${textButton} !px-2 !py-1`} type="button" key={preset} onClick={() => setPreset(preset)}>{preset === '30d' ? '30 dias' : preset === '90d' ? '90 dias' : preset === 'year' ? 'Este ano' : 'Todo o período'}</Button>)}
       </div>
-      <label className="grid gap-[5px] text-ui-xs text-muted-strong">De<input className={control} type="date" value={range.from} max={range.to || undefined} onChange={event => setRange(current => ({ ...current, from: event.target.value }))} /></label>
-      <label className="grid gap-[5px] text-ui-xs text-muted-strong">Até<input className={control} type="date" value={range.to} min={range.from || undefined} onChange={event => setRange(current => ({ ...current, to: event.target.value }))} /></label>
-      <label className="grid gap-[5px] text-ui-xs text-muted-strong">Agrupar por<select className={control} value={granularity} onChange={event => setGranularity(event.target.value as Granularity)}><option value="day">Dia</option><option value="week">Semana</option><option value="month">Mês</option></select></label>
-      <label className="grid gap-[5px] text-ui-xs text-muted-strong">Feature<select className={control} value={featureFilter} onChange={event => setFeatureFilter(event.target.value)}><option value="">Todas as features</option>{featureOptions.map(item => <option key={item.key} value={item.key}>{view === 'portfolio' ? item.label : item.label}</option>)}</select></label>
-      <label className="grid gap-[5px] text-ui-xs text-muted-strong">Responsável<select className={control} value={responsibleFilter} onChange={event => setResponsibleFilter(event.target.value)}><option value="">Todos os responsáveis</option>{responsibleOptions.map(item => <option key={item.key || 'none'} value={item.key || '__none__'}>{item.label}</option>)}</select></label>
+      <label className="grid gap-[5px] text-ui-xs text-muted-strong">De<Input className={control} type="date" value={range.from} max={range.to || undefined} onChange={event => setRange(current => ({ ...current, from: event.target.value }))} /></label>
+      <label className="grid gap-[5px] text-ui-xs text-muted-strong">Até<Input className={control} type="date" value={range.to} min={range.from || undefined} onChange={event => setRange(current => ({ ...current, to: event.target.value }))} /></label>
+      <label className="grid gap-[5px] text-ui-xs text-muted-strong">Agrupar por<Select value={granularity} onValueChange={value => setGranularity(value as Granularity)}><SelectTrigger className={control} aria-label="Agrupar por"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="day">Dia</SelectItem><SelectItem value="week">Semana</SelectItem><SelectItem value="month">Mês</SelectItem></SelectContent></Select></label>
+      <label className="grid gap-[5px] text-ui-xs text-muted-strong">Feature<Select value={featureFilter || '__all_features__'} onValueChange={value => setFeatureFilter(value === '__all_features__' ? '' : value)}><SelectTrigger className={control} aria-label="Feature"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="__all_features__">Todas as features</SelectItem>{featureOptions.map(item => <SelectItem key={item.key} value={item.key}>{item.label}</SelectItem>)}</SelectContent></Select></label>
+      <label className="grid gap-[5px] text-ui-xs text-muted-strong">Responsável<Select value={responsibleFilter || '__all_responsibles__'} onValueChange={value => setResponsibleFilter(value === '__all_responsibles__' ? '' : value)}><SelectTrigger className={control} aria-label="Responsável"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="__all_responsibles__">Todos os responsáveis</SelectItem>{responsibleOptions.map(item => <SelectItem key={item.key || 'none'} value={item.key || '__none__'}>{item.label}</SelectItem>)}</SelectContent></Select></label>
     </div>
     {!validRange && <p className="rounded-ui-sm border border-tone-red/30 bg-tone-red/5 px-3 py-2 text-ui-sm text-tone-red" role="alert">A data inicial precisa ser anterior ou igual à data final.</p>}
     <p className="text-ui-xs text-muted-strong">O período considera a data de criação das tarefas; o cronograma lista todas as tarefas com datas planejadas. Feature e responsável refinam agrupamentos e cronograma, enquanto os indicadores resumem o período completo.</p>
-    {isPending && <div className="py-2"><Skeleton rows={6} label="Carregando indicadores e cronograma…" /></div>}
+    {isPending && <div className="py-2"><SkeletonRows rows={6} label="Carregando indicadores e cronograma…" /></div>}
     {activeError && <ErrorNotice error={activeError} onRetry={retry} retrying={retrying} title={view === 'project' ? 'Não foi possível carregar o dashboard do projeto' : 'Não foi possível carregar o portfólio'} />}
     {view === 'portfolio' && portfolio && !portfolio.totalProjects && <p className={emptyInline} role="status">Nenhum projeto acessível para esta credencial.</p>}
     {view === 'project' && !projectId && !projectQuery.isPending && <p className={emptyInline} role="status">Selecione um projeto acessível para abrir o detalhe.</p>}
@@ -332,9 +336,9 @@ export function ProjectDashboardPage({ token, nonce, projectId, onSelectProject 
           {projectRows.length ? <div className="grid grid-cols-[repeat(3,minmax(0,1fr))] gap-3 max-[900px]:grid-cols-2 max-[560px]:grid-cols-1">{projectRows.map(item => {
             const done = item.byStatus.find(status => status.status === 'concluida')?.count ?? 0;
             const rate = item.totalTasks ? Math.round(done / item.totalTasks * 100) : 0;
-            return <button type="button" key={item.projectId} onClick={() => openProject(item.projectId)} className="grid min-w-0 gap-2 rounded-ui-md border border-line bg-surface p-3 text-left transition hover:border-focus hover:shadow-[0_2px_8px_#1720331a]">
+            return <Button variant="outline" type="button" key={item.projectId} onClick={() => openProject(item.projectId)} className="h-auto min-w-0 justify-start rounded-ui-md border-line bg-surface p-3 text-left whitespace-normal transition hover:border-focus hover:bg-surface hover:shadow-[0_2px_8px_#1720331a]">
               <strong className="truncate text-ui-sm text-ink">{item.projectName}</strong><span className="text-ui-xs text-muted-strong">{item.totalTasks} tarefa(s) · {rate}% concluídas</span><span className="grid grid-cols-[1fr_auto] gap-2 text-ui-xs text-ink-2"><span>{item.scheduleSummary.scheduledTaskCount} no cronograma</span><span className={item.scheduleSummary.overdueTaskCount ? 'font-semibold text-tone-red' : 'text-muted-strong'}>{item.scheduleSummary.overdueTaskCount} atrasada(s)</span></span><span className="h-1.5 overflow-hidden rounded-full bg-canvas"><span className="block h-full rounded-full bg-tone-green" style={{ width: `${rate}%` }} /></span>
-            </button>;
+            </Button>;
           })}</div> : <p className={emptyInline}>Nenhum projeto para o filtro atual.</p>}
         </section>
         <div className="grid grid-cols-[repeat(2,minmax(0,1fr))] gap-[14px] max-[720px]:grid-cols-[1fr]">
@@ -352,7 +356,7 @@ export function ProjectDashboardPage({ token, nonce, projectId, onSelectProject 
       <section className={panel} aria-labelledby="dashboard-schedule-title"><div className={panelHeading}><div><h2 className={panelTitle} id="dashboard-schedule-title">Cronograma planejado e linha do tempo real</h2><p className={panelSubtitle}>As datas planejadas são previsões; os eventos abaixo vêm do histórico real de status da tarefa.</p></div></div><ScheduleTimeline items={schedule} showProject={view === 'portfolio'} /></section>
 
       {view === 'project' && projectQuery.data && <section className={`${panel} col-span-full`} aria-labelledby="dashboard-recent-title"><div className={panelHeading}><div><h2 className={panelTitle} id="dashboard-recent-title">Tarefas recentes</h2><p className={panelSubtitle}>Responsável, feature, status e tempo real em execução.</p></div></div>
-        {projectQuery.data.recentTasks.length ? <div className="overflow-x-auto"><table className="w-full min-w-[660px] border-collapse text-left text-ui-sm"><thead><tr><th className={th} scope="col">Tarefa</th><th className={th} scope="col">Feature</th><th className={th} scope="col">Responsável</th><th className={th} scope="col">Status</th><th className={th} scope="col">Desenvolvimento</th></tr></thead><tbody>{projectQuery.data.recentTasks.map(task => <tr className="[&:last-child>td]:border-b-0" key={task.id}><td className={`${cell} max-w-[300px] [overflow-wrap:anywhere]`}><TaskLink taskId={task.id} name={task.name} projectId={projectId} className="font-semibold text-tone-blue underline decoration-[#b9c1f5] underline-offset-2">{task.name}</TaskLink></td><td className={cell}>{projectQuery.data.byFeature.find(item => item.featureId === task.featureId)?.label ?? 'Sem feature'}</td><td className={cell}>{displayResponsible(task.responsible)}</td><td className={cell}>{statusName(task.status)}</td><td className={cell}>{formatDuration(task.developmentTimeMs)}</td></tr>)}</tbody></table></div> : <p className={emptyInline}>Nenhuma tarefa criada neste período.</p>}
+        {projectQuery.data.recentTasks.length ? <Table className="min-w-[660px] border-collapse text-left text-ui-sm"><TableHeader><TableRow><TableHead className={th} scope="col">Tarefa</TableHead><TableHead className={th} scope="col">Feature</TableHead><TableHead className={th} scope="col">Responsável</TableHead><TableHead className={th} scope="col">Status</TableHead><TableHead className={th} scope="col">Desenvolvimento</TableHead></TableRow></TableHeader><TableBody>{projectQuery.data.recentTasks.map(task => <TableRow className="[&:last-child>td]:border-b-0" key={task.id}><TableCell className={`${cell} max-w-[300px] [overflow-wrap:anywhere]`}><TaskLink taskId={task.id} name={task.name} projectId={projectId} className="font-semibold text-tone-blue underline decoration-[#b9c1f5] underline-offset-2">{task.name}</TaskLink></TableCell><TableCell className={cell}>{projectQuery.data.byFeature.find(item => item.featureId === task.featureId)?.label ?? 'Sem feature'}</TableCell><TableCell className={cell}>{displayResponsible(task.responsible)}</TableCell><TableCell className={cell}>{statusName(task.status)}</TableCell><TableCell className={cell}>{formatDuration(task.developmentTimeMs)}</TableCell></TableRow>)}</TableBody></Table> : <p className={emptyInline}>Nenhuma tarefa criada neste período.</p>}
       </section>}
     </>}
     {view === 'project' && <ProjectMemoryPanel key={projectId} token={token} projectId={projectId} />}

@@ -4,10 +4,13 @@ import { allRecords, operationId, request } from '../../api';
 import type { Project, Task } from '../../api';
 import { errorMessage, formatDate } from '../../lib/format';
 import { MarkdownView } from '../../components/ui/MarkdownView';
+import { Button } from '../../components/ui/button';
+import { ConfirmDialog } from '../../components/ui/confirm-dialog';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
 import { EntityIdCopyButton } from '../../components/ui/Links';
-import { TaskEditorDialog } from '../../components/tasks/TaskEditorDialog';
+import { TaskEditorDialog } from '../tasks/components/TaskEditorDialog';
 import { CreateTaskDialog } from '../tasks/CreateTaskDialog';
-import { CatalogRecordDialog } from './FeaturesCatalog';
+import { CatalogRecordDialog } from './components/CatalogRecordDialog';
 import { taskPageUrl } from '../../route-state';
 import { buttonPrimary, notice, textButton } from '../../components/ui/classes';
 import {
@@ -25,6 +28,7 @@ export function TasksCatalog({ token, nonce, project, tasks, notify, onChanged }
   const [creating, setCreating] = useState(false);
   const [selected, setSelected] = useState<Task | null>(null);
   const [editing, setEditing] = useState<Task | null>(null);
+  const [archiving, setArchiving] = useState<Task | null>(null);
   const projectId = project?._id ?? '';
   const client = useQueryClient();
   const features = useQuery({
@@ -38,6 +42,7 @@ export function TasksCatalog({ token, nonce, project, tasks, notify, onChanged }
       await client.invalidateQueries({ queryKey: ['project-tasks', nonce, projectId] });
       await client.invalidateQueries({ queryKey: ['admin-projects', nonce] });
       notify(`Tarefa “${task.name}” arquivada.`, 'success');
+      setArchiving(null);
       onChanged();
     },
     onError: error => notify(errorMessage(error), 'error')
@@ -47,15 +52,16 @@ export function TasksCatalog({ token, nonce, project, tasks, notify, onChanged }
   const areas = project?.areas?.length ? project.areas : ['backend', 'frontend', 'outro'];
 
   return <section className={screen}>
-    <div className={screenHeading}><div><h2 className={screenTitle}>Tarefas</h2><p className={screenDescription}>Consulte, edite e arquive tarefas do projeto selecionado.</p></div><button className={`${buttonPrimary} ${screenAction}`} type="button" disabled={!project || repositories.length === 0} onClick={() => setCreating(true)}>Nova tarefa</button></div>
+    <div className={screenHeading}><div><h2 className={screenTitle}>Tarefas</h2><p className={screenDescription}>Consulte, edite e arquive tarefas do projeto selecionado.</p></div><Button className={`${buttonPrimary} ${screenAction}`} disabled={!project || repositories.length === 0} onClick={() => setCreating(true)}>Nova tarefa</Button></div>
     {!project ? <p className={notice.info}>Selecione um projeto para consultar as tarefas.</p> : features.isError ? <p className={notice.error} role="alert">Não foi possível carregar as features: {errorMessage(features.error)}</p> : <section className={tableCard}><div className={sectionHeading}><div><h3 className={sectionTitle}>Tarefas cadastradas</h3><p className={sectionDescription}>{tasks.length} tarefa(s)</p></div></div>
-      {tasks.length ? <div className={tableScroll}><table className={table}><thead><tr><th className={thCell}>Tarefa</th><th className={thCell}>Feature</th><th className={thCell}>Área</th><th className={thCell}>Status</th><th className={thCell}>Responsável</th><th className={thCell}>Ações</th></tr></thead><tbody>
-        {tasks.map(task => <tr key={task._id} className={rowHover}><td className={tdCell}><strong className={cellStrong}>{task.name}</strong><small className={rowId}>{task._id}</small></td><td className={tdCell}>{task.featureId ? featureNames.get(task.featureId) ?? 'Feature indisponível' : 'Sem feature'}</td><td className={tdCell}>{task.area ?? '—'}</td><td className={tdCell}>{task.status}</td><td className={tdCell}>{task.responsible ?? '—'}</td><td className={tdCell}><div className={rowActions}><button className={textButtonNowrap} type="button" onClick={() => setSelected(task)}>Ver</button><button className={textButtonNowrap} type="button" onClick={() => setEditing(task)}>Editar</button><button className={dangerTextButton} type="button" disabled={!terminalTaskStates.includes(task.status) || archive.isPending} title={terminalTaskStates.includes(task.status) ? 'Arquivar tarefa' : 'Só é possível arquivar tarefas concluídas ou canceladas.'} onClick={() => { if (window.confirm(`Arquivar a tarefa “${task.name}”?`)) archive.mutate(task); }}>Arquivar</button></div></td></tr>)}
-      </tbody></table></div> : <div className={emptyState}><h3 className={emptyTitle}>Nenhuma tarefa</h3><p className={emptyText}>Cadastre a primeira tarefa deste projeto.</p></div>}
+      {tasks.length ? <div className={tableScroll}><Table className={table}><TableHeader><TableRow><TableHead className={thCell}>Tarefa</TableHead><TableHead className={thCell}>Feature</TableHead><TableHead className={thCell}>Área</TableHead><TableHead className={thCell}>Status</TableHead><TableHead className={thCell}>Responsável</TableHead><TableHead className={thCell}>Ações</TableHead></TableRow></TableHeader><TableBody>
+        {tasks.map(task => <TableRow key={task._id} className={rowHover}><TableCell className={tdCell}><strong className={cellStrong}>{task.name}</strong><small className={rowId}>{task._id}</small></TableCell><TableCell className={tdCell}>{task.featureId ? featureNames.get(task.featureId) ?? 'Feature indisponível' : 'Sem feature'}</TableCell><TableCell className={tdCell}>{task.area ?? '—'}</TableCell><TableCell className={tdCell}>{task.status}</TableCell><TableCell className={tdCell}>{task.responsible ?? '—'}</TableCell><TableCell className={tdCell}><div className={rowActions}><Button variant="link" className={textButtonNowrap} onClick={() => setSelected(task)}>Ver</Button><Button variant="link" className={textButtonNowrap} onClick={() => setEditing(task)}>Editar</Button><Button variant="link" className={dangerTextButton} disabled={!terminalTaskStates.includes(task.status) || archive.isPending} title={terminalTaskStates.includes(task.status) ? 'Arquivar tarefa' : 'Só é possível arquivar tarefas concluídas ou canceladas.'} onClick={() => setArchiving(task)}>Arquivar</Button></div></TableCell></TableRow>)}
+      </TableBody></Table></div> : <div className={emptyState}><h3 className={emptyTitle}>Nenhuma tarefa</h3><p className={emptyText}>Cadastre a primeira tarefa deste projeto.</p></div>}
       {archive.isError && <p className={notice.error} role="alert">{errorMessage(archive.error)}</p>}
     </section>}
     {creating && project && <CreateTaskDialog key={projectId} token={token} nonce={nonce} projectId={projectId} repositories={repositories} areas={areas} defaultFeatureId="" close={() => setCreating(false)} onCreated={task => { setCreating(false); notify(`Tarefa “${task.name}” criada.`, 'success'); onChanged(); }} />}
     {selected && <CatalogRecordDialog title={selected.name} subtitle={`Tarefa · ${selected.status}`} close={() => setSelected(null)}><div className={detailGrid}><div className={detailItem}><dt className={detailTerm}>Área</dt><dd className={detailValue}>{selected.area ?? '—'}</dd></div><div className={detailItem}><dt className={detailTerm}>Tipo</dt><dd className={detailValue}>{selected.type ?? 'feature'}</dd></div><div className={detailItem}><dt className={detailTerm}>Feature</dt><dd className={detailValue}>{selected.featureId ? featureNames.get(selected.featureId) ?? 'Indisponível' : 'Sem feature'}</dd></div><div className={detailItem}><dt className={detailTerm}>Prioridade</dt><dd className={detailValue}>{selected.priority ?? '—'}</dd></div><div className={detailItem}><dt className={detailTerm}>Responsável</dt><dd className={detailValue}>{selected.responsible || 'Não atribuído'}</dd></div><div className={detailItem}><dt className={detailTerm}>Atualizada</dt><dd className={detailValue}>{formatDate(selected.updatedAt)}</dd></div></div><p className="flex flex-wrap items-center gap-1"><a className={textButton} href={taskPageUrl(projectId, selected._id)}>{selected.name}</a><EntityIdCopyButton id={selected._id} name={selected.name} kind="tarefa" /></p><div className={detailSection}><h3 className={detailSectionTitle}>Instruções</h3><MarkdownView content={selected.instructions ?? selected.description ?? ''} /></div><div className={detailSection}><h3 className={detailSectionTitle}>Critérios de aceite</h3><ul className={acceptanceList}>{(selected.acceptance ?? []).map((criterion, index) => <li key={index} className={acceptanceItem}><MarkdownView content={criterion} /><small className={acceptanceStatus}>{selected.acceptanceProgress?.[index] ? 'Atendido' : 'Pendente'}</small></li>)}</ul></div></CatalogRecordDialog>}
     {editing && project && <TaskEditorDialog token={token} nonce={nonce} project={project} tasks={tasks} features={features.data ?? []} task={editing} close={() => setEditing(null)} notify={notify} onSaved={() => { setEditing(null); onChanged(); }} />}
+    <ConfirmDialog open={Boolean(archiving)} title="Arquivar tarefa" description={archiving ? `Arquivar a tarefa “${archiving.name}”?` : ''} confirmLabel="Arquivar tarefa" pendingLabel="Arquivando…" pending={archive.isPending} onOpenChange={open => { if (!open) setArchiving(null); }} onConfirm={() => { if (archiving) archive.mutate(archiving); }} />
   </section>;
 }

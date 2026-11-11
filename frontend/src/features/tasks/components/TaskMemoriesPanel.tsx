@@ -1,11 +1,16 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
+import { Button } from '../../../components/ui/button';
+import { Input } from '../../../components/ui/input';
+import { Label } from '../../../components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../../components/ui/select';
+import { Textarea } from '../../../components/ui/textarea';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ApiRequestError, operationId, query } from '../../api';
-import type { ApiPage } from '../../api';
-import { FeatureLink, TaskLink } from '../ui/Links';
-import { MarkdownView } from '../ui/MarkdownView';
-import { ErrorNotice } from '../ui/ErrorNotice';
-import { buttonPrimary, buttonSecondary, buttonSecondarySmall, notice } from '../ui/classes';
+import { ApiRequestError, operationId, query } from '../../../api';
+import type { ApiPage } from '../../../api';
+import { FeatureLink, TaskLink } from '../../../components/ui/Links';
+import { MarkdownView } from '../../../components/ui/MarkdownView';
+import { ErrorNotice } from '../../../components/ui/ErrorNotice';
+import { buttonPrimary, buttonSecondary, buttonSecondarySmall, notice } from '../../../components/ui/classes';
 
 type MemoryCategory = 'decision' | 'architecture' | 'convention' | 'domain_fact';
 type MemoryStatus = 'active' | 'superseded';
@@ -57,6 +62,19 @@ const inputClass = 'min-h-9 w-full min-w-0 rounded-ui-sm border border-line-stro
 const labelClass = 'grid min-w-0 gap-1.5 text-ui-xs font-semibold text-muted-strong';
 const panelClass = 'grid min-w-0 gap-4 rounded-ui-md border border-line bg-surface p-4';
 
+function MemorySelect({ id, label, value, options, disabled = false, onValueChange }: {
+  id: string; label: string; value: string; options: Array<{ value: string; label: string }>;
+  disabled?: boolean; onValueChange: (value: string) => void;
+}) {
+  return <div className={labelClass}>
+    <Label htmlFor={id}>{label}</Label>
+    <Select value={value} onValueChange={onValueChange} disabled={disabled}>
+      <SelectTrigger id={id} className={inputClass}><SelectValue /></SelectTrigger>
+      <SelectContent>{options.map(option => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
+    </Select>
+  </div>;
+}
+
 function DocumentSource({ token, projectId, source }: { token: string; projectId: string; source: MemorySource }) {
   const [isOpen, setIsOpen] = useState(false);
   const documentQuery = useQuery({
@@ -67,7 +85,7 @@ function DocumentSource({ token, projectId, source }: { token: string; projectId
     })
   });
   return <div className="grid min-w-0 gap-2">
-    <button type="button" className="wrap-anywhere text-left text-ui-xs font-semibold text-tone-blue underline underline-offset-2" aria-expanded={isOpen} onClick={() => setIsOpen(!isOpen)}>{source.title ?? 'Abrir documento fonte'}{source.revision ? ` · rev. ${source.revision}` : ''}</button>
+    <Button type="button" className="wrap-anywhere text-left text-ui-xs font-semibold text-tone-blue underline underline-offset-2" aria-expanded={isOpen} onClick={() => setIsOpen(!isOpen)}>{source.title ?? 'Abrir documento fonte'}{source.revision ? ` · rev. ${source.revision}` : ''}</Button>
     {isOpen && <>
       {documentQuery.isPending && <span className="text-ui-xs text-muted-strong" role="status">Carregando documento…</span>}
       {documentQuery.isError && <ErrorNotice error={documentQuery.error} onRetry={() => void documentQuery.refetch()} retrying={documentQuery.isFetching} />}
@@ -95,6 +113,7 @@ function emptyDraft(taskId: string): MemoryDraft {
 }
 
 export function TaskMemoriesPanel({ token, projectId, taskId, taskName }: { token: string; projectId: string; taskId: string; taskName: string }) {
+  const controlId = useId();
   const queryClient = useQueryClient();
   const [status, setStatus] = useState<MemoryStatus>('active');
   const [draft, setDraft] = useState<MemoryDraft | null>(null);
@@ -204,7 +223,7 @@ export function TaskMemoriesPanel({ token, projectId, taskId, taskName }: { toke
         <h3 id="task-memory-title" className="font-display text-[16px] font-bold text-ink">Memórias desta tarefa</h3>
         <p className="mt-1 max-w-[75ch] text-ui-xs leading-relaxed text-muted-strong">Este acervo é propriedade de <TaskLink taskId={taskId} name={taskName} projectId={projectId} className="font-semibold text-tone-blue underline underline-offset-2">{taskName}</TaskLink>. Memórias compartilhadas do projeto continuam no acervo do projeto.</p>
       </div>
-      <button type="button" className={buttonPrimary} onClick={() => { saveMemory.reset(); setDraft(emptyDraft(taskId)); setEditingMemoryId(''); setOpenMemoryId(''); setMessage(''); }}>Nova memória da tarefa</button>
+      <Button type="button" className={buttonPrimary} onClick={() => { saveMemory.reset(); setDraft(emptyDraft(taskId)); setEditingMemoryId(''); setOpenMemoryId(''); setMessage(''); }}>Nova memória da tarefa</Button>
     </header>
 
     {message && <p className={notice.info} role="status">{message}</p>}
@@ -214,33 +233,33 @@ export function TaskMemoriesPanel({ token, projectId, taskId, taskName }: { toke
     {draft && <form className="grid min-w-0 gap-3 rounded-ui-sm border border-line bg-canvas p-3" onSubmit={event => { event.preventDefault(); setMessage(''); saveMemory.mutate(); }}>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div><h4 className="text-ui-sm font-bold text-ink">{draft.version === undefined ? 'Criar memória da tarefa' : 'Editar memória da tarefa'}</h4><p className="mt-1 text-ui-xs text-muted-strong">A propriedade fica fixada nesta tarefa. A gravação registra uma revisão e exige fonte verificável.</p></div>
-        <button type="button" className={buttonSecondarySmall} onClick={closeDraft}>Fechar</button>
+        <Button type="button" className={buttonSecondarySmall} onClick={closeDraft}>Fechar</Button>
       </div>
       <div className="grid grid-cols-[minmax(0,2fr)_minmax(150px,1fr)_minmax(150px,1fr)] gap-3 max-[720px]:grid-cols-1">
-        <label className={labelClass}>Título<input className={inputClass} maxLength={255} required value={draft.title} onChange={event => setDraft({ ...draft, title: event.target.value })} /></label>
-        <label className={labelClass}>Categoria<select className={inputClass} value={draft.category} onChange={event => setDraft({ ...draft, category: event.target.value as MemoryCategory })}>{categories.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
-        <label className={labelClass}>Estado<select className={inputClass} disabled={draft.version === undefined} value={draft.status} onChange={event => setDraft({ ...draft, status: event.target.value as MemoryStatus })}><option value="active">Ativa</option><option value="superseded">Substituída</option></select></label>
+        <Label className={labelClass} htmlFor={`${controlId}-title`}>Título<Input id={`${controlId}-title`} className={inputClass} maxLength={255} required value={draft.title} onChange={event => setDraft({ ...draft, title: event.target.value })} /></Label>
+        <MemorySelect id={`${controlId}-category`} label="Categoria" value={draft.category} options={categories} onValueChange={value => setDraft({ ...draft, category: value as MemoryCategory })} />
+        <MemorySelect id={`${controlId}-draft-status`} label="Estado" disabled={draft.version === undefined} value={draft.status} options={[{ value: 'active', label: 'Ativa' }, { value: 'superseded', label: 'Substituída' }]} onValueChange={value => setDraft({ ...draft, status: value as MemoryStatus })} />
       </div>
-      <label className={labelClass}>Conteúdo Markdown<textarea className="min-h-32 w-full min-w-0 resize-y rounded-ui-sm border border-line-strong bg-white p-2.5 text-ui-sm leading-relaxed text-ink focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#4b4fcb]" maxLength={20000} required value={draft.content} onChange={event => setDraft({ ...draft, content: event.target.value })} /></label>
+      <Label className={labelClass} htmlFor={`${controlId}-content`}>Conteúdo Markdown<Textarea id={`${controlId}-content`} className="min-h-32 resize-y rounded-ui-sm border-line-strong p-2.5 text-ui-sm leading-relaxed text-ink" maxLength={20000} required value={draft.content} onChange={event => setDraft({ ...draft, content: event.target.value })} /></Label>
       <div className="grid gap-2" aria-labelledby="task-memory-sources-title">
-        <div className="flex flex-wrap items-center justify-between gap-2"><h4 id="task-memory-sources-title" className="text-ui-xs font-bold text-ink">Fontes</h4><button type="button" className={buttonSecondarySmall} onClick={() => setDraft({ ...draft, sources: [...draft.sources, { kind: 'task', id: '', revision: '' }] })}>Adicionar fonte</button></div>
+        <div className="flex flex-wrap items-center justify-between gap-2"><h4 id="task-memory-sources-title" className="text-ui-xs font-bold text-ink">Fontes</h4><Button type="button" className={buttonSecondarySmall} onClick={() => setDraft({ ...draft, sources: [...draft.sources, { kind: 'task', id: '', revision: '' }] })}>Adicionar fonte</Button></div>
         <p className="text-ui-xs text-muted-strong">A tarefa proprietária é sempre registrada como fonte; isso não transforma memórias compartilhadas em memórias desta tarefa.</p>
         {draft.sources.map((source, index) => {
           const isOwnerSource = source.kind === 'task' && source.id === taskId;
           return <div className="grid grid-cols-[minmax(120px,.7fr)_minmax(150px,2fr)_minmax(100px,.7fr)_auto] gap-2 max-[720px]:grid-cols-1" key={index}>
-            <label className={labelClass}>Tipo<select className={inputClass} disabled={isOwnerSource} value={source.kind} onChange={event => changeSource(index, 'kind', event.target.value)}>{sourceKinds.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
-            <label className={labelClass}>{isOwnerSource ? 'Tarefa proprietária' : 'ID da fonte'}<input className={inputClass} required readOnly={isOwnerSource} value={source.id} onChange={event => changeSource(index, 'id', event.target.value)} /></label>
-            <label className={labelClass}>Revisão (quando aplicável)<input className={inputClass} type="number" min="1" step="1" disabled={isOwnerSource} value={source.revision} onChange={event => changeSource(index, 'revision', event.target.value)} /></label>
-            <button type="button" className={buttonSecondarySmall + ' self-end'} aria-label={'Remover fonte ' + (index + 1)} disabled={isOwnerSource || draft.sources.length <= 1} onClick={() => setDraft({ ...draft, sources: draft.sources.filter((_, sourceIndex) => sourceIndex !== index) })}>Remover</button>
+            <MemorySelect id={`${controlId}-source-kind-${index}`} label="Tipo" disabled={isOwnerSource} value={source.kind} options={sourceKinds} onValueChange={value => changeSource(index, 'kind', value)} />
+            <Label className={labelClass} htmlFor={`${controlId}-source-id-${index}`}>{isOwnerSource ? 'Tarefa proprietária' : 'ID da fonte'}<Input id={`${controlId}-source-id-${index}`} className={inputClass} required readOnly={isOwnerSource} value={source.id} onChange={event => changeSource(index, 'id', event.target.value)} /></Label>
+            <Label className={labelClass} htmlFor={`${controlId}-source-revision-${index}`}>Revisão (quando aplicável)<Input id={`${controlId}-source-revision-${index}`} className={inputClass} type="number" min="1" step="1" disabled={isOwnerSource} value={source.revision} onChange={event => changeSource(index, 'revision', event.target.value)} /></Label>
+            <Button type="button" className={buttonSecondarySmall + ' self-end'} aria-label={'Remover fonte ' + (index + 1)} disabled={isOwnerSource || draft.sources.length <= 1} onClick={() => setDraft({ ...draft, sources: draft.sources.filter((_, sourceIndex) => sourceIndex !== index) })}>Remover</Button>
           </div>;
         })}
       </div>
-      {saveMemory.error instanceof ApiRequestError && saveMemory.error.status === 409 && <button type="button" className={buttonSecondarySmall + ' justify-self-start'} onClick={() => { void memoriesQuery.refetch(); void memoryDetailQuery.refetch(); }}>Recarregar estado atual para comparar</button>}
-      <div className="flex flex-wrap gap-2"><button type="submit" className={buttonPrimary} disabled={saveMemory.isPending}>{saveMemory.isPending ? 'Salvando…' : 'Salvar memória'}</button><button type="button" className={buttonSecondary} onClick={closeDraft}>Cancelar</button></div>
+      {saveMemory.error instanceof ApiRequestError && saveMemory.error.status === 409 && <Button type="button" className={buttonSecondarySmall + ' justify-self-start'} onClick={() => { void memoriesQuery.refetch(); void memoryDetailQuery.refetch(); }}>Recarregar estado atual para comparar</Button>}
+      <div className="flex flex-wrap gap-2"><Button type="submit" className={buttonPrimary} disabled={saveMemory.isPending}>{saveMemory.isPending ? 'Salvando…' : 'Salvar memória'}</Button><Button type="button" className={buttonSecondary} onClick={closeDraft}>Cancelar</Button></div>
     </form>}
 
     <section className="grid min-w-0 gap-3" aria-labelledby="task-memory-list-title">
-      <div className="flex flex-wrap items-end justify-between gap-3"><div><h4 id="task-memory-list-title" className="text-ui-sm font-bold text-ink">Acervo desta tarefa</h4><p className="mt-1 text-ui-xs text-muted-strong">Somente registros com ownerTaskId igual à tarefa atual.</p></div><label className={labelClass}>Estado<select className={inputClass} value={status} onChange={event => setStatus(event.target.value as MemoryStatus)}><option value="active">Ativas</option><option value="superseded">Substituídas</option></select></label></div>
+      <div className="flex flex-wrap items-end justify-between gap-3"><div><h4 id="task-memory-list-title" className="text-ui-sm font-bold text-ink">Acervo desta tarefa</h4><p className="mt-1 text-ui-xs text-muted-strong">Somente registros com ownerTaskId igual à tarefa atual.</p></div><MemorySelect id={`${controlId}-list-status`} label="Estado" value={status} options={[{ value: 'active', label: 'Ativas' }, { value: 'superseded', label: 'Substituídas' }]} onValueChange={value => setStatus(value as MemoryStatus)} /></div>
       {memoriesQuery.isPending && <p className="text-ui-xs text-muted-strong" role="status">Carregando memórias da tarefa…</p>}
       {memoriesQuery.isError && <ErrorNotice error={memoriesQuery.error} onRetry={() => void memoriesQuery.refetch()} retrying={memoriesQuery.isFetching} />}
       {!memoriesQuery.isPending && !memoriesQuery.isError && !memories.length && <p className="rounded-ui-sm border border-dashed border-line-strong px-3 py-3 text-ui-xs text-muted-strong">Esta tarefa ainda não tem memórias {status === 'active' ? 'ativas' : 'substituídas'}.</p>}
@@ -249,20 +268,20 @@ export function TaskMemoriesPanel({ token, projectId, taskId, taskName }: { toke
           <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
             <div className="min-w-0"><h5 className="wrap-anywhere text-ui-sm font-bold text-ink">{memory.title}</h5><p className="mt-1 text-ui-xs text-muted-strong">Escopo: somente esta tarefa · {categoryLabels[memory.category]} · {memory.status === 'active' ? 'Ativa' : 'Substituída'} · revisão {memory.revision} · versão {memory.version} · {memory.sources.length} fonte(s)</p><p className="mt-1 text-ui-xs text-muted-strong">Proprietária: <TaskLink taskId={memory.ownerTaskId} name={taskName} projectId={projectId} className="text-tone-blue underline underline-offset-2">{taskName}</TaskLink></p></div>
             <div className="flex shrink-0 flex-wrap gap-1.5">
-              <button type="button" className={buttonSecondarySmall} onClick={() => { setOpenMemoryId(openMemoryId === memory._id ? '' : memory._id); setViewRevision(memory.revision); }} aria-expanded={openMemoryId === memory._id}>{openMemoryId === memory._id ? 'Fechar' : 'Abrir'}</button>
-              <button type="button" className={buttonSecondarySmall} onClick={() => void beginEdit(memory)}>Editar</button>
-              <button type="button" className={buttonSecondarySmall + ' text-tone-red'} onClick={() => { if (window.confirm('Arquivar esta memória da tarefa? O histórico continuará disponível.')) archiveMemory.mutate(memory); }}>Arquivar</button>
+              <Button type="button" className={buttonSecondarySmall} onClick={() => { setOpenMemoryId(openMemoryId === memory._id ? '' : memory._id); setViewRevision(memory.revision); }} aria-expanded={openMemoryId === memory._id}>{openMemoryId === memory._id ? 'Fechar' : 'Abrir'}</Button>
+              <Button type="button" className={buttonSecondarySmall} onClick={() => void beginEdit(memory)}>Editar</Button>
+              <Button type="button" className={buttonSecondarySmall + ' text-tone-red'} onClick={() => { if (window.confirm('Arquivar esta memória da tarefa? O histórico continuará disponível.')) archiveMemory.mutate(memory); }}>Arquivar</Button>
             </div>
           </div>
           {openMemoryId === memory._id && <div className="grid min-w-0 gap-3 border-t border-line pt-3">
-            <label className={labelClass}>Revisão<select className={inputClass} value={viewRevision ?? memory.revision} onChange={event => setViewRevision(Number(event.target.value))}>{Array.from({ length: memory.revision }, (_, index) => memory.revision - index).map(revision => <option key={revision} value={revision}>{revision === memory.revision ? `Atual · revisão ${revision}` : `Revisão histórica ${revision}`}</option>)}</select></label>
+            <MemorySelect id={`${controlId}-revision-${memory._id}`} label="Revisão" value={String(viewRevision ?? memory.revision)} options={Array.from({ length: memory.revision }, (_, index) => memory.revision - index).map(revision => ({ value: String(revision), label: revision === memory.revision ? `Atual · revisão ${revision}` : `Revisão histórica ${revision}` }))} onValueChange={value => setViewRevision(Number(value))} />
             {memoryDetailQuery.isPending && <p className="text-ui-xs text-muted-strong" role="status">Carregando conteúdo e fontes…</p>}
             {memoryDetailQuery.isError && <ErrorNotice error={memoryDetailQuery.error} onRetry={() => void memoryDetailQuery.refetch()} retrying={memoryDetailQuery.isFetching} />}
             {memoryDetailQuery.data && <><MarkdownView content={memoryDetailQuery.data.content} variant="compact" className="max-h-96 overflow-auto rounded-ui-sm bg-canvas p-3" /><div className="grid gap-2"><h6 className="text-ui-xs font-bold text-ink">Fontes verificadas · revisão {memoryDetailQuery.data.revision}</h6><SourceList sources={memoryDetailQuery.data.sources} projectId={projectId} token={token} /></div></>}
           </div>}
         </article>)}
       </div>}
-      {memoriesQuery.hasNextPage && <button type="button" className={buttonSecondary + ' justify-self-start'} onClick={() => void memoriesQuery.fetchNextPage()} disabled={memoriesQuery.isFetchingNextPage}>{memoriesQuery.isFetchingNextPage ? 'Carregando…' : 'Carregar mais memórias'}</button>}
+      {memoriesQuery.hasNextPage && <Button type="button" className={buttonSecondary + ' justify-self-start'} onClick={() => void memoriesQuery.fetchNextPage()} disabled={memoriesQuery.isFetchingNextPage}>{memoriesQuery.isFetchingNextPage ? 'Carregando…' : 'Carregar mais memórias'}</Button>}
     </section>
   </section>;
 }
