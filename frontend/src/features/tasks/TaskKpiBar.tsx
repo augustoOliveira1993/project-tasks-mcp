@@ -5,7 +5,7 @@ import { IconDiff, IconMail, IconQuestion } from '../../components/ui/icons';
 
 type Kpi = { id: string; label: string; value: ReactNode; hint: string; active: boolean; onClick: () => void; tone?: string; icon?: ReactNode; featured?: boolean; compact?: boolean };
 
-const card = 'relative grid h-auto min-w-0 content-start gap-[3px] rounded-ui-md border text-left text-ink-2 transition-[border-color,box-shadow,transform] duration-150 ease-[ease]';
+const card = 'relative grid h-auto min-w-0 content-start items-start justify-start justify-items-start gap-[3px] whitespace-normal font-normal rounded-ui-md border text-left text-ink-2 transition-[border-color,box-shadow,transform] duration-150 ease-[ease]';
 const cardHover = 'hover:border-[#c3caf5] hover:shadow-[0_4px_12px_#27336d14]';
 const cardSurface = {
   idle: `border-line bg-white shadow-[0_1px_2px_#1720330a] ${cardHover}`,

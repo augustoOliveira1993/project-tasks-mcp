@@ -35,10 +35,10 @@ function NavigationLink({ label, href, icon: Icon, active, count, unread, onClic
   onClick: (event: MouseEvent<HTMLAnchorElement>) => void;
 }) {
   return <a href={href} onClick={onClick} aria-current={active ? 'page' : undefined}
-    className={cn('flex min-h-10 min-w-0 items-center gap-3 rounded-md px-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring', active && 'bg-accent text-accent-foreground')}>
-    <Icon aria-hidden="true" className="size-4 shrink-0 opacity-75" />
+    className={cn('flex min-h-10 min-w-0 items-center gap-3 rounded-lg px-2.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-[#f6f7fb] hover:text-[#3f4db4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring', active && 'bg-indigo-50 text-indigo-700 hover:bg-indigo-50 hover:text-indigo-700')}>
+    <Icon aria-hidden="true" className={cn('size-4 shrink-0 text-[#99a2b2]', active && 'text-[#5364dd]')} />
     <span className="min-w-0 flex-1 truncate">{label}</span>
-    {count !== undefined && <span className={cn('min-w-5 rounded px-1.5 py-0.5 text-center text-[10px] tabular-nums', unread ? 'bg-emerald-600 font-semibold text-white' : 'text-muted-foreground')}>
+    {count !== undefined && !(unread && count === 0) && <span className={cn('min-w-5 rounded px-1.5 py-0.5 text-center text-[10px] font-bold tabular-nums', unread ? 'bg-emerald-600 text-white' : 'text-[#909bad]')}>
       <span aria-hidden="true">{count}</span><span className="sr-only">{unread ? `${count} conversas não lidas` : `${count} itens`}</span>
     </span>}
   </a>;
@@ -46,7 +46,7 @@ function NavigationLink({ label, href, icon: Icon, active, count, unread, onClic
 
 function NavSection({ title, children }: { title: string; children: ReactNode }) {
   return <section className="grid gap-1" aria-label={title}>
-    <h2 className="px-2.5 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{title}</h2>
+    <h2 className="px-2.5 pb-2.5 pt-6 text-[9px] font-bold uppercase tracking-widest text-slate-400">{title}</h2>
     {children}
   </section>;
 }
@@ -86,11 +86,12 @@ export function AppSidebar({ activeRoute, activeProjectId, projectName, projectV
 
   return <div className="flex h-full min-h-0 flex-col">
     <a className="mb-5 flex items-center gap-3 rounded-md px-1.5 py-1 no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" href={hrefForRoute('tasks')} onClick={event => onNavigate(event, 'tasks')}>
-      <Logo size={34} /><span className="grid min-w-0 gap-0.5"><strong className="truncate text-sm font-semibold tracking-tight text-foreground">Project Tasks</strong><span className="text-xs text-muted-foreground">Workspace</span></span>
+      <Logo size={34} /><span className="grid min-w-0 gap-0.5"><strong className="truncate font-display text-sm font-extrabold tracking-[-.025em] text-foreground">Project Tasks</strong><span className="text-[11px] text-[#8993a3]">Workspace</span></span>
     </a>
 
     <div className="grid gap-2">
-      <span className="px-1.5 text-xs font-medium text-muted-foreground">Projeto ativo</span>
+      <h2 className="px-2.5 text-[9px] font-bold uppercase tracking-widest text-slate-400">Contexto do projeto</h2>
+      <span className="px-1.5 text-[11px] font-semibold text-muted-foreground">Projeto ativo</span>
       <div className="flex min-w-0 items-center gap-1">
         <Button type="button" variant="outline" className="h-auto min-h-11 min-w-0 flex-1 justify-start gap-2 px-2 py-2 text-left" aria-haspopup="dialog" aria-expanded={projectPickerOpen} aria-label={`Selecionar projeto. Projeto ativo: ${projectName ?? 'nenhum projeto'}`} disabled={!projectCount} onClick={onOpenProjectPicker}>
           <span aria-hidden="true" className="grid size-7 shrink-0 place-items-center rounded-md bg-accent text-xs font-semibold text-accent-foreground">{projectName?.slice(0, 1).toLocaleUpperCase('pt-BR') ?? '⌘'}</span>

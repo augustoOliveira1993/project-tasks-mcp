@@ -4,22 +4,22 @@ import type { ComponentProps } from 'react';
 import { cn } from '@/lib/utils';
 
 const buttonVariants = cva(
-  'inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0',
+  'inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-lg text-[10px] font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0',
   {
     variants: {
       variant: {
-        default: 'border-transparent bg-primary text-primary-foreground hover:bg-accent-dark',
+        default: 'bg-primary text-primary-foreground shadow-[0_3px_8px_#5364dd2a] hover:bg-accent-dark',
         destructive: 'bg-destructive text-white hover:bg-destructive/90',
-        outline: 'border border-input bg-background text-foreground hover:bg-accent hover:text-accent-foreground',
-        secondary: 'bg-secondary text-secondary-foreground hover:bg-secondary/80',
+        outline: 'border border-[#e1e5ed] bg-white text-[#5d697b] hover:border-[#ccd2df] hover:bg-[#fafbff]',
+        secondary: 'border border-[#e1e5ed] bg-white text-[#5d697b] hover:border-[#ccd2df] hover:bg-[#fafbff]',
         ghost: 'text-foreground hover:bg-accent hover:text-accent-foreground',
         link: 'text-primary underline-offset-4 hover:underline'
       },
       size: {
-        default: 'h-9 px-4 py-2 has-[>svg]:px-3',
-        sm: 'h-8 rounded-md px-3 text-xs has-[>svg]:px-2.5',
-        lg: 'h-10 rounded-md px-6',
-        icon: 'size-9'
+        default: 'px-3 py-2.5 has-[>svg]:px-2.5',
+        sm: 'px-2.5 py-[7px] text-[10px] has-[>svg]:px-2',
+        lg: 'px-5 py-3 text-xs',
+        icon: 'size-[29px]'
       }
     },
     defaultVariants: { variant: 'default', size: 'default' }
