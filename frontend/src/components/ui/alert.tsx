@@ -3,7 +3,7 @@ import type { ComponentProps } from 'react';
 import { cn } from '@/lib/utils';
 
 const alertVariants = cva(
-  'relative grid w-full gap-1 rounded-md border px-4 py-3 text-sm has-[>svg]:grid-cols-[calc(var(--spacing)*4)_1fr] has-[>svg]:gap-x-3 [&>svg]:row-span-2 [&>svg]:mt-0.5 [&>svg]:size-4',
+  'relative grid w-full gap-1 rounded-md border px-4 py-3 text-[11px] has-[>svg]:grid-cols-[calc(var(--spacing)*4)_1fr] has-[>svg]:gap-x-3 [&>svg]:row-span-2 [&>svg]:mt-0.5 [&>svg]:size-4',
   {
     variants: {
       variant: {
@@ -26,7 +26,7 @@ function AlertTitle({ className, ...props }: ComponentProps<'h5'>) {
 }
 
 function AlertDescription({ className, ...props }: ComponentProps<'div'>) {
-  return <div data-slot="alert-description" className={cn('text-sm text-muted-foreground [&_p]:leading-relaxed', className)} {...props} />;
+  return <div data-slot="alert-description" className={cn('text-[11px] text-muted-foreground [&_p]:leading-relaxed', className)} {...props} />;
 }
 
 export { Alert, AlertTitle, AlertDescription, alertVariants };

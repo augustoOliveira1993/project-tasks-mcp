@@ -1,4 +1,4 @@
-export const buttonBase = 'inline-flex h-auto items-center justify-center gap-2 rounded-lg border bg-transparent text-ink-2 shadow-none text-[10px] font-bold transition';
+export const buttonBase = 'inline-flex h-auto items-center justify-center gap-2 rounded-lg border py-0 bg-transparent text-ink-2 shadow-none text-[10px] font-bold transition';
 const secondaryTone = 'border-[#e1e5ed] bg-white text-[#5d697b] hover:border-[#ccd2df] hover:bg-[#fafbff]';
 
 export const buttonSecondary = `${buttonBase} min-h-[35px] px-3 ${secondaryTone}`;

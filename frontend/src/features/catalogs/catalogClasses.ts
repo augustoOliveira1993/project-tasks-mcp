@@ -2,7 +2,7 @@ import { notice } from '../../components/ui/classes';
 
 /** Fragmentos de estilo compartilhados pelas telas de cadastros (/catalogs/*). Cada valor é uma string literal completa para o Tailwind gerar as classes. */
 
-const buttonCore = 'inline-flex items-center justify-center gap-2 rounded-lg border font-bold transition';
+const buttonCore = 'inline-flex items-center justify-center gap-2 rounded-lg border py-0 font-bold transition';
 export const secondaryTone = 'border-[#e1e5ed] bg-white text-[#5d697b] hover:border-[#ccd2df] hover:bg-[#fafbff]';
 export const primaryTone = 'border-transparent bg-primary text-primary-foreground shadow-[0_3px_8px_#5364dd2a] hover:bg-accent-dark';
 /** Botões compactos da tabela de projetos (Usar / Ver / Editar). */
@@ -70,7 +70,7 @@ export const dialogNotice = `${notice.error} mx-[22px] mt-[13px]`;
 const dialogShell = 'rounded-xl border border-border bg-background text-foreground shadow-xl';
 export const recordDialog = `${dialogShell} w-[min(calc(100%-28px),720px)] max-w-none max-h-[min(90dvh,850px)] overflow-auto p-0`;
 export const projectDialog = `${dialogShell} flex w-[min(calc(100%-28px),1100px)] max-w-none max-h-[min(90dvh,900px)] flex-col overflow-hidden p-0`;
-const header = 'flex items-start justify-between gap-4 border-b border-[#edf0f4] px-[23px] pt-[21px] pb-4 max-[760px]:px-4 max-[760px]:pt-[17px] max-[760px]:pb-[13px]';
+const header = 'flex flex-row items-start justify-between gap-4 border-b border-[#edf0f4] px-[23px] pt-[21px] pb-4 max-[760px]:px-4 max-[760px]:pt-[17px] max-[760px]:pb-[13px]';
 export const dialogHeader = header;
 export const dialogHeaderFixed = `${header} flex-none`;
 export const dialogTitle = 'mb-[5px] font-display text-[17px] leading-[normal] font-bold tracking-[-.035em] text-[#263246]';

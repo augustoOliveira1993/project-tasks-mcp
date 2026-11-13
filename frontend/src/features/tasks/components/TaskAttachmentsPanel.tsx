@@ -367,7 +367,7 @@ export function TaskAttachmentsPanel({ token, nonce, projectId, taskId, onAttach
     <div className="flex flex-wrap items-center justify-between gap-3"><div className="grid gap-1"><h3 className="font-display text-[13px] leading-[normal] font-bold text-ink normal-case">Arquivos anexados</h3><p className={emptyInline}>Envie fotos e outros arquivos para mantê-los disponíveis nesta tarefa.</p></div></div>
     <label className="grid gap-[7px] rounded-ui-md border border-dashed border-line-strong bg-[#fbfcff] p-4 text-ui-sm font-bold text-ink-2">
       <span>Adicionar arquivos</span>
-      <Input className="h-auto max-w-full min-w-0 border-0 p-0 text-ui-xs text-muted-strong shadow-none file:mr-2 file:rounded file:border-0 file:bg-muted file:px-2 file:py-1 file:text-xs" type="file" multiple disabled={isUploading} onChange={onFilesSelected} aria-describedby="task-attachment-help" />
+      <Input className="h-auto min-h-0 max-w-full min-w-0 border-0 bg-transparent p-0 text-ui-xs text-muted-strong shadow-none file:mr-2 file:rounded file:border-0 file:bg-muted file:px-2 file:py-1 file:text-xs" type="file" multiple disabled={isUploading} onChange={onFilesSelected} aria-describedby="task-attachment-help" />
       <small className="text-ui-xs leading-[1.5] font-normal text-muted-strong" id="task-attachment-help">Até 25 MiB por arquivo. Há prévia para imagens, PDF, Excel/CSV, TXT, DOCX, SVG e HTML; wireframes em PNG/SVG/HTML também podem ser visualizados. Outros formatos mostram o tipo e podem ser baixados.</small>
     </label>
     {uploadingName && <div className="grid gap-1.5 text-ui-xs text-muted-strong" role="status" aria-live="polite">

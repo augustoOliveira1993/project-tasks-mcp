@@ -49,11 +49,11 @@ function DialogFooter({ className, ...props }: ComponentProps<'div'>) {
 }
 
 function DialogTitle({ className, ...props }: ComponentProps<typeof DialogPrimitive.Title>) {
-  return <DialogPrimitive.Title data-slot="dialog-title" className={cn('text-lg font-semibold leading-none tracking-tight', className)} {...props} />;
+  return <DialogPrimitive.Title data-slot="dialog-title" className={cn('font-display text-[19px] font-bold text-[#263246] leading-none tracking-tight', className)} {...props} />;
 }
 
 function DialogDescription({ className, ...props }: ComponentProps<typeof DialogPrimitive.Description>) {
-  return <DialogPrimitive.Description data-slot="dialog-description" className={cn('text-sm text-muted-foreground', className)} {...props} />;
+  return <DialogPrimitive.Description data-slot="dialog-description" className={cn('text-[12px] leading-[1.5] text-muted-strong', className)} {...props} />;
 }
 
 export { Dialog, DialogTrigger, DialogPortal, DialogClose, DialogOverlay, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogDescription };
