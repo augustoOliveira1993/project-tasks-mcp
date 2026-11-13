@@ -96,6 +96,8 @@ export function GlobalDashboardPage({ token, nonce, onOpenProject }: { token: st
   const dashboardQuery = useQuery({
     queryKey: ['global-dashboard', nonce, period],
     enabled: Boolean(token && nonce),
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
     queryFn: () => query<GlobalDashboard>(token, 'get_global_dashboard', from ? { from } : {})
   });
   const data = dashboardQuery.data;

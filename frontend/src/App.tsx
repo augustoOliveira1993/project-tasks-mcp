@@ -363,8 +363,8 @@ function App() {
     openTaskDetails(result.task);
     setTransferTask(null);
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ['project-tasks', nonce, activeProjectId] }),
-      queryClient.invalidateQueries({ queryKey: ['project-tasks', nonce, targetProjectId] }),
+      invalidateTaskLists(activeProjectId),
+      invalidateTaskLists(targetProjectId),
       queryClient.invalidateQueries({ queryKey: ['task-context', nonce, activeProjectId, result.task._id] }),
       queryClient.invalidateQueries({ queryKey: ['task-context', nonce, targetProjectId, result.task._id] }),
       queryClient.invalidateQueries({ queryKey: ['task-diffs', nonce, activeProjectId, result.task._id] }),
@@ -378,18 +378,25 @@ function App() {
     if (targetProjectId !== activeProjectId) navigateToRoute('tasks', targetProjectId, false);
     notify('Tarefa transferida. O projeto e os dados exibidos foram atualizados.', 'success');
   }
+  // A fila da tela de tarefas usa a chave task-workspace-search; as demais telas usam project-tasks.
+  function invalidateTaskLists(projectId: string) {
+    return Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['project-tasks', nonce, projectId] }),
+      queryClient.invalidateQueries({ queryKey: ['task-workspace-search', nonce, projectId] })
+    ]);
+  }
   async function toggleChecked(task: Task) {
     try {
       await adminMutation.mutateAsync({ path: '/admin/tasks/check', body: { operationId: operationId(), projectId: activeProjectId, taskId: task._id, version: task.version, checked: !task.checked } });
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['project-tasks', nonce, activeProjectId] }),
+        invalidateTaskLists(activeProjectId),
         queryClient.invalidateQueries({ queryKey: ['task-context', nonce, activeProjectId, task._id] })
       ]);
       notify(task.checked ? 'Conferência removida.' : 'Tarefa conferida.', 'success');
     } catch (error) {
       notify(errorMessage(error) + ' Atualizando os dados da tarefa…', 'error');
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['project-tasks', nonce, activeProjectId] }),
+        invalidateTaskLists(activeProjectId),
         queryClient.invalidateQueries({ queryKey: ['task-context', nonce, activeProjectId, task._id] })
       ]);
     }
@@ -403,7 +410,7 @@ function App() {
       await adminMutation.mutateAsync({ path: '/admin/tasks/status', body: { operationId: operationId(), projectId: activeProjectId, taskId: statusTask._id, version: statusTask.version, status: String(form.get('status')), reason: String(form.get('reason')).trim() } });
       setStatusTask(null);
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['project-tasks', nonce, activeProjectId] }),
+        invalidateTaskLists(activeProjectId),
         queryClient.invalidateQueries({ queryKey: ['task-context', nonce, activeProjectId, statusTask._id] }),
         queryClient.invalidateQueries({ queryKey: ['task-activity', nonce, activeProjectId, statusTask._id] }),
         queryClient.invalidateQueries({ queryKey: ['project-sync-report', nonce, activeProjectId] })
@@ -412,7 +419,7 @@ function App() {
     } catch (error) {
       notify(errorMessage(error), 'error');
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['project-tasks', nonce, activeProjectId] }),
+        invalidateTaskLists(activeProjectId),
         queryClient.invalidateQueries({ queryKey: ['task-context', nonce, activeProjectId, statusTask._id] })
       ]);
     }
@@ -423,7 +430,7 @@ function App() {
     setSaving(true);
     try {
       const result = await adminMutation.mutateAsync({ path: '/admin/tasks/approve', body: { projectId: activeProjectId, taskIds, ...(reason.trim() ? { reason: reason.trim() } : {}) } }) as { tasks: Task[]; operationId: string };
-      await queryClient.invalidateQueries({ queryKey: ['project-tasks', nonce, activeProjectId] });
+      await invalidateTaskLists(activeProjectId);
       notify(result.tasks.length + ' tarefa(s) aprovada(s).', 'success');
       return true;
     } catch (error) { notify(errorMessage(error), 'error'); return false; }
@@ -444,7 +451,7 @@ function App() {
         });
       }
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['project-tasks', nonce, activeProjectId] }),
+        invalidateTaskLists(activeProjectId),
         queryClient.invalidateQueries({ queryKey: ['task-workspace-search', nonce, activeProjectId] }),
         ...selectedTasks.map(task => queryClient.invalidateQueries({ queryKey: ['task-context', nonce, activeProjectId, task._id] }))
       ]);
@@ -460,7 +467,7 @@ function App() {
   async function reviewTask(task: Task, decision: TaskReviewDecision, reason: string): Promise<boolean> {
     setSaving(true);
     const refresh = () => Promise.all([
-      queryClient.invalidateQueries({ queryKey: ['project-tasks', nonce, activeProjectId] }),
+      invalidateTaskLists(activeProjectId),
       queryClient.invalidateQueries({ queryKey: ['task-context', nonce, activeProjectId, task._id] }),
       queryClient.invalidateQueries({ queryKey: ['task-activity', nonce, activeProjectId, task._id] }),
       queryClient.invalidateQueries({ queryKey: ['project-sync-report', nonce, activeProjectId] }),
@@ -515,6 +522,7 @@ function App() {
       } else {
         const projectId = target.projectId ?? activeProjectId;
         queryClient.setQueryData<Task[]>(['project-tasks', nonce, projectId], current => current?.filter(task => task._id !== target.id) ?? []);
+        void queryClient.invalidateQueries({ queryKey: ['task-workspace-search', nonce, projectId] });
         queryClient.removeQueries({ queryKey: ['task-context', nonce, projectId, target.id] });
         queryClient.removeQueries({ queryKey: ['task-diffs', nonce, projectId, target.id] });
         queryClient.removeQueries({ queryKey: ['task-markdowns', nonce, projectId, target.id] });
@@ -560,6 +568,7 @@ function App() {
         const task = target.task;
         await request(token, '/admin/archive', { method: 'POST', body: { operationId: operationId(), projectId: activeProjectId, kind: 'task', id: task._id, version: task.version } });
         queryClient.setQueryData<Task[]>(['project-tasks', nonce, activeProjectId], current => current?.filter(item => item._id !== task._id) ?? []);
+        void queryClient.invalidateQueries({ queryKey: ['task-workspace-search', nonce, activeProjectId] });
         if (selectedTask?._id === task._id) setSelectedTask(null);
         if (statusTask?._id === task._id) setStatusTask(null);
         notify('Tarefa arquivada. O histórico foi preservado.', 'success');
