@@ -30,7 +30,11 @@ type ButtonProps = ComponentProps<'button'> & VariantProps<typeof buttonVariants
 
 function Button({ className, variant, size, asChild = false, type, ...props }: ButtonProps) {
   const Comp = asChild ? Slot : 'button';
-  return <Comp data-slot="button" className={cn(buttonVariants({ variant, size }), className)} type={asChild ? undefined : type ?? 'button'} {...props} />;
+  // Botões com fundo próprio (chips, cartões) não herdam o hover da variante, que sobrescreveria as cores deles.
+  const variantClass = typeof className === 'string' && /(^|\s)bg-/.test(className)
+    ? buttonVariants({ variant, size }).split(' ').filter(token => !token.startsWith('hover:')).join(' ')
+    : buttonVariants({ variant, size });
+  return <Comp data-slot="button" className={cn(variantClass, className)} type={asChild ? undefined : type ?? 'button'} {...props} />;
 }
 
 export { Button, buttonVariants };

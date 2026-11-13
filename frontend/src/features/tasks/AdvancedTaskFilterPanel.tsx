@@ -28,13 +28,20 @@ export function OptionValuePicker({ options, value, ariaLabel, multiple, boolean
   const panelId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [anchor, setAnchor] = useState<DOMRect | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open || !popover) return;
     const update = () => { if (triggerRef.current) setAnchor(triggerRef.current.getBoundingClientRect()); };
     update();
+    const dismiss = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (panelRef.current?.contains(target) || triggerRef.current?.contains(target)) return;
+      setOpen(false); setSearch('');
+    };
     window.addEventListener('resize', update);
     window.addEventListener('scroll', update, true);
-    return () => { window.removeEventListener('resize', update); window.removeEventListener('scroll', update, true); };
+    document.addEventListener('pointerdown', dismiss, true);
+    return () => { window.removeEventListener('resize', update); window.removeEventListener('scroll', update, true); document.removeEventListener('pointerdown', dismiss, true); };
   }, [open, popover]);
   const floating = popover && anchor !== null;
   const flip = floating && anchor.bottom + 300 > window.innerHeight && anchor.top > 300;
@@ -73,7 +80,7 @@ export function OptionValuePicker({ options, value, ariaLabel, multiple, boolean
       </Button>
       {selectedValues.length > 0 && !booleanValue && !popover && <Button type="button" variant="ghost" size="sm" className="text-muted-foreground" onClick={() => onChange(multiple ? [] : emptyValue)}>Limpar seleção</Button>}
     </div>
-    {open && (popover && !floating ? null : wrapPanel(<div id={panelId} style={floatingStyle} className={`grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-2 ${popover ? 'z-[70] w-max max-w-[280px] shadow-lg' : ''}`}>
+    {open && (popover && !floating ? null : wrapPanel(<div id={panelId} ref={panelRef} style={floatingStyle} className={`grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-2 ${popover ? 'z-[70] w-max max-w-[280px] shadow-lg' : ''}`}>
       <Input className={controlClass} type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Buscar opções…" aria-label={`Buscar opções de ${ariaLabel}`} autoComplete="off" autoFocus />
       {filteredOptions.length ? <div className="grid max-h-44 gap-0.5 overflow-y-auto" role="group" aria-label={`Opções de ${ariaLabel}`}>
         {filteredOptions.map(option => <label key={option.value} className={`flex min-h-9 cursor-pointer items-start gap-2 rounded-md px-2 py-2 text-[11px] font-normal hover:bg-white ${selectedValues.includes(option.value) ? 'bg-white text-indigo-800' : 'text-slate-700'}`}>

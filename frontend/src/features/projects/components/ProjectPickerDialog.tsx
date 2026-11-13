@@ -38,17 +38,17 @@ export function ProjectPickerDialog({ open, onOpenChange, projects, activeProjec
           const stats = projectStats(item);
           const selected = item.project._id === activeProjectId;
           return <Button key={item.project._id} type="button" variant="outline" aria-pressed={selected} onClick={() => onSelect(item.project._id)}
-            className={`h-auto grid w-full min-w-0 grid-cols-[40px_minmax(0,1fr)_auto] items-start gap-3 rounded-lg border p-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${selected ? 'border-primary/40 bg-primary/5' : 'border-border bg-card hover:bg-accent/50'}`}>
-            <span aria-hidden="true" className="grid size-10 place-items-center rounded-md bg-accent text-sm font-semibold text-accent-foreground">{item.project.name.slice(0, 1).toLocaleUpperCase('pt-BR')}</span>
+            className={`h-auto grid w-full min-w-0 grid-cols-[40px_minmax(0,1fr)_auto] items-center justify-start gap-3 rounded-[12px] border p-[13px] text-left font-normal whitespace-normal transition-[border-color,background,box-shadow] duration-150 max-[480px]:grid-cols-[34px_minmax(0,1fr)] ${selected ? 'border-[#cbd2ff] bg-[#f6f7ff] shadow-[inset_3px_0_#6574df] hover:border-[#cbd2ff] hover:bg-[#f6f7ff]' : 'border-[#edf0f5] bg-white hover:border-[#dce1fa] hover:bg-[#fafbff]'}`}>
+            <span aria-hidden="true" className={`grid size-10 place-items-center rounded-[10px] font-display text-[14px] font-bold text-[#4b5bcc] ${selected ? 'bg-[#e1e5ff]' : 'bg-[#e9edff]'}`}>{item.project.name.slice(0, 1).toLocaleUpperCase('pt-BR')}</span>
             <span className="grid min-w-0 gap-1">
-              <strong className="truncate text-sm font-semibold text-foreground">{item.project.name}</strong>
-              <span className="truncate text-xs text-muted-foreground">{plainText(item.project.description) || 'Sem descrição'}</span>
-              <span className="text-xs text-muted-foreground">{stats.total} tarefas · {stats.completed} concluídas · {stats.progress}%</span>
+              <strong className="truncate text-[12px] font-[650] text-[#344156]">{item.project.name}</strong>
+              <span className="truncate text-[11px] font-normal text-[#7f8a9b]">{plainText(item.project.description) || 'Sem descrição'}</span>
+              <span className="truncate text-[11px] font-normal text-[#7f8a9b]">{stats.total} tarefas · {stats.completed} concluídas · {stats.progress}%</span>
               <span className="mt-1 block h-2 overflow-hidden rounded-full bg-secondary" role="progressbar" aria-label={`Progresso de ${item.project.name}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={stats.progress}>
                 <span className="block h-full rounded-full bg-primary transition-[width]" style={{ width: `${stats.progress}%` }} />
               </span>
             </span>
-            <Badge variant={item.project.visibility === 'private' ? 'secondary' : 'outline'} className="mt-0.5">{item.project.visibility === 'private' ? 'Privado' : 'Compartilhado'}</Badge>
+            <Badge tone={item.project.visibility === 'private' ? 'amber' : 'green'} className="self-start max-[480px]:col-start-2 max-[480px]:justify-self-start">{item.project.visibility === 'private' ? 'Privado' : 'Compartilhado'}</Badge>
           </Button>;
         }) : <div className="grid justify-items-center gap-2 px-4 py-10 text-center">
           <FolderKanban aria-hidden="true" className="size-8 text-muted-foreground" />
