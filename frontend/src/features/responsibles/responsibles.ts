@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { listAdminCredentials } from '../../api';
-import type { AdminCredential } from '../../api';
+import type { AdminCredential, ResponsibleProfile } from '../../api';
 
 export type Responsible = {
   email: string;
@@ -11,15 +11,17 @@ export type Responsible = {
   tokens: number;
   systemAdmin: boolean;
   since?: string;
+  avatarUrl?: string;
 };
 
 /** Agrupa credenciais ativas por e-mail. */
-export function groupResponsibles(items: AdminCredential[]): Responsible[] {
+export function groupResponsibles(items: AdminCredential[], profiles: ResponsibleProfile[] = []): Responsible[] {
   const byEmail = new Map<string, Responsible>();
+  const avatarByEmail = new Map(profiles.map(profile => [profile.userId.toLowerCase(), `data:${profile.contentType};base64,${profile.data}`]));
   for (const credential of items) {
     if (credential.state !== 'active') continue;
     const key = credential.email.toLowerCase();
-    const current = byEmail.get(key) ?? { email: credential.email, kinds: [], projects: [], tokens: 0, systemAdmin: false };
+    const current = byEmail.get(key) ?? { email: credential.email, kinds: [], projects: [], tokens: 0, systemAdmin: false, avatarUrl: avatarByEmail.get(key) };
     const kind = credential.scope === 'agent' ? 'agente' : 'pessoa';
     if (!current.kinds.includes(kind)) current.kinds.push(kind);
     current.tokens += 1;
@@ -34,14 +36,16 @@ export function groupResponsibles(items: AdminCredential[]): Responsible[] {
 
 async function collect(token: string, filters: { projectId?: string; scope?: 'human' | 'agent' }) {
   const items: AdminCredential[] = [];
+  const profiles = new Map<string, ResponsibleProfile>();
   let after: string | undefined;
   for (let page = 0; page < 5; page++) {
     const result = await listAdminCredentials(token, { ...filters, status: 'active', limit: 100, ...(after ? { after } : {}) });
     items.push(...result.items);
+    for (const profile of result.profiles ?? []) profiles.set(profile.userId.toLowerCase(), profile);
     after = result.next ?? undefined;
     if (!after) break;
   }
-  return items;
+  return { items, profiles: [...profiles.values()] };
 }
 
 /**
@@ -54,6 +58,9 @@ export function useResponsibles(token: string, nonce: string, projectId: string,
     enabled: Boolean(token && nonce && (systemAdmin || projectId)),
     staleTime: 30_000,
     retry: false,
-    queryFn: async () => groupResponsibles(await collect(token, systemAdmin ? {} : { projectId, scope: 'human' }))
+    queryFn: async () => {
+      const result = await collect(token, systemAdmin ? {} : { projectId, scope: 'human' });
+      return groupResponsibles(result.items, result.profiles);
+    }
   });
 }

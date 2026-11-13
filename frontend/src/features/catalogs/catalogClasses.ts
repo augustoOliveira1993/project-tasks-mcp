@@ -4,7 +4,7 @@ import { notice } from '../../components/ui/classes';
 
 const buttonCore = 'inline-flex items-center justify-center gap-2 rounded-lg border font-bold transition';
 export const secondaryTone = 'border-[#e1e5ed] bg-white text-[#5d697b] hover:border-[#ccd2df] hover:bg-[#fafbff]';
-export const primaryTone = 'border-transparent bg-accent text-white shadow-[0_3px_8px_#5364dd2a] hover:bg-accent-dark';
+export const primaryTone = 'border-transparent bg-primary text-primary-foreground shadow-[0_3px_8px_#5364dd2a] hover:bg-accent-dark';
 /** Botões compactos da tabela de projetos (Usar / Ver / Editar). */
 export const buttonPrimaryCompact = `${buttonCore} min-h-[34px] px-2.5 text-[11px] ${primaryTone}`;
 export const buttonSecondaryCompact = `${buttonCore} min-h-[34px] px-2.5 text-[11px] ${secondaryTone}`;

@@ -35,7 +35,7 @@ import { TaskSectionRail, type TaskSection } from './TaskSectionRail';
 import { taskPageUrl } from '../../../route-state';
 import { TaskMessageAuthor } from '../../conversations/components/ConversationParts';
 import { openTaskConversation } from '../task-conversation';
-import { buttonBase, buttonDanger, buttonGhost, buttonPrimary, buttonSecondarySmall, eyebrow, textButton } from '../../../components/ui/classes';
+import { buttonBase, buttonDanger, buttonPrimary, buttonSecondary, buttonSecondarySmall, eyebrow, textButton } from '../../../components/ui/classes';
 import { Dialog, DialogContent } from '../../../components/ui/dialog';
 
 type Feature = { _id: string; name: string };
@@ -49,10 +49,12 @@ type AttachmentReadSnapshot = TaskAttachmentReadState & { scope: string };
 type TaskMessage = { _id: string; type: string; author: string; authorType?: string; clientName?: string | null; message: string; createdAt: string; truncated?: boolean };
 type Tab = 'summary' | 'criteria' | 'planning' | 'diffs' | 'activity' | 'attachments' | 'memories' | 'conversation';
 
+const reviewPrimary = `${buttonPrimary} bg-primary disabled:bg-[#e5e7eb] disabled:text-[#475467] disabled:opacity-100 disabled:shadow-none`;
+
 const reviewCopy: Record<TaskReviewDecision, { title: string; confirm: string; reasonLabel: string; required: boolean; hint: string; tone: string }> = {
-  approve: { title: 'Aprovar e concluir a tarefa', confirm: 'Aprovar e concluir', reasonLabel: 'Observação da aprovação (opcional)', required: false, hint: 'A tarefa vai para “Concluída”. Depois você ainda pode marcá-la como conferida.', tone: buttonPrimary },
+  approve: { title: 'Aprovar e concluir a tarefa', confirm: 'Aprovar e concluir', reasonLabel: 'Observação da aprovação (opcional)', required: false, hint: 'A tarefa vai para “Concluída”. Depois você ainda pode marcá-la como conferida.', tone: reviewPrimary },
   return: { title: 'Devolver para ajustes', confirm: 'Devolver para pendente', reasonLabel: 'O que precisa ser ajustado?', required: true, hint: 'A tarefa volta para “Pendente” com o motivo registrado, e o agente poderá assumi-la de novo.', tone: buttonDanger },
-  unblock: { title: 'Desbloquear a tarefa', confirm: 'Voltar para pendente', reasonLabel: 'Como o bloqueio foi resolvido?', required: true, hint: 'A tarefa volta para “Pendente” e fica disponível para ser assumida.', tone: buttonPrimary }
+  unblock: { title: 'Desbloquear a tarefa', confirm: 'Voltar para pendente', reasonLabel: 'Como o bloqueio foi resolvido?', required: true, hint: 'A tarefa volta para “Pendente” e fica disponível para ser assumida.', tone: reviewPrimary }
 };
 
 const chainLabel = 'text-ui-xs font-bold text-muted-strong';
@@ -402,7 +404,7 @@ export function TaskDetailsContent({ variant, token, nonce, projectId, project, 
       {status === 'concluida' && taskData.checked && <p className={'flex items-center gap-1.5 border-b border-line bg-[#f4fbf7] px-6 py-2 text-ui-xs font-semibold text-tone-green' + fixed}><IconCheck size={12} /> Conferida por {taskData.checkedBy || 'usuário'} · {formatDate(taskData.checkedAt)}</p>}
       {openConversation.isError && <div className={'border-b border-line px-6 py-2 text-ui-xs' + fixed}><ErrorNotice error={openConversation.error} onRetry={() => openConversation.mutate()} title="Não foi possível abrir a conversa" /></div>}
 
-      {review && copy && <form className={'grid gap-3 border-b border-line bg-[#fffdf6] px-6 py-4 max-[760px]:px-4 max-[760px]:py-3' + fixed} onSubmit={event => void submitReview(event)} aria-label={copy.title}>
+      {review && copy && <form className={'grid gap-3 border-b border-line bg-[#fffdf6] px-6 pt-4 pb-5 max-[760px]:px-4 max-[760px]:pt-3.5 max-[760px]:pb-5' + fixed} onSubmit={event => void submitReview(event)} aria-label={copy.title}>
         <h3 className="font-display text-ui-md leading-[normal] font-bold text-ink">{copy.title}</h3>
         <ul className="grid gap-1 text-ui-xs">
           <li className={completedCriteria === acceptance.length && acceptance.length > 0 ? checkOk : checkWarn}>{completedCriteria === acceptance.length && acceptance.length > 0 ? <IconCheck size={12} /> : <IconAlert size={12} />}{acceptance.length ? `${completedCriteria} de ${acceptance.length} critérios atendidos` : 'Nenhum critério de aceite cadastrado'}</li>
@@ -410,7 +412,7 @@ export function TaskDetailsContent({ variant, token, nonce, projectId, project, 
         </ul>
         <label className="grid gap-[5px] text-ui-xs font-bold text-ink-2">{copy.reasonLabel}<Textarea className="resize-y rounded-ui-sm border-line-strong px-2.5 py-2 text-ui-sm" rows={3} value={reviewReason} onChange={event => setReviewReason(event.target.value)} required={copy.required} autoFocus aria-describedby="review-hint" /></label>
         <small className="text-ui-xs text-muted-strong" id="review-hint">{copy.hint}</small>
-        <div className="mt-1 flex items-center justify-end gap-2"><Button type="button" className={buttonGhost} onClick={() => setReview(null)} disabled={reviewBusy}>Cancelar</Button><Button type="submit" className={copy.tone} disabled={reviewBusy || (copy.required && !reviewReason.trim())}>{reviewBusy ? 'Salvando…' : copy.confirm}</Button></div>
+        <div className="mt-1 flex flex-wrap items-center justify-end gap-2 border-t border-[#f0ead9] pt-3 max-[420px]:grid max-[420px]:grid-cols-1" role="group" aria-label="Ações da revisão"><Button type="button" className={`${buttonSecondary} max-[420px]:w-full`} onClick={() => setReview(null)} disabled={reviewBusy}>Cancelar</Button><Button type="submit" className={`${copy.tone} max-[420px]:w-full`} disabled={reviewBusy || (copy.required && !reviewReason.trim())}>{reviewBusy ? 'Salvando…' : copy.confirm}</Button></div>
       </form>}
 
       {context.isPending ? <div className={`${drawerBody} overflow-y-auto`}><Skeleton rows={6} label="Carregando contexto da tarefa…" /></div> : context.isError ? <div className={`${drawerBody} overflow-y-auto`}><ErrorNotice error={context.error} onRetry={() => void context.refetch()} retrying={context.isFetching} title="Não foi possível carregar a tarefa" /></div> : <div className={isDrawer ? 'flex min-h-0 flex-[1_1_0] flex-col' : 'grid min-h-[420px] grid-cols-[220px_minmax(0,1fr)] items-start max-[960px]:grid-cols-[minmax(0,1fr)]'}>

@@ -2,7 +2,7 @@ import mongoose, { type ClientSession, type Model } from 'mongoose';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { ActionProposal, AutomationPolicy, Project, Feature, Task, Execution, Event, TaskMessage, Conversation, ConversationMessage, ConversationRead, DeliveryEvent, DeliveryRead, TaskRead, TaskDiff, AutomationJob, MarkdownDocument, MarkdownRevision, Operation, Credential, Bootstrap, TASK_SEARCH_TEXT_INDEX_KEYS } from './db.js';
+import { ActionProposal, AutomationPolicy, Project, Feature, Task, Execution, Event, TaskMessage, Conversation, ConversationMessage, ConversationRead, DeliveryEvent, DeliveryRead, TaskRead, TaskDiff, AutomationJob, MarkdownDocument, MarkdownRevision, Operation, Credential, ResponsibleProfile, Bootstrap, TASK_SEARCH_TEXT_INDEX_KEYS } from './db.js';
 import type { TaskContextDto } from './contracts.js';
 import { pageByCreatedAt, pageByDate, PageCursorError } from './pagination.js';
 import { EventHub, readEvents } from './events.js';
@@ -30,6 +30,7 @@ export class DomainError extends Error { constructor(message: string, public sta
 export type Actor = { id: string; userId: string; scope: string; systemAdmin: boolean; projectToken?: string; sessionId?: string; jobId?: string; runnerId?: string; clientName?: string };
 export const TASK_ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024;
 export const TASK_ATTACHMENT_MCP_REQUEST_BYTES = Math.ceil(TASK_ATTACHMENT_MAX_BYTES / 3) * 4 + 16 * 1024;
+const RESPONSIBLE_AVATAR_MAX_BYTES = 96 * 1024;
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const plain = (value: unknown) => JSON.parse(JSON.stringify(value));
 const taskSearchPrefixFields = Object.entries(TASK_SEARCH_TEXT_INDEX_KEYS)
@@ -61,6 +62,17 @@ function decodeTaskAttachmentBase64(value: string) {
   const content = Buffer.from(value, 'base64');
   requireThat(content.length <= TASK_ATTACHMENT_MAX_BYTES, 'File exceeds maximum size', 413);
   requireThat(content.toString('base64') === value, 'Invalid Base64 file contents', 400);
+  return content;
+}
+function decodeResponsibleAvatar(contentType: string, value: string) {
+  requireThat(value.length % 4 === 0 && /^[A-Za-z0-9+/]+={0,2}$/.test(value), 'Invalid Base64 avatar', 400);
+  const content = Buffer.from(value, 'base64');
+  requireThat(content.length > 0 && content.length <= RESPONSIBLE_AVATAR_MAX_BYTES, 'Avatar exceeds maximum size of 96 KiB', 413);
+  requireThat(content.toString('base64') === value, 'Invalid Base64 avatar', 400);
+  const isPng = contentType === 'image/png' && content.length >= 8 && content.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  const isJpeg = contentType === 'image/jpeg' && content.length >= 3 && content[0] === 0xff && content[1] === 0xd8 && content[2] === 0xff;
+  const isWebp = contentType === 'image/webp' && content.length >= 12 && content.toString('ascii', 0, 4) === 'RIFF' && content.toString('ascii', 8, 12) === 'WEBP';
+  requireThat(isPng || isJpeg || isWebp, 'Avatar content does not match a supported image type', 400);
   return content;
 }
 function redactActivityDetail(value: string) {
@@ -432,6 +444,12 @@ export class Service {
       throw error;
     }
   }
+  private async responsibleProfiles(userIds: Array<string | null | undefined>) {
+    const ids = [...new Set(userIds.filter((userId): userId is string => typeof userId === 'string' && userId.length > 0).map(userId => userId.toLowerCase()))];
+    if (!ids.length) return [];
+    const profiles = await ResponsibleProfile.find({ _id: { $in: ids } }).select('_id avatarContentType avatarData').lean();
+    return profiles.map(profile => ({ userId: profile._id, contentType: profile.avatarContentType, data: profile.avatarData }));
+  }
   async listCredentials(actor: Actor, query: { projectId?: string; scope?: 'human' | 'agent'; status?: 'active' | 'revoked'; email?: string; after?: string; limit: number }) {
     requireThat(actor.scope === 'human', 'Human credential required', 403);
     const credential = await Credential.findOne({ _id: actor.id, scope: 'human', revoked: false }).select('systemAdmin').lean();
@@ -460,7 +478,7 @@ export class Service {
       if (more) events.pop();
       const project = await Project.findById(query.projectId).select('_id name').lean();
       const items = events.map(item => ({ credentialId: item._id, email: item.userId, scope: item.scope, systemAdmin: item.systemAdmin === true, state: item.revoked ? 'revoked' : 'active', createdAt: item.createdAt ?? null, projectId: item.projectId, projectName: project?.name ?? null, role: item.role ?? null, projects: [{ projectId: item.projectId, projectName: project?.name ?? null, role: item.role ?? null }] }));
-      return { items, next: more ? events.at(-1)?._id ?? null : null };
+      return { items, profiles: await this.responsibleProfiles(items.map(item => item.email)), next: more ? events.at(-1)?._id ?? null : null };
     }
 
     const filter: Record<string, unknown> = {};
@@ -495,7 +513,7 @@ export class Service {
       const project = typeof issuance?.projectId === 'string' ? projectById.get(issuance.projectId) : undefined;
       return { credentialId: item._id, email: item.userId, scope: item.scope, systemAdmin: item.systemAdmin === true, state: item.revoked ? 'revoked' : 'active', createdAt: item.createdAt ?? null, projects: item.userId ? projectsByUser.get(item.userId) ?? [] : [], ...(issuance && typeof issuance.projectId === 'string' ? { projectId: issuance.projectId, projectName: project?.name ?? null, role: (issuance.data as any)?.role ?? null } : {}) };
     });
-    return { items, next: more ? credentials.at(-1)?._id ?? null : null };
+    return { items, profiles: await this.responsibleProfiles(items.map(item => item.email)), next: more ? credentials.at(-1)?._id ?? null : null };
   }
   async deleteProject(actor: Actor, projectId: string, operationId: string) {
     requireThat(actor.scope === 'human', 'Human credential required', 403);
@@ -1960,6 +1978,23 @@ export class Service {
         project.version! += 1; await project.save({ session: s });
         await this.event(s, actor, 'bind_repository_git', a.projectId, a.projectId, { repositoryId: a.repositoryId, git: repository.git });
         return project;
+      }
+      if (a.action === 'set_responsible_avatar' || a.action === 'remove_responsible_avatar') {
+        requireThat(actor.systemAdmin, 'System administrator required', 403);
+        const userId = a.userId.trim().toLowerCase();
+        if (a.action === 'set_responsible_avatar') {
+          const content = decodeResponsibleAvatar(a.contentType, a.data);
+          const profile = await ResponsibleProfile.findOneAndUpdate(
+            { _id: userId },
+            { $set: { userId, avatarContentType: a.contentType, avatarData: a.data, updatedBy: actor.userId } },
+            { upsert: true, new: true, session: s, setDefaultsOnInsert: true }
+          );
+          await this.event(s, actor, a.action, undefined, userId, { userId, contentType: a.contentType, size: content.length });
+          return { userId, updatedAt: profile?.updatedAt ?? new Date() };
+        }
+        const removed = await ResponsibleProfile.deleteOne({ _id: userId }).session(s);
+        await this.event(s, actor, a.action, undefined, userId, { userId, removed: removed.deletedCount > 0 });
+        return { userId, removed: removed.deletedCount > 0 };
       }
       if (a.action === 'issue_project_member') {
         const project = await Project.findOne({ _id: a.projectId, version: a.version, archived: false }).session(s);

@@ -408,9 +408,9 @@ export function TaskWorkspace({ token, nonce, projectId, repositories = [], proj
     ...(advancedOptions.area ?? [])
   ];
   const legacyQuickFilters = <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-    <div className={advancedLabel}><span>Prioridade</span><OptionValuePicker options={advancedOptions.priority ?? []} value={state.priority} ariaLabel="prioridade" emptyLabel="Todas" multiple={false} onChange={value => patch({ priority: typeof value === 'string' ? value : '' })} /></div>
-    <div className={advancedLabel}><span>Responsável</span><OptionValuePicker options={quickResponsibleOptions} value={state.responsible} ariaLabel="responsável" emptyLabel="Todos" multiple={false} onChange={value => patch({ responsible: typeof value === 'string' ? value : '' })} /></div>
-    <div className={advancedLabel}><span>Feature</span><OptionValuePicker options={quickFeatureOptions} value={state.featureId} ariaLabel="feature" emptyLabel="Todas" multiple={false} onChange={value => patch({ featureId: typeof value === 'string' ? value : '' })} /></div>
+    <div className={advancedLabel}><span>Prioridade</span><OptionValuePicker popover options={advancedOptions.priority ?? []} value={state.priority} ariaLabel="prioridade" emptyLabel="Todas" multiple={false} onChange={value => patch({ priority: typeof value === 'string' ? value : '' })} /></div>
+    <div className={advancedLabel}><span>Responsável</span><OptionValuePicker popover options={quickResponsibleOptions} value={state.responsible} ariaLabel="responsável" emptyLabel="Todos" multiple={false} onChange={value => patch({ responsible: typeof value === 'string' ? value : '' })} /></div>
+    <div className={advancedLabel}><span>Feature</span><OptionValuePicker popover options={quickFeatureOptions} value={state.featureId} ariaLabel="feature" emptyLabel="Todas" multiple={false} onChange={value => patch({ featureId: typeof value === 'string' ? value : '' })} /></div>
     <label className={advancedLabel}>Criada de<Input className={advancedControl} type="date" value={state.createdAfter} onChange={event => patch({ createdAfter: event.target.value })} /></label>
     <label className={advancedLabel}>Criada até<Input className={advancedControl} type="date" value={state.createdBefore} onChange={event => patch({ createdBefore: event.target.value })} /></label>
     <label className={advancedLabel}>Atualizada de<Input className={advancedControl} type="date" value={state.updatedAfter} onChange={event => patch({ updatedAfter: event.target.value })} /></label>

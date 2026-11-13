@@ -25,7 +25,8 @@ export type AdminCredential = {
   projectName?: string | null;
   role?: string | null;
 };
-export type AdminCredentialPage = { items: AdminCredential[]; next?: string | null };
+export type ResponsibleProfile = { userId: string; contentType: 'image/png' | 'image/jpeg' | 'image/webp'; data: string };
+export type AdminCredentialPage = { items: AdminCredential[]; profiles?: ResponsibleProfile[]; next?: string | null };
 export type Task = {
   _id: string;
   version: number;

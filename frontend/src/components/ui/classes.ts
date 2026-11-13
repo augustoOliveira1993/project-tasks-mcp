@@ -7,7 +7,7 @@ export const buttonDanger = `${buttonBase} min-h-[35px] px-3 border-[#b3404a] bg
 
 export const errorBox = 'rounded-[8px] border border-[#f3d3d5] bg-[#fff6f6] px-[13px] py-[11px] text-[#a6454d]';
 
-export const buttonPrimary = `${buttonBase} min-h-[35px] px-3 border-transparent bg-accent text-white shadow-[0_3px_8px_#5364dd2a] hover:bg-accent-dark`;
+export const buttonPrimary = `${buttonBase} min-h-[35px] px-3 border-transparent bg-primary text-primary-foreground shadow-[0_3px_8px_#5364dd2a] hover:bg-accent-dark`;
 export const buttonGhost = `${buttonBase} min-h-[35px] px-3 border-transparent bg-transparent text-[#758093]`;
 
 const noticeBox = 'rounded-[8px] border px-[13px] py-[11px] text-[10px]';

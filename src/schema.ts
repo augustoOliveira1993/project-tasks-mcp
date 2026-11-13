@@ -255,6 +255,8 @@ export const tools = {
 };
 export const adminSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('project_areas'), ...op, projectId: id, version: z.number().int().nonnegative(), areas }).strict(),
+  z.object({ action: z.literal('set_responsible_avatar'), ...op, userId, contentType: z.enum(['image/png', 'image/jpeg', 'image/webp']), data: z.string().min(1).max(131072).refine(value => value.length % 4 === 0 && /^[A-Za-z0-9+/]+={0,2}$/.test(value), 'Invalid Base64 avatar') }).strict(),
+  z.object({ action: z.literal('remove_responsible_avatar'), ...op, userId }).strict(),
   z.object({ action: z.literal('automation_policy'), ...op, projectId: id, version: z.number().int().nonnegative(), enabled: z.boolean(), maxConcurrent: z.number().int().min(1).max(50).default(10), routes: z.array(z.object({ repositoryId: id, area: areaName, provider }).strict()).max(100) }).strict(),
   z.object({ action: z.literal('automation_release'), ...op, projectId: id, taskId: id, version: z.number().int().nonnegative(), provider: provider.optional() }).strict(),
   z.object({ action: z.literal('automation_resolve'), ...op, projectId: id, jobId: id, version: z.number().int().nonnegative(), decision: z.enum(['allow', 'deny']), reason: text }).strict(),

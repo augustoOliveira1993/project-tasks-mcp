@@ -146,4 +146,5 @@ ProjectMemoryProposal.schema.index({ projectId: 1, scope: 1, ownerTaskId: 1, sta
 export const Operation = mongoose.model('Operation', new Schema({ _id: String, projectId: String, fingerprint: String, result: Schema.Types.Mixed }, { versionKey: false }));
 export const Credential = mongoose.model('Credential', new Schema({ _id: String, hash: { type: String, unique: true }, userId: String,
   scope: String, systemAdmin: Boolean, revoked: { type: Boolean, default: false }, fence: { type: Number, default: 0 } }, options));
+export const ResponsibleProfile = mongoose.model('ResponsibleProfile', new Schema({ _id: String, userId: String, avatarContentType: String, avatarData: String, updatedBy: String }, options));
 export const Bootstrap = mongoose.model('Bootstrap', new Schema({ _id: String }, { versionKey: false }));

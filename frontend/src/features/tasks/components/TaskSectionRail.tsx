@@ -11,15 +11,15 @@ const tabListClass = {
   horizontal: 'flex min-h-[41px] gap-0.5 overflow-x-auto border-b border-line bg-white px-4',
   vertical: 'flex min-h-0 flex-col gap-0.5 overflow-visible bg-white px-2 py-3 max-[960px]:flex-row max-[960px]:overflow-x-auto max-[960px]:px-3 max-[960px]:py-0'
 };
-const tabBase = 'inline-flex flex-none items-center gap-1.5 text-ui-sm font-semibold whitespace-nowrap hover:text-tone-blue';
+const tabBase = 'inline-flex flex-none items-center gap-1.5 text-ui-sm font-semibold whitespace-nowrap';
 const tabClass = {
   horizontal: {
-    active: `${tabBase} min-h-10 border-b-2 border-b-focus px-3 text-tone-blue`,
-    idle: `${tabBase} min-h-10 border-b-2 border-b-transparent px-3 text-muted-strong`
+    active: `${tabBase} min-h-10 border-b-2 border-b-focus px-3 text-tone-blue hover:bg-transparent hover:text-tone-blue`,
+    idle: `${tabBase} min-h-10 border-b-2 border-b-transparent px-3 text-muted-strong hover:bg-transparent hover:text-ink`
   },
   vertical: {
-    active: `${tabBase} min-h-[38px] justify-between rounded-ui-sm border-l-[3px] border-l-focus bg-tone-blue-bg px-3 text-tone-blue max-[960px]:min-h-10 max-[960px]:rounded-none max-[960px]:border-l-0 max-[960px]:border-b-2 max-[960px]:border-b-focus max-[960px]:bg-transparent`,
-    idle: `${tabBase} min-h-[38px] justify-between rounded-ui-sm border-l-[3px] border-l-transparent px-3 text-muted-strong max-[960px]:min-h-10 max-[960px]:rounded-none max-[960px]:border-l-0 max-[960px]:border-b-2 max-[960px]:border-b-transparent`
+    active: `${tabBase} min-h-[38px] justify-between rounded-ui-sm border-l-[3px] border-l-focus bg-tone-blue-bg px-3 text-tone-blue hover:bg-tone-blue-bg hover:text-tone-blue max-[960px]:min-h-10 max-[960px]:rounded-none max-[960px]:border-l-0 max-[960px]:border-b-2 max-[960px]:border-b-focus max-[960px]:bg-transparent max-[960px]:hover:bg-transparent`,
+    idle: `${tabBase} min-h-[38px] justify-between rounded-ui-sm border-l-[3px] border-l-transparent px-3 text-muted-strong hover:bg-transparent hover:text-ink max-[960px]:min-h-10 max-[960px]:rounded-none max-[960px]:border-l-0 max-[960px]:border-b-2 max-[960px]:border-b-transparent max-[960px]:hover:bg-transparent`
   }
 };
 const tabCountBase = 'min-w-[18px] rounded-[9px] px-[5px] text-center text-[10px] leading-[18px] font-bold';

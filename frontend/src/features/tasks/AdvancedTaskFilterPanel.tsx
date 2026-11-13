@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../../components/ui/sheet';
 
 const fieldClass = 'grid min-w-0 gap-2 text-sm font-medium text-foreground';
-const controlClass = 'min-h-9 min-w-0 rounded-md border-border bg-background text-sm';
+const controlClass = 'min-h-9 min-w-0 w-full rounded-md border-border bg-background text-sm';
 const operatorsWithoutValue = new Set(['isEmpty', 'isNotEmpty']);
 
 type Option = { value: string; label: string };
@@ -166,11 +166,11 @@ function ConditionEditor({ condition, options, onChange, onRemove }: {
     if (field.type === 'number') return <Input className={controlClass} aria-label={aria} type="number" min="0" max="5" step="1" value={String(value ?? '')} onChange={event => set(event.target.value === '' ? '' : Number(event.target.value))} />;
     return <Input className={controlClass} aria-label={aria} value={String(value ?? '')} placeholder={condition.field === 'id' ? 'ID ou prefixo' : 'Digite um valor'} onChange={event => set(event.target.value)} />;
   };
-  return <div className="grid gap-2 rounded-[10px] border border-slate-200 bg-white p-2.5 shadow-[0_1px_2px_#1d29390d]">
-    <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-2 max-[600px]:grid-cols-1">
+  return <div className="grid @container gap-2 rounded-[10px] border border-slate-200 bg-white p-2.5 shadow-[0_1px_2px_#1d29390d]">
+    <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-2 @max-[520px]:grid-cols-1">
       <label className={fieldClass}>Campo<Select value={condition.field} onValueChange={value => changeField(value as FilterField)}><SelectTrigger className={controlClass}><SelectValue /></SelectTrigger><SelectContent>{filterFields.map(item => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent></Select></label>
       <label className={fieldClass}>Operador<Select value={condition.operator} onValueChange={value => setOperator(value as FilterCondition['operator'])}><SelectTrigger className={controlClass}><SelectValue /></SelectTrigger><SelectContent>{operators.map(operator => <SelectItem key={operator} value={operator}>{operatorLabels[operator]}</SelectItem>)}</SelectContent></Select></label>
-      <Button type="button" variant="ghost" size="sm" className="self-end text-muted-foreground max-[600px]:justify-self-end" onClick={onRemove} aria-label="Remover condição">Remover</Button>
+      <Button type="button" variant="ghost" size="sm" className="self-end text-muted-foreground @max-[520px]:justify-self-end" onClick={onRemove} aria-label="Remover condição">Remover</Button>
     </div>
     {!noValue && <div className={`grid gap-2 ${range ? 'grid-cols-2' : 'grid-cols-1'}`}>
       {optionPicker

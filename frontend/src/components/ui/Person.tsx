@@ -12,7 +12,7 @@ export function Avatar({ identity, size = 22, className = '' }: { identity?: str
   return <span className={`inline-grid flex-none place-items-center rounded-full font-bold tracking-[.02em] ${avatarTones[personTone(identity)]} ${className}`.trim()} style={{ width: size, height: size, fontSize: Math.round(size * .42) }} aria-hidden="true">{personInitials(identity)}</span>;
 }
 
-export function Person({ identity, emptyLabel = 'Não atribuído' }: { identity?: string | null; emptyLabel?: string }) {
+export function Person({ identity, avatarUrl, emptyLabel = 'Não atribuído' }: { identity?: string | null; avatarUrl?: string; emptyLabel?: string }) {
   if (!identity?.trim()) return <span className="inline-flex min-w-0 items-center gap-[7px] text-ui-sm italic text-muted-strong">{emptyLabel}</span>;
-  return <span className="inline-flex min-w-0 items-center gap-[7px] text-ui-sm text-ink-2" title={identity}><Avatar identity={identity} /><span className="truncate font-semibold">{personName(identity)}</span></span>;
+  return <span className="inline-flex min-w-0 items-center gap-[7px] text-ui-sm text-ink-2" title={identity}><span className="relative inline-grid size-[22px] shrink-0 place-items-center"><Avatar identity={identity} />{avatarUrl && <img key={avatarUrl} className="absolute inset-0 size-full rounded-full object-cover" src={avatarUrl} alt="" aria-hidden="true" loading="lazy" onError={event => { event.currentTarget.hidden = true; }} />}</span><span className="truncate font-semibold">{personName(identity)}</span></span>;
 }

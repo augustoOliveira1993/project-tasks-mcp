@@ -5,6 +5,13 @@ DEFAULT_URL="http://192.168.17.26:3443/mcp"
 SERVER_NAME="project_tasks"
 SKILL_URL="${PTM_SKILL_URL:-https://raw.githubusercontent.com/augustoOliveira1993/project-tasks-mcp/main/.codex/skills/project-tasks-mcp/SKILL.md}"
 SPECKIT_SKILL_URL="${PTM_SPECKIT_SKILL_URL:-https://raw.githubusercontent.com/augustoOliveira1993/project-tasks-mcp/main/.agents/skills/speckit-auto/SKILL.md}"
+agent_token=""
+
+cleanup_credentials() {
+  unset PTM_MCP_AGENT_TOKEN
+  agent_token=""
+}
+trap cleanup_credentials EXIT
 
 read_value() {
   local prompt="$1" default="${2:-}" value
@@ -21,6 +28,30 @@ if [[ -n "${PTM_MCP_URL:-}" ]]; then url="$PTM_MCP_URL"; else url="$(read_value 
 if [[ -n "${PTM_MCP_EMAIL:-}" ]]; then email="$PTM_MCP_EMAIL"; else email="$(read_value 'E-mail de identidade')"; fi
 [[ "$url" =~ ^https?://[^[:space:]]+/mcp/?$ ]] || { echo 'Informe uma URL HTTP(S) terminada em /mcp.' >&2; exit 1; }
 [[ "$email" =~ ^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$ ]] || { echo 'E-mail inválido.' >&2; exit 1; }
+
+if [[ -n "${PTM_MCP_AUTH_MODE:-}" ]]; then
+  auth_mode="$PTM_MCP_AUTH_MODE"
+else
+  echo 'Autenticação: [t]rusted_local ou [b]earer'
+  auth_choice="$(read_value 'Escolha' 't')"
+  case "$auth_choice" in
+    t|trusted_local) auth_mode="trusted_local" ;;
+    b|bearer) auth_mode="bearer" ;;
+    *) echo 'Escolha trusted_local ou bearer.' >&2; exit 1 ;;
+  esac
+fi
+case "$auth_mode" in
+  trusted_local) ;;
+  bearer)
+    agent_token="${PTM_MCP_AGENT_TOKEN:-}"
+    if [[ -z "$agent_token" ]]; then
+      read -r -s -p 'Token de agente (entrada oculta): ' agent_token
+      printf '\n' >&2
+    fi
+    [[ "$agent_token" =~ ^[[:xdigit:]]{64}$ ]] || { echo 'Token de agente inválido; informe os 64 caracteres hexadecimais.' >&2; exit 1; }
+    ;;
+  *) echo 'PTM_MCP_AUTH_MODE deve ser trusted_local ou bearer.' >&2; exit 1 ;;
+esac
 
 echo 'Clientes: [c]odex, [l]claude ou [a]mbos'
 if [[ -n "${PTM_MCP_CLIENTS:-}" ]]; then clients="$PTM_MCP_CLIENTS"; else clients="$(read_value 'Escolha' 'a')"; fi
@@ -40,7 +71,7 @@ configure_codex() {
   command -v python3 >/dev/null || { echo 'Python 3 é necessário para atualizar config.toml com segurança.' >&2; exit 1; }
   local config="$HOME/.codex/config.toml"
   mkdir -p "$(dirname "$config")"
-  python3 - "$config" "$SERVER_NAME" "$url" "$email" <<'PY'
+  PTM_MCP_AUTH_MODE="$auth_mode" PTM_MCP_AGENT_TOKEN="$agent_token" python3 - "$config" "$SERVER_NAME" "$url" "$email" <<'PY'
 import datetime
 import json
 import os
@@ -51,6 +82,8 @@ import tempfile
 
 path = pathlib.Path(sys.argv[1])
 name, url, email = sys.argv[2:]
+auth_mode = os.environ["PTM_MCP_AUTH_MODE"]
+headers = {"Authorization": "Bearer " + os.environ["PTM_MCP_AGENT_TOKEN"]} if auth_mode == "bearer" else {"X-Project-Tasks-Email": email}
 content = path.read_text() if path.exists() else ""
 escaped = re.escape(name)
 pattern = re.compile(
@@ -60,7 +93,7 @@ content = pattern.sub("", content).rstrip()
 section = (
     f"[mcp_servers.{name}]\n"
     f"url = {json.dumps(url)}\n"
-    f"http_headers = {{ \"X-Project-Tasks-Email\" = {json.dumps(email)} }}\n"
+    f"http_headers = {{ {', '.join(f'{json.dumps(key)} = {json.dumps(value)}' for key, value in headers.items())} }}\n"
     "startup_timeout_sec = 20"
 )
 updated = (content + "\n\n" if content else "") + section + "\n"
@@ -87,6 +120,50 @@ PY
 }
 
 configure_claude() {
+  if [[ "$auth_mode" == "bearer" ]]; then
+    local config="$HOME/.claude.json"
+    PTM_MCP_AUTH_MODE="$auth_mode" PTM_MCP_AGENT_TOKEN="$agent_token" python3 - "$config" "$SERVER_NAME" "$url" "$email" <<'PY'
+import datetime
+import json
+import os
+import pathlib
+import stat
+import tempfile
+
+path = pathlib.Path(os.path.expanduser(__import__("sys").argv[1]))
+name, url, email = __import__("sys").argv[2:]
+auth_mode = os.environ["PTM_MCP_AUTH_MODE"]
+headers = {"Authorization": "Bearer " + os.environ["PTM_MCP_AGENT_TOKEN"]} if auth_mode == "bearer" else {"X-Project-Tasks-Email": email}
+configuration = json.loads(path.read_text()) if path.exists() else {}
+servers = configuration.get("mcpServers")
+if not isinstance(servers, dict):
+    servers = {}
+configuration["mcpServers"] = servers
+servers[name] = {"type": "http", "url": url, "headers": headers}
+path.parent.mkdir(parents=True, exist_ok=True)
+if path.exists():
+    backup = path.with_name(path.name + ".bak-" + datetime.datetime.now().strftime("%Y%m%d%H%M%S%f"))
+    backup.write_bytes(path.read_bytes())
+    mode = stat.S_IMODE(path.stat().st_mode)
+else:
+    mode = 0o600
+fd, temp_name = tempfile.mkstemp(prefix=path.name + ".", dir=path.parent)
+try:
+    with os.fdopen(fd, "w") as temp:
+        json.dump(configuration, temp, indent=2)
+        temp.write("\n")
+    os.chmod(temp_name, mode)
+    os.replace(temp_name, path)
+except BaseException:
+    try:
+        os.unlink(temp_name)
+    except FileNotFoundError:
+        pass
+    raise
+print(f"Claude Code configurado em {path}")
+PY
+    return
+  fi
   local configuration
   configuration="$(python3 - "$url" "$email" <<'PY'
 import json, sys
