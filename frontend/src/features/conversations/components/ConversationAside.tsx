@@ -100,7 +100,7 @@ export function ConversationAside({ detail, taskContext, onOpenAdmin, tabs, toke
         {visible.length ? <ul className="grid gap-1.5">{visible.map(item => {
           const open = openState[item.index] ?? item.index === 0;
           return <li key={item.index} className={'rounded-[12px] border bg-white ' + (item.done ? 'border-[#cbe8d9]' : 'border-[#e2e5eb]')}>
-            <Button type="button" className="flex min-h-[52px] w-full items-center gap-2.5 bg-transparent px-3 py-2 text-left whitespace-normal" aria-expanded={open} aria-controls={`criterion-body-${item.index}`} onClick={() => setOpenState(current => ({ ...current, [item.index]: !open }))}>
+            <Button type="button" className="flex min-h-[52px] w-full items-center gap-2.5 bg-transparent px-3 py-2 justify-start text-left whitespace-normal font-normal" aria-expanded={open} aria-controls={`criterion-body-${item.index}`} onClick={() => setOpenState(current => ({ ...current, [item.index]: !open }))}>
               <span className={'inline-grid size-[22px] flex-none place-items-center rounded-full border-2 ' + (item.done ? 'border-[#1f8a4c] bg-[#1f8a4c] text-white' : 'border-[#aab2c0] bg-white')} role="img" aria-label={item.done ? 'Atendido' : 'Pendente'}>{item.done ? <IconCheck size={13} /> : null}</span>
               <span className="min-w-0 flex-1 text-[13.5px] leading-[1.4] font-semibold text-ink wrap-anywhere">{shortCriterionTitle(item.text)}</span>
               <span className={'text-[16px] text-muted-strong transition-[transform] duration-150 ease-[ease]' + (open ? ' [transform:rotate(180deg)]' : '')} aria-hidden="true">⌄</span>

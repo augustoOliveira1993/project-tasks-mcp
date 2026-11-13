@@ -85,7 +85,7 @@ function DocumentSource({ token, projectId, source }: { token: string; projectId
     })
   });
   return <div className="grid min-w-0 gap-2">
-    <Button type="button" className="wrap-anywhere text-left text-ui-xs font-semibold text-tone-blue underline underline-offset-2" aria-expanded={isOpen} onClick={() => setIsOpen(!isOpen)}>{source.title ?? 'Abrir documento fonte'}{source.revision ? ` · rev. ${source.revision}` : ''}</Button>
+    <Button type="button" className="wrap-anywhere justify-start text-left text-ui-xs font-semibold text-tone-blue underline underline-offset-2 whitespace-normal" aria-expanded={isOpen} onClick={() => setIsOpen(!isOpen)}>{source.title ?? 'Abrir documento fonte'}{source.revision ? ` · rev. ${source.revision}` : ''}</Button>
     {isOpen && <>
       {documentQuery.isPending && <span className="text-ui-xs text-muted-strong" role="status">Carregando documento…</span>}
       {documentQuery.isError && <ErrorNotice error={documentQuery.error} onRetry={() => void documentQuery.refetch()} retrying={documentQuery.isFetching} />}

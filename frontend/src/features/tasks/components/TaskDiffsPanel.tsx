@@ -47,7 +47,7 @@ function FileBlock({ file, open, onToggle }: { file: FileDiff; open: boolean; on
   const total = fileLineCount(file);
   let shown = 0;
   return <section className="mt-2 overflow-hidden rounded-ui-sm border border-line">
-    <Button type="button" className="sticky top-0 flex w-full items-center gap-2 bg-[#f6f7fb] px-2.5 py-2 text-left hover:bg-[#eef0ff]" aria-expanded={open} onClick={onToggle}>
+    <Button type="button" className="sticky top-0 flex w-full items-center gap-2 bg-[#f6f7fb] px-2.5 py-2 justify-start text-left hover:bg-[#eef0ff] font-normal whitespace-normal" aria-expanded={open} onClick={onToggle}>
       <IconChevron size={13} className={open ? undefined : '-rotate-90'} />
       <span className={`${statusBase} ${statusTone[file.status]}`}>{statusLabels[file.status]}</span>
       <span className={pathText} title={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}>{file.oldPath ? <><s className="text-muted-strong">{file.oldPath}</s> → {file.path}</> : file.path}</span>
@@ -143,7 +143,7 @@ export function TaskDiffsPanel({ token, nonce, projectId, taskId, items, isPendi
   return <div className="grid gap-3">{items.map(item => {
     const open = isOpen(item._id);
     return <article className="overflow-hidden rounded-ui-md border border-line bg-white" key={item._id}>
-      <Button type="button" className="flex w-full items-center gap-2 bg-[#fbfcff] px-3.5 py-2.5 text-left hover:bg-[#f3f5ff]" aria-expanded={open} onClick={() => setOpenIds(current => { const next = new Set(current); if (next.has(item._id)) next.delete(item._id); else next.add(item._id); return next; })}>
+      <Button type="button" className="flex w-full items-center gap-2 bg-[#fbfcff] px-3.5 py-2.5 justify-start text-left hover:bg-[#f3f5ff] font-normal whitespace-normal" aria-expanded={open} onClick={() => setOpenIds(current => { const next = new Set(current); if (next.has(item._id)) next.delete(item._id); else next.add(item._id); return next; })}>
         <IconChevron size={14} className={open ? undefined : '-rotate-90'} />
         <span className="grid min-w-0 flex-1 gap-0.5"><strong className="overflow-hidden text-ui-sm text-ellipsis whitespace-nowrap text-ink">{item.branch || 'Commit ' + (item.commit ?? '').slice(0, 8)}</strong><small className="text-ui-xs text-muted-strong">{plural((item.files ?? []).length, 'arquivo', 'arquivos')} · <time dateTime={item.at ?? item.createdAt} title={formatDate(item.at ?? item.createdAt)}>{relativeTime(item.at ?? item.createdAt)}</time>{item.agent ? ` · ${item.agent}` : ''}</small></span>
         {item.commit && <Badge variant="outline" title={item.baseCommit ? `${item.baseCommit.slice(0, 8)}..${item.commit.slice(0, 8)}` : item.commit}>{item.commit.slice(0, 7)}</Badge>}

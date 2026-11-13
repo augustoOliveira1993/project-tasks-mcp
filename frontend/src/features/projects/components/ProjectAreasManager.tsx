@@ -16,8 +16,8 @@ const addInput = 'min-h-9 w-full rounded-[7px] border border-[#e1e5ed] bg-white 
 const editInput = 'min-h-8 w-[min(100%,260px)] rounded-[7px] border border-[#e1e5ed] px-2 py-1.5 text-[10px] text-[#344054] focus:border-[#929ef2]';
 const rowAction = `${textButton} whitespace-nowrap`;
 const rowDanger = 'px-0 py-1 text-[11px] font-semibold whitespace-nowrap text-tone-red enabled:hover:bg-tone-red-bg';
-const thCell = 'border-y border-border bg-muted/50 px-3 py-2 text-left text-xs font-semibold text-muted-foreground';
-const tdCell = 'border-b border-border px-3 py-2 align-middle text-sm text-foreground';
+const thCell = 'border-y border-border bg-muted/50 px-3 py-2 text-left text-[10px] font-semibold text-muted-foreground';
+const tdCell = 'border-b border-border px-3 py-2 align-middle text-[11px] text-foreground';
 
 export function ProjectAreasManager({ token, project, onChanged, notify, embedded = false }: {
   token: string;

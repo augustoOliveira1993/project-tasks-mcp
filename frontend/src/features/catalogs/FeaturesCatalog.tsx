@@ -98,17 +98,17 @@ function FeatureDocuments({ token, nonce, projectId, featureId }: { token: strin
 
   return <section className={detailSection}>
     <h3 className={detailSectionTitle}>Documentos e especificações</h3>
-    {documents.isPending ? <p className="text-sm text-slate-500">Carregando documentos…</p>
-      : documents.isError ? <p className="text-sm text-rose-700" role="alert">{errorMessage(documents.error)}</p>
-        : !documents.data.length ? <p className="text-sm text-slate-500">Nenhum documento vinculado a esta feature.</p>
+    {documents.isPending ? <p className="text-[11px] text-slate-500">Carregando documentos…</p>
+      : documents.isError ? <p className="text-[11px] text-rose-700" role="alert">{errorMessage(documents.error)}</p>
+        : !documents.data.length ? <p className="text-[11px] text-slate-500">Nenhum documento vinculado a esta feature.</p>
           : <ul className="grid gap-2">{documents.data.map(document => <li key={document._id} className="flex items-start justify-between gap-3 rounded-lg border border-slate-200 p-3">
-            <div className="min-w-0"><p className="break-all text-sm font-semibold text-slate-800">{document.name}<span className="ml-2 text-xs font-normal text-slate-500">rev. {document.revision}</span></p><p className="mt-1 text-sm text-slate-600">{document.summary}</p></div>
+            <div className="min-w-0"><p className="break-all text-[11px] font-semibold text-slate-800">{document.name}<span className="ml-2 text-xs font-normal text-slate-500">rev. {document.revision}</span></p><p className="mt-1 text-[11px] text-slate-600">{document.summary}</p></div>
             <Button type="button" variant="link" className={textButtonNowrap} onClick={() => setSelectedDocument(document)} aria-pressed={selectedDocument?._id === document._id}>Abrir</Button>
           </li>)}</ul>}
     {selectedDocument && <div className="mt-4 rounded-lg border border-slate-200 p-4" aria-live="polite">
-      <div className="mb-3 flex items-start justify-between gap-3"><h4 className="break-all text-sm font-semibold text-slate-900">{selectedDocument.name} · rev. {selectedDocument.revision}</h4><Button type="button" variant="link" className={textButtonNowrap} onClick={() => setSelectedDocument(null)}>Fechar documento</Button></div>
-      {markdown.isPending ? <p className="text-sm text-slate-500">Carregando conteúdo…</p>
-        : markdown.isError ? <p className="text-sm text-rose-700" role="alert">{errorMessage(markdown.error)}</p>
+      <div className="mb-3 flex items-start justify-between gap-3"><h4 className="break-all text-[11px] font-semibold text-slate-900">{selectedDocument.name} · rev. {selectedDocument.revision}</h4><Button type="button" variant="link" className={textButtonNowrap} onClick={() => setSelectedDocument(null)}>Fechar documento</Button></div>
+      {markdown.isPending ? <p className="text-[11px] text-slate-500">Carregando conteúdo…</p>
+        : markdown.isError ? <p className="text-[11px] text-rose-700" role="alert">{errorMessage(markdown.error)}</p>
           : <MarkdownView content={markdown.data ?? ''} />}
     </div>}
   </section>;
