@@ -1,4 +1,5 @@
-import { useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import { defaultCondition, filterFields, operatorLabels, operatorsForField, type FilterCondition, type FilterField, type FilterGroup, type FilterNode } from './advanced-filter';
 import { Button } from '../../components/ui/button';
@@ -26,6 +27,18 @@ export function OptionValuePicker({ options, value, ariaLabel, multiple, boolean
   const [search, setSearch] = useState('');
   const panelId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const [anchor, setAnchor] = useState<DOMRect | null>(null);
+  useEffect(() => {
+    if (!open || !popover) return;
+    const update = () => { if (triggerRef.current) setAnchor(triggerRef.current.getBoundingClientRect()); };
+    update();
+    window.addEventListener('resize', update);
+    window.addEventListener('scroll', update, true);
+    return () => { window.removeEventListener('resize', update); window.removeEventListener('scroll', update, true); };
+  }, [open, popover]);
+  const floating = popover && anchor !== null;
+  const flip = floating && anchor.bottom + 300 > window.innerHeight && anchor.top > 300;
+  const floatingStyle = floating ? { position: 'fixed' as const, left: Math.max(8, Math.min(anchor.left, window.innerWidth - 288)), minWidth: anchor.width, ...(flip ? { bottom: window.innerHeight - anchor.top + 4 } : { top: anchor.bottom + 4 }) } : undefined;
   const selectedValues = multiple
     ? Array.isArray(value) ? value.map(String) : value === undefined || value === null || value === emptyValue ? [] : [String(value)]
     : value === undefined || value === null || value === emptyValue ? [] : [String(value)];
@@ -33,6 +46,7 @@ export function OptionValuePicker({ options, value, ariaLabel, multiple, boolean
   const normalizedSearch = normalizeOptionSearch(search.trim());
   const filteredOptions = options.filter(option => normalizeOptionSearch(`${option.label} ${option.value}`).includes(normalizedSearch));
   const close = () => { setOpen(false); setSearch(''); triggerRef.current?.focus(); };
+  const wrapPanel = (panel: ReactNode) => popover ? createPortal(panel, document.body) : panel;
   function selectValue(selected: string) {
     if (multiple) {
       onChange(selectedValues.includes(selected) ? selectedValues.filter(value => value !== selected) : [...selectedValues, selected]);
@@ -59,7 +73,7 @@ export function OptionValuePicker({ options, value, ariaLabel, multiple, boolean
       </Button>
       {selectedValues.length > 0 && !booleanValue && !popover && <Button type="button" variant="ghost" size="sm" className="text-muted-foreground" onClick={() => onChange(multiple ? [] : emptyValue)}>Limpar seleção</Button>}
     </div>
-    {open && <div id={panelId} className={`grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-2 ${popover ? 'absolute left-0 top-full z-40 mt-1 w-max min-w-full max-w-[280px] shadow-lg max-[760px]:max-w-full' : ''}`}>
+    {open && (popover && !floating ? null : wrapPanel(<div id={panelId} style={floatingStyle} className={`grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-2 ${popover ? 'z-[70] w-max max-w-[280px] shadow-lg' : ''}`}>
       <Input className={controlClass} type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Buscar opções…" aria-label={`Buscar opções de ${ariaLabel}`} autoComplete="off" autoFocus />
       {filteredOptions.length ? <div className="grid max-h-44 gap-0.5 overflow-y-auto" role="group" aria-label={`Opções de ${ariaLabel}`}>
         {filteredOptions.map(option => <label key={option.value} className={`flex min-h-9 cursor-pointer items-start gap-2 rounded-md px-2 py-2 text-[11px] font-normal hover:bg-white ${selectedValues.includes(option.value) ? 'bg-white text-indigo-800' : 'text-slate-700'}`}>
@@ -71,7 +85,7 @@ export function OptionValuePicker({ options, value, ariaLabel, multiple, boolean
         <span className="text-[10px] text-slate-500">{selectedValues.length} {selectedValues.length === 1 ? 'valor selecionado' : 'valores selecionados'}</span>
         <Button type="button" variant="ghost" size="sm" className="text-muted-foreground" onClick={close}>Concluir</Button>
       </div>
-    </div>}
+    </div>))}
   </div>;
 }
 
