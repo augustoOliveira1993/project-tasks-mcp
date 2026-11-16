@@ -1,14 +1,15 @@
 import { operationId, request } from '../../api';
 
-export type FeatureDraft = { name: string; objective: string; context: string; acceptance: string[] };
-export type FeatureRecord = { _id: string; name: string; objective: string; context: string; acceptance: string[] };
+export type FeatureDraft = { name: string; objective: string; context: string; acceptance: string[]; responsible?: string };
+export type FeatureRecord = { _id: string; name: string; objective: string; context: string; acceptance: string[]; responsible?: string | null };
 
 export function featureDataFromDraft(draft: FeatureDraft) {
   const data = {
     name: draft.name.trim(),
     objective: draft.objective.trim(),
     context: draft.context.trim(),
-    acceptance: draft.acceptance.map(item => item.trim()).filter(Boolean)
+    acceptance: draft.acceptance.map(item => item.trim()).filter(Boolean),
+    ...(draft.responsible?.trim() ? { responsible: draft.responsible.trim() } : {})
   };
   if (!data.name || !data.objective || !data.context) throw new Error('Preencha nome, objetivo e contexto da feature.');
   if (!data.acceptance.length) throw new Error('Informe ao menos um critério de aceite.');

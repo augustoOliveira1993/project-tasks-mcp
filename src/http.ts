@@ -1,6 +1,6 @@
 import express from 'express';
 import { MCP_SERVER_ICONS } from './brand.js';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import mongoose from 'mongoose';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
@@ -14,6 +14,16 @@ import { logger } from './logger.js';
 import { z, ZodError } from 'zod';
 import { eventCursor, type EventFilter } from './events.js';
 import { adminPage } from './admin-page.js';
+
+// Com TRUSTED_LOCAL_SECRET definido, o cabeçalho de e-mail só vale junto do segredo em X-Project-Tasks-Secret.
+const digest = (value: string) => createHash('sha256').update(value).digest();
+function trustedLocalFrom(req: express.Request) {
+  if (env.trustedLocalSecret) {
+    const sent = String(req.headers['x-project-tasks-secret'] ?? '');
+    if (!timingSafeEqual(digest(sent), digest(env.trustedLocalSecret))) throw new DomainError('X-Project-Tasks-Secret missing or invalid', 401);
+  }
+  return trustedLocal(String(req.headers['x-project-tasks-email'] ?? ''), String(req.headers['x-project-tasks-project-token'] ?? '') || undefined);
+}
 
 const MCP_AGENT_INSTRUCTIONS = [
   'Use apenas as ferramentas anunciadas nesta sessão. O guia operacional no repositório detalha todas as famílias; não assuma que uma capacidade documentada está conectada ao cliente atual.',
@@ -177,7 +187,6 @@ export function createApp(service: Service, origins: string[]) {
     try {
       const value = req.headers.authorization;
       const actor = await authenticate(value?.startsWith('Bearer ') ? value.slice(7) : '', 'human');
-      if (!actor.systemAdmin) throw new DomainError('System administrator required', 403);
       res.locals.importActor = actor;
       next();
     } catch (error) { next(error); }
@@ -332,6 +341,23 @@ export function createApp(service: Service, origins: string[]) {
     });
     res.json(record);
   });
+  // Cada edição roda na própria transação e falha sozinha: o lote devolve o resultado de cada item.
+  app.post('/admin/records/edit-batch', async (req, res) => {
+    const actor = await authenticate(token(req.headers.authorization), 'human');
+    const edits = req.body?.edits;
+    if (!Array.isArray(edits) || edits.length < 1 || edits.length > 100) throw new DomainError('edits deve ter de 1 a 100 itens', 400);
+    const results: Array<{ id: unknown; ok: boolean; version?: number; status?: number; error?: string }> = [];
+    for (const edit of edits) {
+      try {
+        const record = await service.call(actor, 'edit_record', edit);
+        results.push({ id: edit?.id, ok: true, version: record.version });
+      } catch (error) {
+        results.push({ id: edit?.id, ok: false, status: error instanceof DomainError ? error.status : 400, error: error instanceof Error ? error.message : String(error) });
+      }
+    }
+    logger.info('Administrative records edited in batch', { event: 'admin_records_edited_batch', actor: actor.userId, total: edits.length, failed: results.filter(item => !item.ok).length });
+    res.json({ results });
+  });
   app.post('/admin/tasks/transfer/preview', async (req, res) => {
     const actor = await authenticate(token(req.headers.authorization), 'human');
     res.json(await service.call(actor, 'preview_task_transfer', req.body));
@@ -366,7 +392,7 @@ export function createApp(service: Service, origins: string[]) {
     const actor = req.headers.authorization?.startsWith('Bearer ')
       ? await authenticateAny(token(req.headers.authorization))
       : env.authMode === 'trusted_local'
-        ? trustedLocal(String(req.headers['x-project-tasks-email'] ?? ''), String(req.headers['x-project-tasks-project-token'] ?? '') || undefined)
+        ? trustedLocalFrom(req)
         : await authenticateAny('');
     res.json(await service.adminCapabilities(actor));
   });
@@ -553,7 +579,7 @@ export function createApp(service: Service, origins: string[]) {
   app.locals.close = async () => { clearInterval(cleanup); removeListener(); await Promise.allSettled([...sessions.values()].map(s => s.server.close())); sessions.clear(); await service.events.close(); };
   const authenticateMcp = async (req: express.Request) => req.headers.authorization?.startsWith('Bearer ')
     ? await authenticate(token(req.headers.authorization), 'agent') : env.authMode === 'trusted_local'
-    ? trustedLocal(String(req.headers['x-project-tasks-email'] ?? ''), String(req.headers['x-project-tasks-project-token'] ?? '') || undefined)
+    ? trustedLocalFrom(req)
     : await authenticate(token(req.headers.authorization), 'agent');
   const createSession = async (req: express.Request) => {
     if (sessions.size >= 500) throw new DomainError('MCP session capacity reached', 503);

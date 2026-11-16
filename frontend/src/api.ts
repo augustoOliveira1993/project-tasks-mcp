@@ -43,6 +43,7 @@ export type Task = {
   featureId?: string | null;
   plannedStartAt?: string | null;
   plannedDueAt?: string | null;
+  progressLabel?: string | null;
   acceptance?: string[];
   acceptanceProgress?: boolean[];
   acceptanceEvidence?: Array<string | null>;

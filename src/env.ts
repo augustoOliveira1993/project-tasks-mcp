@@ -21,5 +21,6 @@ export const env = {
   tlsKeyPath: envConfig.TLS_KEY_PATH,
   leaseMinutes,
   logLevel: envConfig.LOG_LEVEL ?? 'info',
-  mongodPath: envConfig.MONGOD_PATH
+  mongodPath: envConfig.MONGOD_PATH,
+  trustedLocalSecret: envConfig.TRUSTED_LOCAL_SECRET?.trim() || undefined
 };

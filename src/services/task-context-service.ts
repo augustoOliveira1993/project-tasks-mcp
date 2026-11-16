@@ -128,13 +128,13 @@ function markdownItems(items: any[], more: boolean, truncated: Set<string>, path
 export async function getTaskContext(projectId: string, taskId: string, includeAdministrativeDetails = false): Promise<TaskContextDto | null> {
   const startedAt = Date.now();
   const [task, project] = await Promise.all([
-    Task.findOne({ _id: taskId, projectId }).select('_id projectId version archived featureId name instructions acceptance acceptanceProgress priority area type repositoryId dependencies status executionId responsible plannedStartAt plannedDueAt leaseUntil checked checkedBy checkedAt createdAt updatedAt').lean(),
+    Task.findOne({ _id: taskId, projectId }).select('_id projectId version archived featureId name instructions acceptance acceptanceProgress priority area type repositoryId dependencies status executionId responsible progressLabel plannedStartAt plannedDueAt leaseUntil checked checkedBy checkedAt createdAt updatedAt').lean(),
     Project.findById(projectId).select('_id version name description instructions').lean()
   ]);
   if (!task || !project) return null;
 
   const [feature, repositoryRecord, messages, dependencyTasks, executions, taskDocs, featureDocs, statusEvents] = await Promise.all([
-    task.featureId ? Feature.findOne({ _id: task.featureId, projectId }).select('_id version name objective context acceptance').lean() : Promise.resolve(null),
+    task.featureId ? Feature.findOne({ _id: task.featureId, projectId }).select('_id version name objective context acceptance responsible').lean() : Promise.resolve(null),
     task.repositoryId ? Project.findOne({ _id: projectId, 'repositories.id': task.repositoryId }).select({ 'repositories.$': 1 }).lean() : Promise.resolve(null),
     TaskMessage.find({ projectId, $or: [{ taskId }, { relatedTaskId: taskId }] }).select('_id taskId relatedTaskId author authorType clientName type message references createdAt conversationId replyTo').sort({ createdAt: -1, _id: -1 }).limit(11).lean(),
     task.dependencies?.length ? Task.find({ _id: { $in: task.dependencies }, projectId }).select('_id name status area type executionId').lean() : Promise.resolve([]),
@@ -206,6 +206,7 @@ export async function getTaskContext(projectId: string, taskId: string, includeA
       repositoryId: task.repositoryId ?? '', dependencies: [...dependencyIds], status: task.status ?? 'pendente',
       statusHistory: buildStatusHistory(statusEvents, { status: task.status ?? 'pendente', createdAt: task.createdAt!, updatedAt: task.updatedAt! }),
       executionId: task.executionId ?? null, responsible: task.responsible ? text(task.responsible, 160, 'task.responsible', truncated) : null,
+      progressLabel: task.progressLabel ? text(task.progressLabel, 80, 'task.progressLabel', truncated) : null,
       plannedStartAt: task.plannedStartAt ?? null, plannedDueAt: task.plannedDueAt ?? null,
       checked: task.checked ?? false,
       ...(includeAdministrativeDetails ? { leaseUntil: task.leaseUntil ?? null } : {}),
@@ -222,7 +223,8 @@ export async function getTaskContext(projectId: string, taskId: string, includeA
       _id: feature._id!, version: feature.version ?? 0, name: text(feature.name, 240, 'feature.name', truncated),
       objective: text(feature.objective, 1500, 'feature.objective', truncated),
       context: text(feature.context, 1500, 'feature.context', truncated),
-      acceptance: (feature.acceptance ?? []).slice(0, 20).map((item, index) => text(item, 240, `feature.acceptance[${index}]`, truncated))
+      acceptance: (feature.acceptance ?? []).slice(0, 20).map((item, index) => text(item, 240, `feature.acceptance[${index}]`, truncated)),
+      responsible: feature.responsible ? text(feature.responsible, 160, 'feature.responsible', truncated) : null
     } : null,
     repository: repository ? {
       id: repository.id!, name: text(repository.name, 200, 'repository.name', truncated), url: repository.url!,

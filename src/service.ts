@@ -271,10 +271,17 @@ export class Service {
   }
 
   async importProject(actor: Actor, input: unknown) {
-    requireThat(actor.scope === 'human' && actor.systemAdmin, 'System administrator required', 403);
+    // Administrador do projeto importa só em projeto que já existe e que ele administra; criar projeto exige administrador do sistema.
+    const targetId = (input as { data?: { project?: { _id?: unknown } } } | null)?.data?.project?._id;
+    let projectAdmin = false;
+    if (actor.scope === 'human' && !actor.systemAdmin && typeof targetId === 'string') {
+      const target = await Project.findById(targetId);
+      projectAdmin = !!target && !target.archived && target.members?.get(memberKey(actor.userId)) === 'administrador';
+    }
+    requireThat(actor.scope === 'human' && (actor.systemAdmin || projectAdmin), 'System administrator required', 403);
     try {
       return await mongoose.connection.transaction(async session => {
-        const credential = await Credential.updateOne({ _id: actor.id, scope: 'human', systemAdmin: true, revoked: false }, { $inc: { fence: 1 } }, { session });
+        const credential = await Credential.updateOne({ _id: actor.id, scope: 'human', ...(actor.systemAdmin ? { systemAdmin: true } : {}), revoked: false }, { $inc: { fence: 1 } }, { session });
         requireThat(credential.matchedCount === 1, 'System administrator credential required', 403);
         return importProject(input, memberKey(actor.userId), actor.userId, session, eventOrigin(actor));
       });
@@ -961,7 +968,8 @@ export class Service {
         if (kind === 'task') await this.graph(a.projectId, entityId, a.data, s);
         if (kind === 'project') requireThat(new Set(a.data.repositories.map((r: any) => r.id)).size === a.data.repositories.length, 'Duplicate repository');
         const { accessToken, ...data } = a.data;
-        const [created] = await models[kind].create([{ _id: entityId, ...data, ...(kind === 'task' ? { acceptanceProgress: data.acceptance.map(() => false) } : {}), ...(kind === 'project' ? { accessTokenHash: accessToken ? hash(accessToken) : undefined, members: { [memberKey(actor.userId)]: 'administrador' } } : { projectId: a.projectId }) }], { session: s });
+        const creator = actor.userId?.trim();
+        const [created] = await models[kind].create([{ _id: entityId, ...data, ...((kind === 'feature' || kind === 'task') && !data.responsible && creator ? { responsible: creator } : {}), ...(kind === 'task' ? { acceptanceProgress: data.acceptance.map(() => false) } : {}), ...(kind === 'project' ? { accessTokenHash: accessToken ? hash(accessToken) : undefined, members: { [memberKey(actor.userId)]: 'administrador' } } : { projectId: a.projectId }) }], { session: s });
         await this.event(s, actor, name, a.projectId ?? entityId, entityId, created);
         return created;
       }
@@ -1898,7 +1906,7 @@ export class Service {
     const repositoryRecord = await Project.findOne({ _id: a.projectId, 'repositories.id': task.repositoryId }).select({ 'repositories.$': 1 }).lean();
     const repository = repositoryRecord?.repositories?.[0] ?? null;
     const project = projectRecord;
-    const feature = task.featureId ? await Feature.findById(task.featureId).select('_id version name objective context acceptance').lean() : null;
+    const feature = task.featureId ? await Feature.findById(task.featureId).select('_id version name objective context acceptance responsible').lean() : null;
     const dependencies = task.dependencies?.length ? await Task.find({ _id: { $in: task.dependencies }, projectId: a.projectId }).select('_id name status area type executionId').lean() : [];
     const executionIds = dependencies.flatMap(d => d.executionId ? [d.executionId] : []);
     const results = executionIds.length ? await Execution.find({ _id: { $in: executionIds } }).select('_id status result.summary result.evidence').lean() : [];
@@ -1914,7 +1922,7 @@ export class Service {
           .select('_id author content createdAt').sort({ createdAt: -1, _id: -1 }).limit(3).lean()
       ));
       const lines = [`# ${escape(task.name!)}`, '', '## Identificação', '', `- **ID:** \`${task._id}\``, `- **Status:** \`${task.status}\``, `- **Área:** ${task.area}`, `- **Tipo:** ${task.type ?? 'feature'}`, `- **Prioridade:** ${task.priority}`, `- **Responsável:** ${task.responsible ?? 'Não atribuído'}`, `- **Criada em:** ${date(task.createdAt)}`, `- **Atualizada em:** ${date(task.updatedAt)}`, '', '## Projeto', '', `- **Nome:** ${escape(project!.name!)}`, `- **Descrição:** ${project!.description || '_Não informada._'}`, '', '## Feature', ''];
-      if (feature) lines.push(`- **Nome:** ${escape(feature.name!)}`, `- **Objetivo:** ${feature.objective || '_Não informado._'}`, `- **Contexto:** ${feature.context || '_Não informado._'}`); else lines.push('_Tarefa independente, sem feature vinculada._');
+      if (feature) lines.push(`- **Nome:** ${escape(feature.name!)}`, `- **Responsável:** ${feature.responsible ? escape(feature.responsible) : '_Sem responsável._'}`, `- **Objetivo:** ${feature.objective || '_Não informado._'}`, `- **Contexto:** ${feature.context || '_Não informado._'}`); else lines.push('_Tarefa independente, sem feature vinculada._');
       lines.push('', '## Repositório', '');
       if (repository) lines.push(`- **Nome:** ${escape(repository.name ?? 'Não informado')}`, `- **URL:** ${repository.url}`, `- **Instruções:** ${repository.instructions || '_Não informadas._'}`); else lines.push('_Repositório não encontrado no projeto._');
       lines.push('', '## Instruções', '', task.instructions || '_Não informado._', '');
@@ -2139,20 +2147,25 @@ export class Service {
   }
   private async applyTaskStatus(actor: Actor, task: any, body: any, s: ClientSession, eventAction: string, operationId: string) {
     const allowed: Record<string, string[]> = {
-      pendente: ['em_revisao', 'concluida', 'cancelada'],
+      pendente: ['bloqueada', 'em_revisao', 'concluida', 'cancelada'],
       em_execucao: ['bloqueada'],
       bloqueada: ['pendente', 'em_revisao', 'concluida', 'cancelada'],
       em_revisao: ['pendente', 'concluida', 'cancelada'],
-      concluida: ['pendente']
+      concluida: ['pendente'],
+      cancelada: ['pendente']
     };
     requireThat(allowed[task.status!]?.includes(body.status), 'Invalid administrative status transition');
+    const previousStatus = task.status;
     task.status = body.status; task.leaseUntil = undefined; task.version! += 1;
     if (body.status === 'bloqueada') {
-      requireThat(task.executionId, 'Active execution not found');
-      const execution = await Execution.findOne({ _id: task.executionId, projectId: body.projectId, taskId: task._id }).session(s);
-      requireThat(execution, 'Execution not found');
-      execution.status = 'bloqueada'; execution.endedAt = new Date(); execution.impediments.push(body.reason);
-      await execution.save({ session: s });
+      // Sem execução ativa (pendente → bloqueada) o motivo fica só no evento da mudança de status.
+      if (previousStatus === 'em_execucao') {
+        requireThat(task.executionId, 'Active execution not found');
+        const execution = await Execution.findOne({ _id: task.executionId, projectId: body.projectId, taskId: task._id }).session(s);
+        requireThat(execution, 'Execution not found');
+        execution.status = 'bloqueada'; execution.endedAt = new Date(); execution.impediments.push(body.reason);
+        await execution.save({ session: s });
+      }
     } else if (task.executionId && ['concluida', 'cancelada'].includes(body.status)) {
       await Execution.updateOne({ _id: task.executionId }, { status: body.status === 'concluida' ? 'approve' : 'cancel', endedAt: new Date() }, { session: s });
     }
