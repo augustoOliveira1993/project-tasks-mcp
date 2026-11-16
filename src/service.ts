@@ -2144,7 +2144,8 @@ export class Service {
       em_execucao: ['bloqueada'],
       bloqueada: ['pendente', 'em_revisao', 'concluida', 'cancelada'],
       em_revisao: ['pendente', 'concluida', 'cancelada'],
-      concluida: ['pendente']
+      concluida: ['pendente'],
+      cancelada: ['pendente']
     };
     requireThat(allowed[task.status!]?.includes(body.status), 'Invalid administrative status transition');
     const previousStatus = task.status;

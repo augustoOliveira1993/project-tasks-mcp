@@ -9,7 +9,7 @@ import { Textarea } from '../../../components/ui/textarea';
 
 export function TaskStatusDialog({ task, saving, onClose, onSubmit }: { task: Task; saving: boolean; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
   const isBlocking = task.status === 'em_execucao';
-  const statuses = isBlocking ? ['bloqueada'] : task.status === 'pendente' ? ['pendente', 'bloqueada', 'em_revisao', 'concluida', 'cancelada'] : ['pendente', 'em_revisao', 'concluida', 'cancelada'];
+  const statuses = isBlocking ? ['bloqueada'] : task.status === 'cancelada' ? ['pendente'] : task.status === 'pendente' ? ['pendente', 'bloqueada', 'em_revisao', 'concluida', 'cancelada'] : ['pendente', 'em_revisao', 'concluida', 'cancelada'];
   const initialStatus = isBlocking ? 'bloqueada' : task.status;
 
   return <Dialog open onOpenChange={open => { if (!open && !saving) onClose(); }}>
