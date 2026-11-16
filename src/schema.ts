@@ -4,6 +4,7 @@ import { taskWorkspaceSearchSchema } from './task-workspace-search.js';
 export const id = z.string().uuid();
 export const userId = z.string().min(1).max(320).refine(value => /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(value) || /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value), 'Invalid user ID or email').refine(value => !['prototype', 'constructor'].includes(value));
 const text = z.string().min(1).max(20000);
+const longText = z.string().min(1).max(100000);
 const areaName = z.string().trim().min(1).max(80).refine(value => !/[\r\n]/.test(value), 'Area must be a single line');
 const areas = z.array(areaName).min(1).max(100).refine(values => new Set(values.map(value => value.toLocaleLowerCase('pt-BR'))).size === values.length, 'Area names must be unique');
 const markdown = z.string().max(100 * 1024).refine(value => Buffer.byteLength(value, 'utf8') <= 100 * 1024, 'Markdown exceeds 100 KiB');
@@ -82,7 +83,7 @@ export const projectDataPatch = projectDataFields.partial();
 export const featureData = z.object({ name: text, objective: text, context: text, acceptance: z.array(text).min(1).max(100), responsible: text.optional() }).strict();
 const plannedDate = z.string().datetime().nullable().optional();
 const taskDataFields = z.object({
-  name: text, instructions: text, acceptance: z.array(text).min(1).max(100), priority: z.number().int().min(0).max(5),
+  name: text, instructions: longText, acceptance: z.array(text).min(1).max(100), priority: z.number().int().min(0).max(5),
   area: areaName, repositoryId: id, featureId: id.nullish(), type: taskType.default('feature'), dependencies: z.array(id).max(100), responsible: text.optional(), progressLabel: z.string().trim().min(1).max(80).nullish(),
   plannedStartAt: plannedDate, plannedDueAt: plannedDate
 }).strict();
