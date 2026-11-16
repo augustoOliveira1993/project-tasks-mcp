@@ -332,6 +332,23 @@ export function createApp(service: Service, origins: string[]) {
     });
     res.json(record);
   });
+  // Cada edição roda na própria transação e falha sozinha: o lote devolve o resultado de cada item.
+  app.post('/admin/records/edit-batch', async (req, res) => {
+    const actor = await authenticate(token(req.headers.authorization), 'human');
+    const edits = req.body?.edits;
+    if (!Array.isArray(edits) || edits.length < 1 || edits.length > 100) throw new DomainError('edits deve ter de 1 a 100 itens', 400);
+    const results: Array<{ id: unknown; ok: boolean; version?: number; status?: number; error?: string }> = [];
+    for (const edit of edits) {
+      try {
+        const record = await service.call(actor, 'edit_record', edit);
+        results.push({ id: edit?.id, ok: true, version: record.version });
+      } catch (error) {
+        results.push({ id: edit?.id, ok: false, status: error instanceof DomainError ? error.status : 400, error: error instanceof Error ? error.message : String(error) });
+      }
+    }
+    logger.info('Administrative records edited in batch', { event: 'admin_records_edited_batch', actor: actor.userId, total: edits.length, failed: results.filter(item => !item.ok).length });
+    res.json({ results });
+  });
   app.post('/admin/tasks/transfer/preview', async (req, res) => {
     const actor = await authenticate(token(req.headers.authorization), 'human');
     res.json(await service.call(actor, 'preview_task_transfer', req.body));
