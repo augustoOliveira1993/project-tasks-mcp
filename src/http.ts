@@ -177,7 +177,6 @@ export function createApp(service: Service, origins: string[]) {
     try {
       const value = req.headers.authorization;
       const actor = await authenticate(value?.startsWith('Bearer ') ? value.slice(7) : '', 'human');
-      if (!actor.systemAdmin) throw new DomainError('System administrator required', 403);
       res.locals.importActor = actor;
       next();
     } catch (error) { next(error); }

@@ -271,10 +271,17 @@ export class Service {
   }
 
   async importProject(actor: Actor, input: unknown) {
-    requireThat(actor.scope === 'human' && actor.systemAdmin, 'System administrator required', 403);
+    // Administrador do projeto importa só em projeto que já existe e que ele administra; criar projeto exige administrador do sistema.
+    const targetId = (input as { data?: { project?: { _id?: unknown } } } | null)?.data?.project?._id;
+    let projectAdmin = false;
+    if (actor.scope === 'human' && !actor.systemAdmin && typeof targetId === 'string') {
+      const target = await Project.findById(targetId);
+      projectAdmin = !!target && !target.archived && target.members?.get(memberKey(actor.userId)) === 'administrador';
+    }
+    requireThat(actor.scope === 'human' && (actor.systemAdmin || projectAdmin), 'System administrator required', 403);
     try {
       return await mongoose.connection.transaction(async session => {
-        const credential = await Credential.updateOne({ _id: actor.id, scope: 'human', systemAdmin: true, revoked: false }, { $inc: { fence: 1 } }, { session });
+        const credential = await Credential.updateOne({ _id: actor.id, scope: 'human', ...(actor.systemAdmin ? { systemAdmin: true } : {}), revoked: false }, { $inc: { fence: 1 } }, { session });
         requireThat(credential.matchedCount === 1, 'System administrator credential required', 403);
         return importProject(input, memberKey(actor.userId), actor.userId, session, eventOrigin(actor));
       });
