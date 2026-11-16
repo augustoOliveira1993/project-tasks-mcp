@@ -2140,20 +2140,24 @@ export class Service {
   }
   private async applyTaskStatus(actor: Actor, task: any, body: any, s: ClientSession, eventAction: string, operationId: string) {
     const allowed: Record<string, string[]> = {
-      pendente: ['em_revisao', 'concluida', 'cancelada'],
+      pendente: ['bloqueada', 'em_revisao', 'concluida', 'cancelada'],
       em_execucao: ['bloqueada'],
       bloqueada: ['pendente', 'em_revisao', 'concluida', 'cancelada'],
       em_revisao: ['pendente', 'concluida', 'cancelada'],
       concluida: ['pendente']
     };
     requireThat(allowed[task.status!]?.includes(body.status), 'Invalid administrative status transition');
+    const previousStatus = task.status;
     task.status = body.status; task.leaseUntil = undefined; task.version! += 1;
     if (body.status === 'bloqueada') {
-      requireThat(task.executionId, 'Active execution not found');
-      const execution = await Execution.findOne({ _id: task.executionId, projectId: body.projectId, taskId: task._id }).session(s);
-      requireThat(execution, 'Execution not found');
-      execution.status = 'bloqueada'; execution.endedAt = new Date(); execution.impediments.push(body.reason);
-      await execution.save({ session: s });
+      // Sem execução ativa (pendente → bloqueada) o motivo fica só no evento da mudança de status.
+      if (previousStatus === 'em_execucao') {
+        requireThat(task.executionId, 'Active execution not found');
+        const execution = await Execution.findOne({ _id: task.executionId, projectId: body.projectId, taskId: task._id }).session(s);
+        requireThat(execution, 'Execution not found');
+        execution.status = 'bloqueada'; execution.endedAt = new Date(); execution.impediments.push(body.reason);
+        await execution.save({ session: s });
+      }
     } else if (task.executionId && ['concluida', 'cancelada'].includes(body.status)) {
       await Execution.updateOne({ _id: task.executionId }, { status: body.status === 'concluida' ? 'approve' : 'cancel', endedAt: new Date() }, { session: s });
     }
