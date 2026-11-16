@@ -962,7 +962,7 @@ export class Service {
         if (kind === 'project') requireThat(new Set(a.data.repositories.map((r: any) => r.id)).size === a.data.repositories.length, 'Duplicate repository');
         const { accessToken, ...data } = a.data;
         const creator = actor.userId?.trim();
-        const [created] = await models[kind].create([{ _id: entityId, ...data, ...(kind === 'feature' && !data.responsible && creator ? { responsible: creator } : {}), ...(kind === 'task' ? { acceptanceProgress: data.acceptance.map(() => false) } : {}), ...(kind === 'project' ? { accessTokenHash: accessToken ? hash(accessToken) : undefined, members: { [memberKey(actor.userId)]: 'administrador' } } : { projectId: a.projectId }) }], { session: s });
+        const [created] = await models[kind].create([{ _id: entityId, ...data, ...((kind === 'feature' || kind === 'task') && !data.responsible && creator ? { responsible: creator } : {}), ...(kind === 'task' ? { acceptanceProgress: data.acceptance.map(() => false) } : {}), ...(kind === 'project' ? { accessTokenHash: accessToken ? hash(accessToken) : undefined, members: { [memberKey(actor.userId)]: 'administrador' } } : { projectId: a.projectId }) }], { session: s });
         await this.event(s, actor, name, a.projectId ?? entityId, entityId, created);
         return created;
       }
