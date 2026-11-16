@@ -92,7 +92,7 @@ function validatePlannedDates(data: { plannedStartAt?: string | null; plannedDue
     context.addIssue({ code: 'custom', path: ['plannedDueAt'], message: 'Planned start must not be after planned delivery' });
   }
 }
-export const taskData = taskDataFields.superRefine(validatePlannedDates);
+export const taskData = taskDataFields.extend({ priority: z.number().int().min(0).max(5).default(0) }).superRefine(validatePlannedDates);
 export const taskDataPatch = taskDataFields.partial().superRefine(validatePlannedDates);
 const projectMemorySource = z.object({
   kind: z.enum(['task', 'feature', 'execution', 'document', 'diff']), id,
