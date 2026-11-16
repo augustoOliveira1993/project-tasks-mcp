@@ -77,6 +77,6 @@ yarn test:flow
 
 ## Segurança
 
-`MCP_AUTH_MODE=trusted_local` aceita a identidade enviada em `X-Project-Tasks-Email`. Use esse modo somente em rede privada controlada e não exponha o serviço à internet.
+`MCP_AUTH_MODE=trusted_local` aceita a identidade enviada em `X-Project-Tasks-Email`. Use esse modo somente em rede privada controlada e não exponha o serviço à internet. Para exigir um segredo compartilhado, defina `TRUSTED_LOCAL_SECRET` no `.env`: cada chamada passa a enviar o mesmo valor em `X-Project-Tasks-Secret` e, sem ele, recebe 401.
 
 A revisão humana continua exigindo `ADMIN_TOKEN` na CLI. Logs registram metadados operacionais — sem tokens ou conteúdo de mensagens.

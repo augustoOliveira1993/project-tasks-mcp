@@ -19,4 +19,4 @@ O MCP é global na IA. Não crie `.mcp.json`, `.codex/config.toml` ou configura�
 - Reserve `<pre>` para conteúdo que deve permanecer literal, como JSON e código-fonte. Não habilite HTML bruto de Markdown sem uma necessidade explícita e sanitização.
 - Use wrappers de layout para altura e rolagem; não transforme o documento inteiro em fonte monoespaçada.
 
-Endpoint interno: `http://AVB-NB-00295:3443/mcp`. O modo `trusted_local` confia na rede privada; qualquer pessoa capaz de enviar o cabeçalho pode assumir o e-mail informado.
+Endpoint interno: `http://AVB-NB-00295:3443/mcp`. O modo `trusted_local` confia na rede privada; qualquer pessoa capaz de enviar o cabeçalho pode assumir o e-mail informado, a menos que o servidor defina `TRUSTED_LOCAL_SECRET` (então o cabeçalho `X-Project-Tasks-Secret` é exigido junto).
