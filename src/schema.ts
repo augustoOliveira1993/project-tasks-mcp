@@ -83,7 +83,7 @@ export const featureData = z.object({ name: text, objective: text, context: text
 const plannedDate = z.string().datetime().nullable().optional();
 const taskDataFields = z.object({
   name: text, instructions: text, acceptance: z.array(text).min(1).max(100), priority: z.number().int().min(0).max(5),
-  area: areaName, repositoryId: id, featureId: id.nullish(), type: taskType.default('feature'), dependencies: z.array(id).max(100), responsible: text.optional(),
+  area: areaName, repositoryId: id, featureId: id.nullish(), type: taskType.default('feature'), dependencies: z.array(id).max(100), responsible: text.optional(), progressLabel: z.string().trim().min(1).max(80).nullish(),
   plannedStartAt: plannedDate, plannedDueAt: plannedDate
 }).strict();
 function validatePlannedDates(data: { plannedStartAt?: string | null; plannedDueAt?: string | null }, context: z.RefinementCtx) {

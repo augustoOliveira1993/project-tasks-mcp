@@ -71,6 +71,7 @@ export function TaskEditorDialog({ token, nonce, project, tasks, features, task,
       featureId: String(form.get('featureId') ?? '') === 'none' ? null : String(form.get('featureId') ?? '') || null, type: String(form.get('type') ?? 'feature'),
       priority: Number(form.get('priority') ?? 2), dependencies,
       plannedStartAt: plannedDateTime(plannedStartAt), plannedDueAt: plannedDateTime(plannedDueAt),
+      progressLabel: String(form.get('progressLabel') ?? '').trim() || null,
       ...(responsible ? { responsible } : {})
     };
     if (acceptanceChanged) data.acceptance = acceptance;
@@ -98,6 +99,7 @@ export function TaskEditorDialog({ token, nonce, project, tasks, features, task,
             <div className="grid content-start gap-2"><Label htmlFor="edit-task-priority">Prioridade</Label><Select name="priority" defaultValue={String(task.priority ?? 2)}><SelectTrigger id="edit-task-priority" className="w-full"><SelectValue /></SelectTrigger><SelectContent>{[0, 1, 2, 3, 4, 5].map(priority => <SelectItem key={priority} value={String(priority)}>{priority}</SelectItem>)}</SelectContent></Select></div>
             <div className="grid content-start gap-2"><AssigneePicker className="content-start text-[10px] font-semibold text-[#566275] [&_select]:font-normal [&_select]:text-[#344054]" name="responsible" assignees={assignees.data ?? []} isPending={assignees.isPending} isError={assignees.isError} defaultValue={task.responsible} allowEmpty={!task.responsible} /><p className={hint}>Escolha entre credenciais ativas. O responsável só pode ser trocado, não removido.</p></div>
           </div>
+          <div className="grid content-start gap-2"><Label htmlFor="edit-task-progress-label">Andamento</Label><Input id="edit-task-progress-label" name="progressLabel" maxLength={80} defaultValue={task.progressLabel ?? ''} placeholder="Ex.: em andamento, aguardando decisão" /><p className={hint}>Rótulo livre para o que o status não diz. Limpe o campo para remover.</p></div>
           <div className="grid gap-4 sm:grid-cols-2" role="group" aria-label="Cronograma planejado da tarefa">
             <div className="grid content-start gap-2"><Label htmlFor="edit-task-start">Início planejado</Label><Input id="edit-task-start" type="date" name="plannedStartAt" defaultValue={plannedDateInput(task.plannedStartAt)} /></div>
             <div className="grid content-start gap-2"><Label htmlFor="edit-task-due">Entrega planejada</Label><Input id="edit-task-due" type="date" name="plannedDueAt" defaultValue={plannedDateInput(task.plannedDueAt)} /><p className={hint}>Limpe os campos para remover as datas planejadas.</p></div>
