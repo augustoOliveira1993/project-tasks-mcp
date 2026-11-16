@@ -42,7 +42,8 @@ export function CreateFeatureDialog({ token, nonce, projectId, close, onCreated 
       name: String(form.get('name') ?? ''),
       objective: String(form.get('objective') ?? ''),
       context: String(form.get('context') ?? ''),
-      acceptance
+      acceptance,
+      responsible: String(form.get('responsible') ?? '')
     });
   }
 
@@ -52,6 +53,7 @@ export function CreateFeatureDialog({ token, nonce, projectId, close, onCreated 
     {create.isError && <div className={`${notice.error} mx-[22px] mt-[13px]`} role="alert">{errorMessage(create.error)}</div>}
     <form className="grid gap-3 px-[22px] pt-4 pb-5 max-[480px]:px-4 max-[480px]:pt-[13px] max-[480px]:pb-4" onSubmit={submit}>
       <Label className={field}>Nome<Input className={control} name="name" required maxLength={20000} autoFocus placeholder="Ex.: Colaboração por task" /></Label>
+      <Label className={field}>Responsável<Input className={control} name="responsible" maxLength={320} placeholder="E-mail de quem responde (vazio assume você)" /></Label>
       <Label className={field}>Objetivo<Textarea className={control} name="objective" required maxLength={20000} rows={2} placeholder="Qual resultado esta feature deve entregar?" /></Label>
       <Label className={field}>Contexto<Textarea className={control} name="context" required maxLength={20000} rows={3} placeholder="Registre limites, decisões e contexto útil." /></Label>
       <section className="grid gap-2" aria-labelledby="feature-acceptance-title">

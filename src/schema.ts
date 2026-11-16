@@ -79,7 +79,7 @@ export const repository = z.object({ id, name: text, url: z.string().url(), inst
 const projectDataFields = z.object({ name: text, description: text, instructions: text, repositories: z.array(repository).min(1).max(100), areas: areas.default([...LEGACY_AREAS]), visibility: z.enum(['public', 'private']).default('public'), accessToken: z.string().min(16).max(512).optional() }).strict();
 export const projectData = projectDataFields.refine(data => data.visibility !== 'private' || !!data.accessToken, 'Private project requires an access token');
 export const projectDataPatch = projectDataFields.partial();
-export const featureData = z.object({ name: text, objective: text, context: text, acceptance: z.array(text).min(1).max(100) }).strict();
+export const featureData = z.object({ name: text, objective: text, context: text, acceptance: z.array(text).min(1).max(100), responsible: text.optional() }).strict();
 const plannedDate = z.string().datetime().nullable().optional();
 const taskDataFields = z.object({
   name: text, instructions: text, acceptance: z.array(text).min(1).max(100), priority: z.number().int().min(0).max(5),

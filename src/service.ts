@@ -961,7 +961,8 @@ export class Service {
         if (kind === 'task') await this.graph(a.projectId, entityId, a.data, s);
         if (kind === 'project') requireThat(new Set(a.data.repositories.map((r: any) => r.id)).size === a.data.repositories.length, 'Duplicate repository');
         const { accessToken, ...data } = a.data;
-        const [created] = await models[kind].create([{ _id: entityId, ...data, ...(kind === 'task' ? { acceptanceProgress: data.acceptance.map(() => false) } : {}), ...(kind === 'project' ? { accessTokenHash: accessToken ? hash(accessToken) : undefined, members: { [memberKey(actor.userId)]: 'administrador' } } : { projectId: a.projectId }) }], { session: s });
+        const creator = actor.userId?.trim();
+        const [created] = await models[kind].create([{ _id: entityId, ...data, ...(kind === 'feature' && !data.responsible && creator ? { responsible: creator } : {}), ...(kind === 'task' ? { acceptanceProgress: data.acceptance.map(() => false) } : {}), ...(kind === 'project' ? { accessTokenHash: accessToken ? hash(accessToken) : undefined, members: { [memberKey(actor.userId)]: 'administrador' } } : { projectId: a.projectId }) }], { session: s });
         await this.event(s, actor, name, a.projectId ?? entityId, entityId, created);
         return created;
       }
@@ -1898,7 +1899,7 @@ export class Service {
     const repositoryRecord = await Project.findOne({ _id: a.projectId, 'repositories.id': task.repositoryId }).select({ 'repositories.$': 1 }).lean();
     const repository = repositoryRecord?.repositories?.[0] ?? null;
     const project = projectRecord;
-    const feature = task.featureId ? await Feature.findById(task.featureId).select('_id version name objective context acceptance').lean() : null;
+    const feature = task.featureId ? await Feature.findById(task.featureId).select('_id version name objective context acceptance responsible').lean() : null;
     const dependencies = task.dependencies?.length ? await Task.find({ _id: { $in: task.dependencies }, projectId: a.projectId }).select('_id name status area type executionId').lean() : [];
     const executionIds = dependencies.flatMap(d => d.executionId ? [d.executionId] : []);
     const results = executionIds.length ? await Execution.find({ _id: { $in: executionIds } }).select('_id status result.summary result.evidence').lean() : [];
@@ -1914,7 +1915,7 @@ export class Service {
           .select('_id author content createdAt').sort({ createdAt: -1, _id: -1 }).limit(3).lean()
       ));
       const lines = [`# ${escape(task.name!)}`, '', '## Identificação', '', `- **ID:** \`${task._id}\``, `- **Status:** \`${task.status}\``, `- **Área:** ${task.area}`, `- **Tipo:** ${task.type ?? 'feature'}`, `- **Prioridade:** ${task.priority}`, `- **Responsável:** ${task.responsible ?? 'Não atribuído'}`, `- **Criada em:** ${date(task.createdAt)}`, `- **Atualizada em:** ${date(task.updatedAt)}`, '', '## Projeto', '', `- **Nome:** ${escape(project!.name!)}`, `- **Descrição:** ${project!.description || '_Não informada._'}`, '', '## Feature', ''];
-      if (feature) lines.push(`- **Nome:** ${escape(feature.name!)}`, `- **Objetivo:** ${feature.objective || '_Não informado._'}`, `- **Contexto:** ${feature.context || '_Não informado._'}`); else lines.push('_Tarefa independente, sem feature vinculada._');
+      if (feature) lines.push(`- **Nome:** ${escape(feature.name!)}`, `- **Responsável:** ${feature.responsible ? escape(feature.responsible) : '_Sem responsável._'}`, `- **Objetivo:** ${feature.objective || '_Não informado._'}`, `- **Contexto:** ${feature.context || '_Não informado._'}`); else lines.push('_Tarefa independente, sem feature vinculada._');
       lines.push('', '## Repositório', '');
       if (repository) lines.push(`- **Nome:** ${escape(repository.name ?? 'Não informado')}`, `- **URL:** ${repository.url}`, `- **Instruções:** ${repository.instructions || '_Não informadas._'}`); else lines.push('_Repositório não encontrado no projeto._');
       lines.push('', '## Instruções', '', task.instructions || '_Não informado._', '');

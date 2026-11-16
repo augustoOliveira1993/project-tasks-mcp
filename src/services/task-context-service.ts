@@ -134,7 +134,7 @@ export async function getTaskContext(projectId: string, taskId: string, includeA
   if (!task || !project) return null;
 
   const [feature, repositoryRecord, messages, dependencyTasks, executions, taskDocs, featureDocs, statusEvents] = await Promise.all([
-    task.featureId ? Feature.findOne({ _id: task.featureId, projectId }).select('_id version name objective context acceptance').lean() : Promise.resolve(null),
+    task.featureId ? Feature.findOne({ _id: task.featureId, projectId }).select('_id version name objective context acceptance responsible').lean() : Promise.resolve(null),
     task.repositoryId ? Project.findOne({ _id: projectId, 'repositories.id': task.repositoryId }).select({ 'repositories.$': 1 }).lean() : Promise.resolve(null),
     TaskMessage.find({ projectId, $or: [{ taskId }, { relatedTaskId: taskId }] }).select('_id taskId relatedTaskId author authorType clientName type message references createdAt conversationId replyTo').sort({ createdAt: -1, _id: -1 }).limit(11).lean(),
     task.dependencies?.length ? Task.find({ _id: { $in: task.dependencies }, projectId }).select('_id name status area type executionId').lean() : Promise.resolve([]),
@@ -222,7 +222,8 @@ export async function getTaskContext(projectId: string, taskId: string, includeA
       _id: feature._id!, version: feature.version ?? 0, name: text(feature.name, 240, 'feature.name', truncated),
       objective: text(feature.objective, 1500, 'feature.objective', truncated),
       context: text(feature.context, 1500, 'feature.context', truncated),
-      acceptance: (feature.acceptance ?? []).slice(0, 20).map((item, index) => text(item, 240, `feature.acceptance[${index}]`, truncated))
+      acceptance: (feature.acceptance ?? []).slice(0, 20).map((item, index) => text(item, 240, `feature.acceptance[${index}]`, truncated)),
+      responsible: feature.responsible ? text(feature.responsible, 160, 'feature.responsible', truncated) : null
     } : null,
     repository: repository ? {
       id: repository.id!, name: text(repository.name, 200, 'repository.name', truncated), url: repository.url!,

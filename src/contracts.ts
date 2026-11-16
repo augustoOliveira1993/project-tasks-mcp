@@ -61,7 +61,7 @@ export type TaskContextDto = {
     updatedAt: Date;
   };
   project: ProjectContextDto;
-  feature: { _id: string; version: number; name: string; objective: string; context: string; acceptance: string[] } | null;
+  feature: { _id: string; version: number; name: string; objective: string; context: string; acceptance: string[]; responsible: string | null } | null;
   repository: { id: string; name: string; url: string; instructions: string } | null;
   memories: {
     items: Array<{ memoryId: string; title: string; category: string; scope: 'project' | 'task'; ownerTaskId?: string; revision: number; status: 'active'; rank: number; snippet: string; sources: Array<Record<string, unknown>> }>;
