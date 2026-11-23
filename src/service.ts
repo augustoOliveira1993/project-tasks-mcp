@@ -1535,6 +1535,20 @@ export class Service {
     });
     return result;
   }
+  // Projetos dos dashboards agregados. Com `global`, entram todos os ativos e os sem acesso do ator voltam em `restrictedIds`, para o agregado trazer só números.
+  private async dashboardProjects(actor: Actor, global: boolean) {
+    const accessFilter = actor.scope === 'trusted_local'
+      ? actor.projectToken ? { $or: [{ visibility: { $ne: 'private' } }, { accessTokenHash: hash(actor.projectToken) }] } : { visibility: { $ne: 'private' } }
+      : actor.systemAdmin ? {} : { [`members.${memberKey(actor.userId)}`]: { $exists: true } };
+    const find = (filter: Record<string, unknown>) => Project.find({ ...filter, archived: false }).select('_id name').sort({ name: 1, _id: 1 }).lean();
+    const accessible = await find(accessFilter);
+    const rows = global ? await find({}) : accessible;
+    const accessibleIds = new Set(accessible.map(project => String(project._id)));
+    return {
+      projects: rows.map(project => ({ id: String(project._id), name: project.name ?? '' })),
+      restrictedIds: new Set(rows.map(project => String(project._id)).filter(id => !accessibleIds.has(id)))
+    };
+  }
   private async read(actor: Actor, name: string, a: any) {
     if (a.projectId) await this.access(actor, a.projectId);
     else requireThat((name === 'list_records' && a.kind === 'project') || name === 'resolve_project_context' || name === 'resolve_task_context' || name === 'get_global_activity' || name === 'get_global_dashboard' || name === 'get_portfolio_dashboard', 'Project required', 400);
@@ -1600,38 +1614,17 @@ export class Service {
       if (actor.scope !== 'trusted_local' && actor.scope !== 'system') {
         requireThat(await Credential.exists({ _id: actor.id, revoked: false, scope: actor.scope }), 'Credential revoked', 401);
       }
-      const accessFilter = actor.scope === 'trusted_local'
-        ? actor.projectToken ? { $or: [{ visibility: { $ne: 'private' } }, { accessTokenHash: hash(actor.projectToken) }] } : { visibility: { $ne: 'private' } }
-        : actor.systemAdmin ? {} : { [`members.${memberKey(actor.userId)}`]: { $exists: true } };
-      const projects = await Project.find({ ...accessFilter, archived: false }).select('_id name').sort({ name: 1, _id: 1 }).lean();
+      const { projects, restrictedIds } = await this.dashboardProjects(actor, a.global === true);
       const from = a.from ? new Date(a.from) : undefined;
       const to = a.to ? new Date(a.to) : undefined;
       requireThat(!from || !to || from <= to, 'Dashboard period start must not be after its end', 400);
-      return getPortfolioDashboard(projects.map(project => ({ id: project._id!, name: project.name ?? '' })), from, to, a.granularity);
+      return getPortfolioDashboard(projects, from, to, a.granularity, restrictedIds);
     }
     if (name === 'get_global_dashboard') {
       const from = a.from ? new Date(a.from) : undefined;
       requireThat(!from || from <= new Date(), 'Dashboard period cannot start in the future', 400);
-      const projectAccessFilter = actor.scope === 'trusted_local'
-        ? actor.projectToken ? { $or: [{ visibility: { $ne: 'private' } }, { accessTokenHash: hash(actor.projectToken) }] } : { visibility: { $ne: 'private' } }
-        : actor.systemAdmin ? {} : { [`members.${memberKey(actor.userId)}`]: { $exists: true } };
-      const projects = await Project.find({ ...projectAccessFilter, archived: false })
-        .select('_id name')
-        .sort({ name: 1, _id: 1 })
-        .lean();
-      return getGlobalDashboard(projects.map(project => ({ id: String(project._id), name: project.name ?? '' })), from);
-    }
-    if (name === 'get_global_dashboard') {
-      const from = a.from ? new Date(a.from) : undefined;
-      requireThat(!from || from <= new Date(), 'Dashboard period cannot start in the future', 400);
-      const projectAccessFilter = actor.scope === 'trusted_local'
-        ? actor.projectToken ? { $or: [{ visibility: { $ne: 'private' } }, { accessTokenHash: hash(actor.projectToken) }] } : { visibility: { $ne: 'private' } }
-        : actor.systemAdmin ? {} : { [`members.${memberKey(actor.userId)}`]: { $exists: true } };
-      const projects = await Project.find({ ...projectAccessFilter, archived: false })
-        .select('_id name')
-        .sort({ name: 1, _id: 1 })
-        .lean();
-      return getGlobalDashboard(projects.map(project => ({ id: String(project._id), name: project.name ?? '' })), from);
+      const { projects, restrictedIds } = await this.dashboardProjects(actor, a.global === true);
+      return getGlobalDashboard(projects, from, restrictedIds);
     }
     if (name === 'list_project_memory_proposals') return this.memories.listProposals(actor, a);
     if (name === 'get_project_memory_proposal') return this.memories.getProposal(actor, a);

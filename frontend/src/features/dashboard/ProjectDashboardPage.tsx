@@ -74,6 +74,7 @@ type ProjectDashboard = DashboardSummary & {
 type PortfolioProject = DashboardSummary & {
   projectId: string;
   projectName: string;
+  restricted?: boolean;
   scheduleSummary: { scheduledTaskCount: number; overdueTaskCount: number };
 };
 type PortfolioDashboard = DashboardSummary & {
@@ -230,7 +231,7 @@ export function ProjectDashboardPage({ token, nonce, projectId, onSelectProject 
   const portfolioQuery = useQuery({
     queryKey: ['portfolio-dashboard', nonce, range.from, range.to, granularity],
     enabled: Boolean(token && nonce && validRange),
-    queryFn: () => query<PortfolioDashboard>(token, 'get_portfolio_dashboard', commonArgs)
+    queryFn: () => query<PortfolioDashboard>(token, 'get_portfolio_dashboard', { ...commonArgs, global: true })
   });
   const projectQuery = useQuery({
     queryKey: ['project-dashboard', nonce, projectId, range.from, range.to, granularity],
@@ -260,14 +261,17 @@ export function ProjectDashboardPage({ token, nonce, projectId, onSelectProject 
   const periodTaskFilters = taskFilters(from, to);
   const currentProjectName = portfolio?.projects.find(item => item.projectId === projectId)?.projectName;
 
+  const isRestricted = (id: string) => portfolio?.projects.some(item => item.projectId === id && item.restricted) ?? false;
+
   function chooseProject(id: string) {
     setProjectFilter(id);
     setFeatureFilter('');
     setResponsibleFilter('');
-    if (id) onSelectProject(id);
+    if (id && !isRestricted(id)) onSelectProject(id);
   }
 
   function openProject(id: string) {
+    if (isRestricted(id)) return;
     chooseProject(id);
     setView('project');
   }
@@ -296,7 +300,7 @@ export function ProjectDashboardPage({ token, nonce, projectId, onSelectProject 
           <Button variant={view === 'portfolio' ? 'default' : 'ghost'} size="sm" aria-pressed={view === 'portfolio'} onClick={() => setView('portfolio')}>Portfólio</Button>
           <Button variant={view === 'project' ? 'default' : 'ghost'} size="sm" aria-pressed={view === 'project'} onClick={() => setView('project')}>Projeto</Button>
         </div>
-        {view === 'portfolio' && <label className="grid gap-[5px] text-ui-xs text-muted-strong">Projeto no portfólio<Select value={projectFilter || '__all_projects__'} onValueChange={value => chooseProject(value === '__all_projects__' ? '' : value)}><SelectTrigger className={control} aria-label="Projeto no portfólio"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="__all_projects__">Todos os projetos acessíveis</SelectItem>{(portfolio?.projects ?? []).map(item => <SelectItem value={item.projectId} key={item.projectId}>{item.projectName}</SelectItem>)}</SelectContent></Select></label>}
+        {view === 'portfolio' && <label className="grid gap-[5px] text-ui-xs text-muted-strong">Projeto no portfólio<Select value={projectFilter || '__all_projects__'} onValueChange={value => chooseProject(value === '__all_projects__' ? '' : value)}><SelectTrigger className={control} aria-label="Projeto no portfólio"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="__all_projects__">Todos os projetos</SelectItem>{(portfolio?.projects ?? []).map(item => <SelectItem value={item.projectId} key={item.projectId}>{item.projectName}{item.restricted ? ' · restrito' : ''}</SelectItem>)}</SelectContent></Select></label>}
       </div>
     </div>
 
@@ -314,12 +318,12 @@ export function ProjectDashboardPage({ token, nonce, projectId, onSelectProject 
     <p className="text-ui-xs text-muted-strong">O período considera a data de criação das tarefas; o cronograma lista todas as tarefas com datas planejadas. Feature e responsável refinam agrupamentos e cronograma, enquanto os indicadores resumem o período completo.</p>
     {isPending && <div className="py-2"><SkeletonRows rows={6} label="Carregando indicadores e cronograma…" /></div>}
     {activeError && <ErrorNotice error={activeError} onRetry={retry} retrying={retrying} title={view === 'project' ? 'Não foi possível carregar o dashboard do projeto' : 'Não foi possível carregar o portfólio'} />}
-    {view === 'portfolio' && portfolio && !portfolio.totalProjects && <p className={emptyInline} role="status">Nenhum projeto acessível para esta credencial.</p>}
+    {view === 'portfolio' && portfolio && !portfolio.totalProjects && <p className={emptyInline} role="status">Nenhum projeto ativo cadastrado.</p>}
     {view === 'project' && !projectId && !projectQuery.isPending && <p className={emptyInline} role="status">Selecione um projeto acessível para abrir o detalhe.</p>}
 
     {activeSummary && <>
       <div className="grid grid-cols-[repeat(5,minmax(0,1fr))] gap-3 max-[960px]:grid-cols-[repeat(3,minmax(0,1fr))] max-[600px]:grid-cols-2 max-[480px]:gap-2" aria-label="Indicadores principais">
-        <MetricCard label={view === 'portfolio' ? 'Projetos acessíveis' : 'Projeto'} value={view === 'portfolio' ? (projectFilter ? '1' : portfolio?.totalProjects ?? 0) : currentProjectName ?? 'Selecionado'} detail={view === 'portfolio' ? (projectFilter ? 'no recorte atual' : 'no portfólio') : 'escopo atual'} />
+        <MetricCard label={view === 'portfolio' ? 'Projetos' : 'Projeto'} value={view === 'portfolio' ? (projectFilter ? '1' : portfolio?.totalProjects ?? 0) : currentProjectName ?? 'Selecionado'} detail={view === 'portfolio' ? (projectFilter ? 'no recorte atual' : 'no portfólio') : 'escopo atual'} />
         <MetricCard label="Tarefas" value={activeSummary.totalTasks} detail="criadas no período" />
         <MetricCard label="Concluídas" value={`${completionRate}%`} detail={`${completedCount} tarefa(s) concluída(s)`} />
         <MetricCard label="Com cronograma" value={scheduledCount} detail={`${overdueCount} atrasada(s) no recorte`} />
@@ -336,13 +340,17 @@ export function ProjectDashboardPage({ token, nonce, projectId, onSelectProject 
           {projectRows.length ? <div className="grid grid-cols-[repeat(3,minmax(0,1fr))] gap-3 max-[900px]:grid-cols-2 max-[560px]:grid-cols-1">{projectRows.map(item => {
             const done = item.byStatus.find(status => status.status === 'concluida')?.count ?? 0;
             const rate = item.totalTasks ? Math.round(done / item.totalTasks * 100) : 0;
-            return <Button variant="outline" type="button" key={item.projectId} onClick={() => openProject(item.projectId)} className="h-auto grid min-w-0 content-start justify-items-start gap-1.5 font-normal rounded-ui-md border-line bg-surface p-3 text-left whitespace-normal transition hover:border-focus hover:bg-surface hover:shadow-[0_2px_8px_#1720331a]">
-              <strong className="truncate text-ui-sm text-ink">{item.projectName}</strong><span className="text-ui-xs text-muted-strong">{item.totalTasks} tarefa(s) · {rate}% concluídas</span><span className="grid grid-cols-[1fr_auto] gap-2 text-ui-xs text-ink-2"><span>{item.scheduleSummary.scheduledTaskCount} no cronograma</span><span className={item.scheduleSummary.overdueTaskCount ? 'font-semibold text-tone-red' : 'text-muted-strong'}>{item.scheduleSummary.overdueTaskCount} atrasada(s)</span></span><span className="h-1.5 overflow-hidden rounded-full bg-canvas"><span className="block h-full rounded-full bg-tone-green" style={{ width: `${rate}%` }} /></span>
-            </Button>;
+            const layout = 'grid min-w-0 content-start justify-items-start gap-1.5 rounded-ui-md border-line bg-surface p-3 text-left';
+            const body = <>
+              <strong className="truncate text-ui-sm text-ink">{item.projectName}</strong>{item.restricted && <span className="text-[10px] font-semibold text-muted-strong">Restrito · sem acesso ao detalhe</span>}<span className="text-ui-xs text-muted-strong">{item.totalTasks} tarefa(s) · {rate}% concluídas</span><span className="grid grid-cols-[1fr_auto] gap-2 text-ui-xs text-ink-2"><span>{item.scheduleSummary.scheduledTaskCount} no cronograma</span><span className={item.scheduleSummary.overdueTaskCount ? 'font-semibold text-tone-red' : 'text-muted-strong'}>{item.scheduleSummary.overdueTaskCount} atrasada(s)</span></span><span className="h-1.5 overflow-hidden rounded-full bg-canvas"><span className="block h-full rounded-full bg-tone-green" style={{ width: `${rate}%` }} /></span>
+            </>;
+            return item.restricted
+              ? <div key={item.projectId} className={`${layout} border`}>{body}</div>
+              : <Button variant="outline" type="button" key={item.projectId} onClick={() => openProject(item.projectId)} className={`${layout} h-auto font-normal whitespace-normal transition hover:border-focus hover:bg-surface hover:shadow-[0_2px_8px_#1720331a]`}>{body}</Button>;
           })}</div> : <p className={emptyInline}>Nenhum projeto para o filtro atual.</p>}
         </section>
         <div className="grid grid-cols-[repeat(2,minmax(0,1fr))] gap-[14px] max-[720px]:grid-cols-[1fr]">
-          <section className={panel} aria-labelledby="portfolio-feature-title"><div className={panelHeading}><div><h2 className={panelTitle} id="portfolio-feature-title">Tarefas por feature</h2><p className={panelSubtitle}>Inclui tarefas sem feature, com o projeto identificado.</p></div></div><DistributionChart title="Quantidade de tarefas por feature" items={featureItems.map(item => ({ ...item }))} onOpenProject={openProject} /></section>
+          <section className={panel} aria-labelledby="portfolio-feature-title"><div className={panelHeading}><div><h2 className={panelTitle} id="portfolio-feature-title">Tarefas por feature</h2><p className={panelSubtitle}>Inclui tarefas sem feature, com o projeto identificado.</p></div></div><DistributionChart title="Quantidade de tarefas por feature" items={featureItems.map(item => ({ ...item, ...(isRestricted(item.projectId) ? { projectId: undefined } : {}) }))} onOpenProject={openProject} /></section>
           <section className={panel} aria-labelledby="portfolio-owner-title"><div className={panelHeading}><div><h2 className={panelTitle} id="portfolio-owner-title">Tarefas por responsável</h2><p className={panelSubtitle}>Inclui tarefas sem responsável.</p></div></div><DistributionChart title="Quantidade de tarefas por responsável" items={responsibleItems.map(item => ({ ...item, label: displayResponsible(item.key) }))} /></section>
         </div>
       </>}

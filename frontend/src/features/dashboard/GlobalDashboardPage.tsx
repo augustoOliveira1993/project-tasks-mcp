@@ -30,6 +30,7 @@ type ProjectMetric = {
   completedCount: number;
   completionRate: number | null;
   development: DevelopmentMetric;
+  restricted?: boolean;
 };
 type ProjectContribution = {
   projectId: string;
@@ -98,7 +99,7 @@ export function GlobalDashboardPage({ token, nonce, onOpenProject }: { token: st
     enabled: Boolean(token && nonce),
     refetchOnMount: 'always',
     refetchOnWindowFocus: true,
-    queryFn: () => query<GlobalDashboard>(token, 'get_global_dashboard', from ? { from } : {})
+    queryFn: () => query<GlobalDashboard>(token, 'get_global_dashboard', { global: true, ...(from ? { from } : {}) })
   });
   const data = dashboardQuery.data;
   const activeStatuses = (data?.byStatus ?? []).filter(item => item.count > 0);
@@ -106,7 +107,7 @@ export function GlobalDashboardPage({ token, nonce, onOpenProject }: { token: st
 
   return <section className="grid gap-4" aria-labelledby="global-dashboard-title">
     <div className="mb-[5px] flex justify-between gap-5 [align-items:end] max-[720px]:flex-col max-[720px]:[align-items:start]">
-      <div><p className={eyebrow}>DESEMPENHO DO WORKSPACE</p><h1 id="global-dashboard-title" className="mb-1.5 font-display text-[length:clamp(21px,2vw,27px)] leading-[normal] font-extrabold tracking-[-.045em]">Visão geral dos projetos</h1><p className="text-ui-sm text-muted-strong">Projetos acessíveis e tarefas criadas no período selecionado.</p></div>
+      <div><p className={eyebrow}>DESEMPENHO DO WORKSPACE</p><h1 id="global-dashboard-title" className="mb-1.5 font-display text-[length:clamp(21px,2vw,27px)] leading-[normal] font-extrabold tracking-[-.045em]">Visão geral dos projetos</h1><p className="text-ui-sm text-muted-strong">Todos os projetos ativos e as tarefas criadas no período selecionado.</p></div>
       <div className="flex gap-[9px] [align-items:end] max-[720px]:w-full">
         <label className="grid gap-[5px] text-ui-xs text-muted-strong max-[720px]:flex-1">Período
           <Select value={period} onValueChange={value => setPeriod(value as DashboardPeriod)}><SelectTrigger className="min-h-9 min-w-[158px] bg-surface text-ink max-[720px]:w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="30d">Últimos 30 dias</SelectItem><SelectItem value="90d">Últimos 90 dias</SelectItem><SelectItem value="year">Este ano</SelectItem><SelectItem value="all">Todo o período</SelectItem></SelectContent></Select>
@@ -119,14 +120,14 @@ export function GlobalDashboardPage({ token, nonce, onOpenProject }: { token: st
     {dashboardQuery.isError && <ErrorNotice error={dashboardQuery.error} onRetry={() => void dashboardQuery.refetch()} retrying={dashboardQuery.isFetching} title="Não foi possível carregar os indicadores" />}
     {data && <>
       <div className="grid grid-cols-[repeat(5,minmax(0,1fr))] gap-3 max-[960px]:grid-cols-[repeat(2,minmax(0,1fr))] max-[480px]:gap-2" aria-label="Indicadores gerais">
-        <div className={card}><span className="text-ui-sm text-muted-strong">Projetos acessíveis</span><strong className="text-[length:clamp(20px,2vw,25px)] font-bold text-ink">{data.projectCount}</strong><small className="text-ui-xs text-muted-strong">incluídos nesta visão</small></div>
+        <div className={card}><span className="text-ui-sm text-muted-strong">Projetos</span><strong className="text-[length:clamp(20px,2vw,25px)] font-bold text-ink">{data.projectCount}</strong><small className="text-ui-xs text-muted-strong">incluídos nesta visão</small></div>
         <div className={card}><span className="text-ui-sm text-muted-strong">Tarefas</span><strong className="text-[length:clamp(20px,2vw,25px)] font-bold text-ink">{data.totalTasks}</strong><small className="text-ui-xs text-muted-strong">criadas no período</small></div>
         <div className={card}><span className="text-ui-sm text-muted-strong">Concluídas</span><strong className="text-[length:clamp(20px,2vw,25px)] font-bold text-ink">{data.completedCount}</strong><small className="text-ui-xs text-muted-strong">status atual</small></div>
         <div className={card}><span className="text-ui-sm text-muted-strong">Taxa de conclusão</span><strong className="text-[length:clamp(20px,2vw,25px)] font-bold text-ink">{formatPercent(data.completionRate)}</strong><small className="text-ui-xs text-muted-strong">concluídas ÷ não canceladas</small></div>
         <div className={card}><span className="text-ui-sm text-muted-strong">Tempo médio em execução</span><strong className="text-[length:clamp(20px,2vw,25px)] font-bold text-ink">{formatDuration(data.development.averageTimeMs)}</strong><small className="text-ui-xs text-muted-strong">{data.development.sampleCount} com tempo · {data.development.withoutSampleCount} sem amostra</small></div>
       </div>
       <p className="-mt-2 text-ui-xs text-muted-strong">A taxa exclui tarefas canceladas do cálculo. O período filtra tarefas pela data de criação; tempos usam os intervalos em “Em execução”.</p>
-      {data.projectCount === 0 && <p className="rounded-ui-sm border border-dashed border-line-strong px-[14px] py-3 text-ui-sm text-muted-strong" role="status">Nenhum projeto acessível para esta credencial.</p>}
+      {data.projectCount === 0 && <p className="rounded-ui-sm border border-dashed border-line-strong px-[14px] py-3 text-ui-sm text-muted-strong" role="status">Nenhum projeto ativo cadastrado.</p>}
       {data.projectCount > 0 && data.totalTasks === 0 && <p className="rounded-ui-sm border border-dashed border-line-strong px-[14px] py-3 text-ui-sm text-muted-strong" role="status">Nenhuma tarefa criada neste período. Os projetos continuam listados para consulta.</p>}
 
       <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)] gap-[14px] max-[850px]:grid-cols-1">
@@ -139,13 +140,15 @@ export function GlobalDashboardPage({ token, nonce, onOpenProject }: { token: st
           <h2 id="global-projects-title" className={panelTitle}>Comparação por projeto</h2><p className={subtitle}>Selecione um projeto para abrir seu dashboard detalhado.</p>
           {data.projects.length ? <div className="mt-3"><Table className="min-w-[690px] border-collapse text-left text-ui-xs"><TableHeader><TableRow><TableHead className={th} scope="col">Projeto</TableHead><TableHead className={th} scope="col">Tarefas</TableHead><TableHead className={th} scope="col">Status</TableHead><TableHead className={th} scope="col">Conclusão</TableHead><TableHead className={th} scope="col">Tempo médio em execução</TableHead></TableRow></TableHeader>
             <TableBody>{data.projects.map(project => <TableRow key={project.id} className="[&:last-child>td]:border-b-0">
-              <TableCell className={`${cell} min-w-[135px]`}><Button variant="link" size="sm" className="h-auto justify-start p-0 text-left font-semibold text-tone-blue underline decoration-[#b9c1f5] underline-offset-2 hover:text-[#2a39ad]" onClick={() => onOpenProject(project.id)}>{project.name}</Button><small className="mt-1 block text-muted-strong">Abrir dashboard →</small></TableCell>
+              <TableCell className={`${cell} min-w-[135px]`}>{project.restricted
+                ? <><strong className="font-semibold text-ink">{project.name}</strong><small className="mt-1 block text-muted-strong">Restrito · sem acesso ao detalhe</small></>
+                : <><Button variant="link" size="sm" className="h-auto justify-start p-0 text-left font-semibold text-tone-blue underline decoration-[#b9c1f5] underline-offset-2 hover:text-[#2a39ad]" onClick={() => onOpenProject(project.id)}>{project.name}</Button><small className="mt-1 block text-muted-strong">Abrir dashboard →</small></>}</TableCell>
               <TableCell className={cell}><strong>{project.totalTasks}</strong><small className="mt-1 block text-muted-strong">{project.completedCount} concluídas</small></TableCell>
-              <TableCell className={cell}><StatusBadges items={project.byStatus} projectId={project.id} from={from} /></TableCell>
+              <TableCell className={cell}><StatusBadges items={project.byStatus} projectId={project.restricted ? undefined : project.id} from={from} /></TableCell>
               <TableCell className={cell}><strong>{formatPercent(project.completionRate)}</strong><small className="mt-1 block text-muted-strong">não canceladas</small></TableCell>
               <TableCell className={cell}><strong>{formatDuration(project.development.averageTimeMs)}</strong><small className="mt-1 block text-muted-strong">{project.development.sampleCount} com tempo · {project.development.withoutSampleCount} sem amostra</small></TableCell>
             </TableRow>)}</TableBody>
-          </Table></div> : <p className="mt-4 rounded-ui-sm border border-dashed border-line-strong px-3 py-3 text-ui-xs text-muted-strong">Nenhum projeto acessível.</p>}
+          </Table></div> : <p className="mt-4 rounded-ui-sm border border-dashed border-line-strong px-3 py-3 text-ui-xs text-muted-strong">Nenhum projeto ativo.</p>}
         </section>
       </div>
 
