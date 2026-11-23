@@ -254,7 +254,8 @@ export async function getProjectDashboard(projectId: string, from?: Date) {
   };
 }
 
-export async function getGlobalDashboard(projects: DashboardProject[], from?: Date) {
+// Projetos restritos entram só nos números: ficam fora de recentTasks e do detalhe por projeto de cada responsável.
+export async function getGlobalDashboard(projects: DashboardProject[], from?: Date, restrictedIds: ReadonlySet<string> = new Set()) {
   const { now, projectNames, buckets, overall } = await buildDashboards(projects, from);
   const summary = dashboardSummary(overall, projectNames);
   const projectMetrics = projects.map(project => {
@@ -266,7 +267,8 @@ export async function getGlobalDashboard(projects: DashboardProject[], from?: Da
       byStatus: result.byStatus,
       completedCount: result.completedCount,
       completionRate: result.completionRate,
-      development: result.development
+      development: result.development,
+      ...(restrictedIds.has(project.id) ? { restricted: true } : {})
     };
   }).sort((left, right) => right.totalTasks - left.totalTasks || left.name.localeCompare(right.name, 'pt-BR'));
   return {
@@ -274,6 +276,8 @@ export async function getGlobalDashboard(projects: DashboardProject[], from?: Da
     period: { from: from?.toISOString() ?? null, to: now.toISOString(), basis: 'createdAt' as const },
     projectCount: projects.length,
     ...summary,
+    byResponsible: summary.byResponsible.map(item => ({ ...item, byProject: (item.byProject ?? []).filter(project => !restrictedIds.has(project.projectId)) })),
+    recentTasks: overall.tasks.filter(task => !restrictedIds.has(task.projectId)).slice(0, 8),
     projects: projectMetrics
   };
 }

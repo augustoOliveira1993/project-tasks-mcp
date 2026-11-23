@@ -39,7 +39,8 @@ function periodKey(value: Date, granularity: Granularity) {
   return `${thursday.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
 }
 
-function buildSummary(metrics: TaskMetric[], featureNames: Map<string, string>, projectNames: Map<string, string>, granularity: Granularity, now: Date, from?: Date, to?: Date, prefixProject = false) {
+// Tarefas de projetos restritos entram só nos números: features viram um único "Detalhe restrito" e nenhuma sai em recentTasks.
+function buildSummary(metrics: TaskMetric[], featureNames: Map<string, string>, projectNames: Map<string, string>, granularity: Granularity, now: Date, from?: Date, to?: Date, prefixProject = false, restrictedIds: ReadonlySet<string> = new Set()) {
   const statusCounts = new Map<string, number>();
   const responsibleCounts = new Map<string, number>();
   const areaCounts = new Map<string, number>();
@@ -50,9 +51,10 @@ function buildSummary(metrics: TaskMetric[], featureNames: Map<string, string>, 
   for (const task of metrics) {
     const responsible = typeof task.responsible === 'string' && task.responsible.trim() ? task.responsible.trim() : '';
     const area = typeof task.area === 'string' && task.area.trim() ? task.area.trim() : '';
-    const featureId = task.featureId ?? '';
-    const featureKey = `${task.projectId}:${featureId || 'none'}`;
-    const featureName = featureId ? featureNames.get(featureKey) ?? 'Feature sem nome' : 'Sem feature';
+    const restricted = restrictedIds.has(task.projectId);
+    const featureId = restricted ? '' : task.featureId ?? '';
+    const featureKey = `${task.projectId}:${restricted ? 'restricted' : featureId || 'none'}`;
+    const featureName = restricted ? 'Detalhe restrito' : featureId ? featureNames.get(featureKey) ?? 'Feature sem nome' : 'Sem feature';
     const projectName = projectNames.get(task.projectId) ?? task.projectId;
     const featureMetric = featureCounts.get(featureKey) ?? {
       projectId: task.projectId,
@@ -110,7 +112,7 @@ function buildSummary(metrics: TaskMetric[], featureNames: Map<string, string>, 
     },
     trendByPeriod,
     trendByMonth,
-    recentTasks: metrics.slice(0, 8).map(task => ({
+    recentTasks: metrics.filter(task => !restrictedIds.has(task.projectId)).slice(0, 8).map(task => ({
       id: task._id,
       name: task.name,
       projectId: task.projectId,
@@ -128,7 +130,7 @@ function buildSummary(metrics: TaskMetric[], featureNames: Map<string, string>, 
   };
 }
 
-async function readDashboards(projects: ProjectRef[], from?: Date, to?: Date, granularity: Granularity = 'month') {
+async function readDashboards(projects: ProjectRef[], from?: Date, to?: Date, granularity: Granularity = 'month', restrictedIds: ReadonlySet<string> = new Set()) {
   const now = new Date();
   const projectIds = projects.map(project => project.id);
   if (!projectIds.length) {
@@ -179,20 +181,21 @@ async function readDashboards(projects: ProjectRef[], from?: Date, to?: Date, gr
   const selectedMetrics = metricTasks.map(task => metricsById.get(task._id)!).filter(Boolean);
   const scheduledMetrics = scheduleTasks.map(task => metricsById.get(task._id)!).filter(Boolean)
     .sort((left, right) => (left.plannedStartAt?.getTime() ?? left.plannedDueAt?.getTime() ?? 0) - (right.plannedStartAt?.getTime() ?? right.plannedDueAt?.getTime() ?? 0));
-  const summary = buildSummary(selectedMetrics, featureNames, projectNames, granularity, now, from, to);
+  const summary = buildSummary(selectedMetrics, featureNames, projectNames, granularity, now, from, to, false, restrictedIds);
   const byProject = projects.map(project => {
     const metrics = selectedMetrics.filter(task => task.projectId === project.id);
     const scheduled = scheduledMetrics.filter(task => task.projectId === project.id);
-    const projectSummary = buildSummary(metrics, featureNames, projectNames, granularity, now, from, to);
+    const projectSummary = buildSummary(metrics, featureNames, projectNames, granularity, now, from, to, false, restrictedIds);
     const overdue = scheduled.filter(task => task.plannedDueAt && task.plannedDueAt < now && !['concluida', 'cancelada'].includes(task.status)).length;
     return {
       projectId: project.id,
       projectName: project.name,
       ...projectSummary,
+      ...(restrictedIds.has(project.id) ? { byResponsible: [], restricted: true } : {}),
       scheduleSummary: { scheduledTaskCount: scheduled.length, overdueTaskCount: overdue }
     };
   });
-  return { projectIds, taskMetrics: scheduledMetrics, summary, byProject, projectNames, featureNames };
+  return { projectIds, taskMetrics: scheduledMetrics.filter(task => !restrictedIds.has(task.projectId)), summary, byProject, projectNames, featureNames };
 }
 
 function scheduleRows(tasks: TaskMetric[], projectNames: Map<string, string>, featureNames: Map<string, string>) {
@@ -220,8 +223,8 @@ export async function getProjectDashboard(projectId: string, from?: Date, to?: D
   };
 }
 
-export async function getPortfolioDashboard(projects: ProjectRef[], from?: Date, to?: Date, granularity: Granularity = 'month') {
-  const result = await readDashboards(projects, from, to, granularity);
+export async function getPortfolioDashboard(projects: ProjectRef[], from?: Date, to?: Date, granularity: Granularity = 'month', restrictedIds: ReadonlySet<string> = new Set()) {
+  const result = await readDashboards(projects, from, to, granularity, restrictedIds);
   return {
     ...result.summary,
     totalProjects: projects.length,
